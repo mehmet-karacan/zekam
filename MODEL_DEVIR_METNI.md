@@ -10,6 +10,12 @@ referanslarini SQLite authority'den okur. Payload, owner token ve grant alanlari
 disarida tutulur; cikti read-only/grants_authority=false olarak kalir. Regresyon
 kaynagi eklendi, testler CALISTIRILMADI. Ayrinti docs/WORK_RESUME_CANONICAL_READBACK.md.
 
+WP-07 checkpoint kabul siniri eklendi: operational SQLite checkpoint payload'i
+canonical JSON olarak en fazla 16 KiB ve bounded derinlik/alan sayisinda tutulur;
+secret, credential, token, prompt, response, transcript, raw content ve private key
+alan/degerleri reddedilir. `grants_authority` true kabul edilmez. Unit regresyon
+kaynagi eklendi, testler CALISTIRILMADI. Ayrinti docs/WORK_CHECKPOINT_PAYLOAD.md.
+
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

@@ -1285,6 +1285,13 @@ sinirlidir; payload, owner token ve grant alanlari cikmaz. CLI regresyon kaynagi
 hazirlandi, testler CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul
 matrisi halen aciktir. Ayrinti `docs/WORK_RESUME_CANONICAL_READBACK.md`.
 
+**16 Ekim 2026 WP-07 checkpoint payload guvenlik siniri:** Operational SQLite
+checkpoint payload'i canonical JSON olarak 16 KiB, derinlik ve alan sayisi
+sinirlarina uyar. Secret/credential/token/prompt/response/transcript/raw-content/
+private-key alan veya degerleri ile `grants_authority=true` reddedilir. Unit
+regresyon kaynagi hazirlandi, testler CALISTIRILMADI. Ayrinti
+`docs/WORK_CHECKPOINT_PAYLOAD.md`.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

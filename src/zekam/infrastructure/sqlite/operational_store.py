@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -82,6 +84,18 @@ _MODEL_MODALITIES: Final = frozenset(
     {"chat", "code", "embedding", "reranker", "audio", "vision", "guardrail"}
 )
 _MODEL_HEALTH: Final = frozenset({"passed", "failed", "timeout", "unavailable"})
+_CHECKPOINT_MAX_BYTES: Final = 16 * 1024
+_CHECKPOINT_MAX_DEPTH: Final = 16
+_CHECKPOINT_MAX_ENTRIES: Final = 512
+_CHECKPOINT_FORBIDDEN_KEY = re.compile(
+    r"(?:^|[_.-])(?:api[-_]?key|secret|credential|password|private[-_]?key|owner[-_]?token|"
+    r"prompt|response|transcript|raw[-_]?content)(?:$|[_.-])",
+    re.IGNORECASE,
+)
+_CHECKPOINT_SENSITIVE_VALUE = re.compile(
+    r"(?i)(?:api[_-]?key|token|secret|password|credential)\s*[:=]\s*\S+"
+)
+_CHECKPOINT_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _KNOWLEDGE_NOTE_KINDS: Final = frozenset(
     {
         "report",
@@ -124,6 +138,59 @@ def _validate_digest(value: object, label: str) -> str:
         raise ValidationFailed(f"{label} digest metin olmali")
     parse_digest(value)
     return value
+
+
+def _validate_checkpoint_payload(payload: object) -> dict[str, Any]:
+    """Keep durable checkpoint descriptions bounded and secret-free."""
+
+    if not isinstance(payload, dict):
+        raise ValidationFailed("Checkpoint payload nesne olmali")
+    entries = 0
+
+    def visit(value: object, depth: int) -> None:
+        nonlocal entries
+        if depth > _CHECKPOINT_MAX_DEPTH:
+            raise ValidationFailed("Checkpoint payload derinligi bounded olmali")
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                entries += 1
+                if entries > _CHECKPOINT_MAX_ENTRIES:
+                    raise ValidationFailed("Checkpoint payload alan sayisi bounded olmali")
+                if not isinstance(key, str) or not key.strip():
+                    raise ValidationFailed("Checkpoint payload anahtarlari metin olmali")
+                if _CHECKPOINT_FORBIDDEN_KEY.search(key):
+                    raise PolicyViolation("Checkpoint secret/transcript alani tasiyamaz")
+                if key.casefold() == "grants_authority" and nested is not False:
+                    raise PolicyViolation("Checkpoint yetki veremez")
+                visit(nested, depth + 1)
+            return
+        if isinstance(value, list):
+            for nested in value:
+                entries += 1
+                if entries > _CHECKPOINT_MAX_ENTRIES:
+                    raise ValidationFailed("Checkpoint payload eleman sayisi bounded olmali")
+                visit(nested, depth + 1)
+            return
+        if isinstance(value, str):
+            if len(value) > 4096:
+                raise ValidationFailed("Checkpoint metin alani bounded olmali")
+            if _CHECKPOINT_SENSITIVE_VALUE.search(value) or _CHECKPOINT_PRIVATE_KEY.search(value):
+                raise PolicyViolation("Checkpoint secret deger tasiyamaz")
+            return
+        if value is None or type(value) is bool or type(value) is int:
+            return
+        if type(value) is float and math.isfinite(value):
+            return
+        raise ValidationFailed("Checkpoint payload JSON tipleriyle sinirli olmali")
+
+    visit(payload, 0)
+    try:
+        encoded = canonical_json(payload).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValidationFailed("Checkpoint payload canonical JSON olmali") from exc
+    if len(encoded) > _CHECKPOINT_MAX_BYTES:
+        raise ValidationFailed("Checkpoint payload 16 KiB sinirini asmamali")
+    return payload
 
 
 def _canonical_uuid(value: object, label: str) -> str:
@@ -1128,6 +1195,7 @@ class SQLiteOperationalUnitOfWork:
     ) -> CheckpointRecord:
         sequence = _exact_positive_int(sequence, "Checkpoint sequence")
         _validate_digest(checkpoint_digest, "Checkpoint")
+        payload = _validate_checkpoint_payload(payload)
         if digest(payload) != checkpoint_digest:
             raise ValidationFailed("Checkpoint digest payload ile eslesmiyor")
         connection = self._db()

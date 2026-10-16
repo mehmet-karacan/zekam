@@ -436,6 +436,44 @@ def test_checkpoint_payload_digest_drift_is_rejected(tmp_path: Path) -> None:
             )
 
 
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        ({"secret": "value"}, PolicyViolation),
+        ({"api_key": "value"}, PolicyViolation),
+        ({"step": {"transcript": "raw conversation"}}, PolicyViolation),
+        ({"grants_authority": True}, PolicyViolation),
+        ({"step": "x" * 4097}, ValidationFailed),
+    ],
+)
+def test_checkpoint_payload_is_secret_free_and_bounded(
+    tmp_path: Path, payload: dict[str, object], error: type[Exception]
+) -> None:
+    _, store = _store(tmp_path)
+    with store.unit_of_work() as uow:
+        config, project, _, _ = _authority(uow)
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Safe checkpoint",
+            state="ready",
+            payload_digest=digest("safe-checkpoint"),
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=digest("safe-plan"),
+            budget={},
+        )
+        with pytest.raises(error):
+            uow.record_checkpoint(
+                run_id=run.id,
+                sequence=1,
+                checkpoint_digest=digest(payload),
+                payload=payload,
+            )
+
+
 def test_work_reference_resolution_is_exact_project_scoped_and_ambiguity_safe(tmp_path: Path) -> None:
     _, store = _store(tmp_path)
     with store.unit_of_work() as uow:
