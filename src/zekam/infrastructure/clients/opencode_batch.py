@@ -416,8 +416,11 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             private_home = temporary / "home"
             config_dir.mkdir()
             private_home.mkdir()
-            if self.native_skill is not None:
-                restrict_private_tree(temporary)
+            # The isolated config, private home and native skill projection are
+            # all execution material.  Protect the temporary tree for every
+            # batch, not only the optional skill path; standard structured runs
+            # also carry prompt/config metadata until the child exits.
+            restrict_private_tree(temporary)
             skill_directory = None
             if self.native_skill is not None:
                 skill_directory = config_dir / "skills" / self.native_skill.name
