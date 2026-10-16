@@ -26,6 +26,8 @@ Dogal dil `zekam ask` exact issue anahtari ve degisiklik/gecmis ifadesini birlik
 tasidiginda bu ayni local history okuyucusuna yonlenir. Proje explicit verilirse
 scope exact projeye sabitlenir; birden fazla olasi proje varsa clarification
 verilir. Bu yol provider veya index cagrisi yapmaz ve `read_only=true` tasir.
+JSON cikti route ve resolved scope digestlerini de tasir; history kaniti hangi
+deterministic proje kararindan uretildigiyle birlikte yeniden denetlenebilir.
 
 Root addition, real binary Git diff, file/hunk truncation propagation, secret
 redaction, long subject ve root SHA-256 command projection regresyon kaynaklari

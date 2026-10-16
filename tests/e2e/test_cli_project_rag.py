@@ -178,6 +178,8 @@ def test_ask_issue_history_uses_bounded_local_git_route(
     assert document["route"] == "project-history"
     assert document["project_ref"] == "gpu-fusion"
     assert document["jira_issue_key"] == "GPU-42"
+    assert document["route_digest"].startswith("sha256:")
+    assert document["scope_digest"].startswith("sha256:")
     assert document["provider_calls"] == 0
     assert document["read_only"] is True
 

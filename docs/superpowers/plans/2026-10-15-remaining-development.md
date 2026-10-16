@@ -211,6 +211,7 @@
 - Gorev 2 WP-07 exact read: tekil dogal dil Work okumasina exact-work bound job/source snapshot readback eklendi; unit/E2E regresyon kaynaklari hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul matrisi acik.
 - Gorev 2 WP-07 direct show: `work show --json` exact-work bound job/source snapshot readback ve salt-okunur authority alanlarini tasir; E2E regresyon kaynagi hazir, CALISTIRILMADI. Work kabul matrisi acik.
 - Gorev 4 WP-06.05 natural history: exact Jira anahtari ve degisiklik/gecmis sorusu `ask` icinde bounded local Git history/diff okuyucusuna baglandi; explicit/coklu proje scope kapisi korundu. E2E regresyon kaynagi hazir, CALISTIRILMADI. Native/live kabul acik.
+- Gorev 4 WP-06.05 history provenance: ask history ciktisi route ve resolved scope digestlerini tasir; kapsam karari history evidence ile birlikte yeniden denetlenebilir. E2E regresyon kaynagi hazir, CALISTIRILMADI.
 - Eski test sonuclari yeni degisiklikler icin kanit sayilmaz. Hicbir WP bu planla kapatilmaz.
 - Gorev 1 gelistirmesi 747c6ea: lease/process marker ayrimi ve native root-drift reddi. Regresyonlar hazir; CALISTIRILMADI.
 - Gorev 3 native admission parcasi: start/checkpoint/close LOCAL_EFFECT ve work-item hint baglantisi eklendi. Regresyonlar hazir; CALISTIRILMADI. Shell/publication ve diger istemci baglari acik.

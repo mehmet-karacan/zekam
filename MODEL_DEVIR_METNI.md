@@ -37,6 +37,8 @@ WP-06.05 dogal dil bagi eklendi: exact Jira anahtari ile degisiklik/gecmis sorus
 `zekam ask` icinde provider/RAG yerine bounded local Git history/diff okuyucusuna
 yonlenir. Proje kapsami belirsizse clarification uretilir; E2E regresyon kaynagi
 eklendi, testler CALISTIRILMADI.
+History readback route ve scope digestleriyle deterministic kapsam kararina
+baglandi.
 
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 

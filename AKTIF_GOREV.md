@@ -1321,6 +1321,8 @@ degisiklik/gecmis ifadesi birlikte geldiginde `zekam ask`, bounded local Git
 history/diff okuyucusuna yonlenir. Explicit proje exact scope'u korur; coklu
 proje belirsizliginde clarification verilir; provider/index cagrisi yapilmaz.
 E2E regresyon kaynagi hazirlandi, testler CALISTIRILMADI; native/live kabul aciktir.
+Route ve resolved scope digestleri history JSON ciktiya eklendi; kapsam kaniti
+read-only olarak yeniden denetlenebilir.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
