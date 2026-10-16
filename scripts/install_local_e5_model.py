@@ -92,10 +92,25 @@ def _is_reparse(path: Path) -> bool:
     )
 
 
+def _has_reparse_ancestor(path: Path) -> bool:
+    """Reject a model root whose existing parent chain crosses a reparse point."""
+
+    cursor = path
+    while True:
+        if _is_reparse(cursor):
+            return True
+        parent = cursor.parent
+        if parent == cursor:
+            return False
+        cursor = parent
+
+
 def _assert_safe_root(root: Path, *, create: bool) -> Path:
     if not root.is_absolute() or "\x00" in str(root):
         raise ValueError("model root absolute olmali")
-    if root.exists() and (_is_reparse(root) or not root.is_dir()):
+    if _has_reparse_ancestor(root):
+        raise ValueError("model root parent symlink/reparse olamaz")
+    if root.exists() and not root.is_dir():
         raise ValueError("model root regular dizin olmali")
     if create:
         root.mkdir(parents=True, exist_ok=True)

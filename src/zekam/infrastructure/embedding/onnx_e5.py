@@ -181,6 +181,23 @@ def _private_install_file(root: Path, relative: str) -> bool:
     return _private_regular(path)
 
 
+def _private_install_root(root: Path) -> bool:
+    """Require the existing model root and all ancestors to stay reparse-free."""
+
+    cursor = root
+    while True:
+        try:
+            metadata = cursor.lstat()
+        except OSError:
+            return False
+        if _is_link_or_reparse(metadata):
+            return False
+        parent = cursor.parent
+        if parent == cursor:
+            return True
+        cursor = parent
+
+
 def _is_link_or_reparse(metadata: os.stat_result) -> bool:
     return stat.S_ISLNK(metadata.st_mode) or bool(
         int(getattr(metadata, "st_file_attributes", 0)) & 0x400
@@ -228,7 +245,7 @@ def _assert_model_files(configuration: LocalE5Configuration) -> tuple[dict[str, 
         root.lstat()
     except (OSError, ValueError) as exc:
         raise ConfigurationError("Local E5 model root bulunamadi") from exc
-    if not root.is_dir() or _is_link_or_reparse(root.lstat()):
+    if not root.is_dir() or not _private_install_root(root):
         raise ConfigurationError("Local E5 model root regular dizin olmali")
     manifest = _read_manifest(configuration.manifest_path, configuration)
     for relative in _REQUIRED_INSTALL_FILES:
