@@ -50,6 +50,11 @@ class CanonicalAgentDispatchService:
             raise PolicyViolation("Invocation baska assignment'a bagli")
         if invocation.client_id != adapter.descriptor.client_id:
             raise PolicyViolation("Invocation baska istemciye bagli")
+        # Child assignment effects require an explicit host capability.  A
+        # client that can return structured JSON is not thereby a child
+        # runtime; missing capability must fail before any canonical write or
+        # adapter effect occurs.
+        adapter.descriptor.assert_supports("child-dispatch")
 
         stored_assignment_id, _ = self.store.create(assignment)
         if stored_assignment_id != assignment.id:

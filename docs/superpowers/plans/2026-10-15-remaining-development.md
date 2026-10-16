@@ -47,6 +47,14 @@
   Bu alanlar gelistirme veya kabul basarisi sayilmayacak; embedding disi kaynak
   ve control katmanlari bagimsiz ilerleyebilir. Testler final toplu asamada.
 
+- 16 Ekim 2026 WP-08.01 child-dispatch capability kapisi: Canonical child
+  assignment dispatch'i adapter'in explicit `child-dispatch` capability
+  beyanini effect oncesinde zorunlu kilar. Structured-result veya OpenCode
+  named-agent benzeri baska bir capability tek basina child runtime kaniti
+  sayilmaz; eksik beyan assignment/invocation persistence'tan once reddedilir.
+  Regression kaynagi guncellendi, testler CALISTIRILMADI; gercek native child
+  host capability ve kabul kaniti acik.
+
 - 16 Ekim 2026 WP-07.01..04 lease readback: Canonical bound-job ozetleri owner,
   token ve fencing degerlerini disari cikarmadan lease varlik durumunu tasiyor.
   Running job'da lease yoklugu ve terminal/recovery job'da lease kalintisi resume

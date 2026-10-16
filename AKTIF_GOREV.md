@@ -1806,6 +1806,13 @@ Offline fixture ve canonical replay regresyon kodu hazir, CALISTIRILMADI.
 Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
 `docs/NATIVE_ARASTIRMA_KOPRUSU.md`. WP-08 kapanmadi.
 
+**16 Ekim 2026 — WP-08.01 child-dispatch capability kapisi:** Canonical child
+ assignment dispatch'i effect oncesinde adapter'in explicit `child-dispatch`
+ capability beyanini kontrol eder. Structured result veya named-agent benzeri
+ baska bir capability child runtime kaniti sayilmaz; eksik beyan persistence ve
+ adapter etkisinden once reddedilir. Regression kaynagi hazir,
+ CALISTIRILMADI; gercek native child host kabul kaniti acik.
+
 ### WP-09 — Test-Only Unit Test Mühendisliğini Tamamlama
 
 **Bağımlılık/onay:** WP-03/07/08.  

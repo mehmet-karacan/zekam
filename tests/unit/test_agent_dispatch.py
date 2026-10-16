@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -13,7 +12,13 @@ import pytest
 from zekam.application.agent_dispatch import CanonicalAgentDispatchService
 from zekam.domain.agents import AgentAssignment, AgentInvocation, AssignmentRole
 from zekam.domain.canonical import digest
-from zekam.domain.clients import DispatchOutcome, DispatchRequest, DispatchResult
+from zekam.domain.clients import (
+    ClientDescriptor,
+    ClientKind,
+    DispatchOutcome,
+    DispatchRequest,
+    DispatchResult,
+)
 from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.clients.adapters import ClientAdapter
 
@@ -96,7 +101,12 @@ class RecordingStore:
 
 
 class RecordingAdapter:
-    descriptor = SimpleNamespace(client_id="opencode")
+    descriptor = ClientDescriptor(
+        kind=ClientKind.INTERNAL,
+        client_id="opencode",
+        executable="fixture-agent",
+        capabilities=frozenset({"child-dispatch", "structured-result"}),
+    )
 
     def __init__(self, store: RecordingStore) -> None:
         self.store = store
@@ -143,6 +153,32 @@ def test_coordinator_cannot_be_dispatched_as_child(tmp_path: Path) -> None:
             cwd=tmp_path,
             timeout_seconds=30,
         )
+    assert store.events == []
+
+
+def test_client_without_child_capability_is_rejected_before_persistence(
+    tmp_path: Path,
+) -> None:
+    assignment = _assignment()
+    invocation = _invocation(assignment)
+    store = RecordingStore()
+    adapter = RecordingAdapter(store)
+    adapter.descriptor = ClientDescriptor(
+        kind=ClientKind.INTERNAL,
+        client_id="opencode",
+        executable="fixture-agent",
+        capabilities=frozenset({"structured-result"}),
+    )
+
+    with pytest.raises(PolicyViolation, match="child-dispatch"):
+        CanonicalAgentDispatchService(store).dispatch(
+            assignment,
+            invocation,
+            cast(ClientAdapter, adapter),
+            cwd=tmp_path,
+            timeout_seconds=30,
+        )
+
     assert store.events == []
 
 
