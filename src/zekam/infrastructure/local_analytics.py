@@ -800,6 +800,7 @@ class LocalAnalyticsStore:
                 "event_count": 0,
                 "event_ids": [],
                 "events_truncated": False,
+                "source_digests": [],
                 "reason": "analytics-events-missing",
                 "grants_authority": False,
             }
