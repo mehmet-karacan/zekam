@@ -1283,6 +1283,11 @@ def build_project_index_plan(
 
     """
 
+    if (
+        local_model_ref == LOCAL_E5_MODEL_REF
+        and local_dimension != LOCAL_E5_DIMENSION
+    ):
+        raise ValidationFailed("Yerel E5 plan profili 384 boyut ister")
     root = source_root.resolve(strict=True)
     discovery = (
         discover(root, policy=discovery_policy)
