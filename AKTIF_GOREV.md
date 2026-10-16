@@ -2004,6 +2004,16 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
 - [ ] **WP-12.02** — Bölüm 10 doğal dil kabul senaryolarını gerçek desteklenen istemci/model/OS matrisinde çalıştır; beklenen tool çağrısı, project/effect/citation/response'u ölç. Fixture ve live sonuçlar ayrı kalsın.
 - [ ] **WP-12.03** — Baseline'a göre end-to-end kalite, cold/unchanged/delta index ve query tail latency raporunu üret. İyileşmeyen zorunlu hedefi gizleme veya ölçüm sonrası eşiği değiştirip başarı yapma.
 - [ ] **WP-12.04** — CAP, arayüz, tablo/migration, test, açık karar ve kaynak hash'lerini tek kanonik mimari girdide güncelle; Markdown/HTML/ZIP/diyagram yerel çıktılarının link/hash/ID tutarlılığını doğrula.
+
+  16 Ekim 2026 kaynak mimarisi: bounded tracked working-tree catalog ureticisi
+  guncel REQ/CAP/WP/karar kapilarini, AST interface/literal table/test declaration
+  ve relative source hash'lerini tek girdiye baglar. Ek A historical kayitlari
+  authority olmaz; wheel exclusion, source drift readback ve no-import siniri
+  korunur. Ayni girdiden yerel Markdown/escaped HTML/Mermaid/manifest/ZIP export
+  eklenir; yalniz yeni repo-disi hedef kabul edilir, uzak yayin yoktur. Test ve
+  generator CALISTIRILMADI; runtime/native/full release kabul kapilari aciktir.
+  Ayrinti: `docs/KANONIK_MIMARI_EXPORT.md`.
+
 - [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
 - [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
 

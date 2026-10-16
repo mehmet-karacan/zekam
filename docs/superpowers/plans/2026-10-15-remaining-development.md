@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-12.04/05 kaynak mimarisi: bounded tracked source catalog, current REQ/CAP/WP/D kayitlari, AST interface/literal table/test declarations, wheel exclusion ve source hashes tek girdiye baglandi. Historical appendix authority olmaz; source/HEAD readback, no-import ve new external target siniri korunur. Yerel Markdown/escaped HTML/Mermaid/manifest/deterministic ZIP ureticisi ve regresyon kaynaklari eklendi. Test/generator CALISTIRILMADI; runtime/full/native/release kabul acik. docs/KANONIK_MIMARI_EXPORT.md.
+
 - Gorev 6 WP-11.01 trial usage: optional salt okunur native-usage raporu exact source receipts/assignment/artifact chain ve local grade'den uretilir. Frozen aggregate/digest degismez; selected trial scope/model/baseline/candidate coverage, partial null totals ve separate estimated cost eklendi. Yeni call/yazma sifir; full account/billing kaniti degildir. Regresyon kaynaklari hazir, CALISTIRILMADI; docs/OPENCODE_NATIVE_USAGE.md.
 
 - Gorev 5 WP-09/10 native usage: desteklenen exact OpenCode v2.0.29 schema kaynagindan step_finish token component ve host USD estimate optional CAS artifact'e baglandi. Legacy/partial null, native skill iki-step coverage ve total/identity readback eklendi; strict artifact consumers guncellendi. Tournament historical/new selector ayri kapsamda raporlar. Provider requests/billed cost bilinmez, hard-cap/gercek native kabul acik. Regresyon kaynaklari hazir, CALISTIRILMADI; docs/OPENCODE_NATIVE_USAGE.md.

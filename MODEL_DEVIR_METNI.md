@@ -14,7 +14,12 @@ provider request/hard-cap ve gercek native kabul kapilari halen aciktir.
 Salt okunur trial-aggregate --native-usage raporu exact receipt/source zincirinden
 model/baseline/candidate coverage ve complete totals uretir; frozen aggregate
 digest'i degismez, partial/legacy total null kalir. Testler CALISTIRILMADI.
-Siradaki denetim: plandaki diger acik WP gelistirmeleri ve native kabul baglari.
+WP-12.04/05 kaynak mimarisi catalog/export ureticisi eklendi: current task records,
+AST interface/literal table/test declaration ve source hashes tek girdidir.
+Yerel Markdown/HTML/Mermaid/manifest/ZIP yalniz repo-disi yeni hedefe uretilebilir;
+runtime/kabul authority degildir. Ayrinti docs/KANONIK_MIMARI_EXPORT.md.
+Test/generator CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
+gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu
 uretilmedi. Hedef araci paused gorunuyor; API resume desteklemiyor, yeni hedef
 olusturulmadi. Kullanici devam talimati kaynak gelistirmesi icin gecerlidir.
