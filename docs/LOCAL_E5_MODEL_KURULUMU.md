@@ -16,6 +16,18 @@ Kurulum manifesti model, tokenizer, config ve sentencepiece dosyalarinin revisio
 ve digest bagini tasir. Saglayici agirlik digestini manifestteki ve sabit beklenen
 SHA256 ile karsilastirir; uyusmazlikta fail-closed davranir.
 
+Kurulumu yeniden almak veya mevcut kurulumu ag kullanmadan kontrol etmek icin
+repository'deki yardimci kullanilir:
+
+```text
+python scripts/install_local_e5_model.py
+python scripts/install_local_e5_model.py --verify
+```
+
+Yardimci mevcut dosyalarin sabit SHA256 degerleri uyusuyorsa indirme yapmaz;
+uyusmayan agirligi sessizce ezmek yerine durur. Gecici dosyalar ayni kullanici
+veri dizininde tutulur ve manifest atomik olarak yayinlanir.
+
 ## CPU dogrulamasi
 
 Kurulu model ONNX Runtime `CPUExecutionProvider` ile yuklendi. ONNX girisleri
