@@ -130,14 +130,14 @@ class RuntimeSettings:
 class KnowledgeSettings:
     """Bilgi duzlemi varsayilanlari."""
 
-    # Direct construction remains the legacy BGE API contract. Canonical runtime
-    # settings are resolved by load_settings(), whose config/default fallbacks are
-    # the local multilingual-e5-small profile.
-    embedding_profile_id: str = "bge-m3-dense-v1"
-    embedding_route: EmbeddingRoute = EmbeddingRoute.REMOTE
+    # Direct construction and normal config loading share the canonical local
+    # multilingual-e5-small profile. Retired BGE/remote values remain readable
+    # only where an explicit migration or historical fixture requires them.
+    embedding_profile_id: str = "multilingual-e5-small-dense-v1"
+    embedding_route: EmbeddingRoute = EmbeddingRoute.LOCAL
     remote_provider_id: str = "litellm"
-    embedding_model_ref: str = "openai/BAAI/bge-m3"
-    embedding_dimension: int = 1024
+    embedding_model_ref: str = "intfloat/multilingual-e5-small"
+    embedding_dimension: int = 384
     embedding_distance: str = "cosine"
 
     def __post_init__(self) -> None:
