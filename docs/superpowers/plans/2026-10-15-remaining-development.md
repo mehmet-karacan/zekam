@@ -122,6 +122,8 @@
 
 - Gorev 2/4 WP-07.02/04 resume RAG readback: `workspace_resume` RAG ozeti state'te source binding varsa revision/tree/source identity alanlarini yeniden dogrulayip ayni packet'e tasir; bozuk veya eksik yeni binding attention-required olur, eski alanlari olmayan state bounded uyumlulukla kalir. Bozuk digest de packet'i dusurmeden ayni attention sinifina indirilir. Regresyon kaynaklari hazir, CALISTIRILMADI.
 
+- Gorev 4 WP-05 batch recovery ambiguity: Completed document input regrouping artik bounded input-level claim adaylarini toplar; ayni digest'in duplicate slotlarini parent kapasitesiyle eslestirir, birden fazla parent secenegini veya manifest/vector slot driftini fail-closed reddeder. Regresyon kaynaklari hazir, CALISTIRILMADI.
+
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 
 - Gorev 5 WP-10.05 canonical tournament: actual paired trial -> fresh local grade -> no-progress stop veya tek native verifier-role selector reserved Work/claim/checkpoint/CAS receipt akisina baglandi. Exact source/config/model/session, typed karar, completed replay ve historical report eklendi; caller scores kabul edilmez. Unmetered token/cost/provider-request boyutlari null ve explicit opt-in; promotion false. Unit regresyon kaynaklari hazir, CALISTIRILMADI. Gercek host/full quality ve quantitative metering kabul kapilari acik; docs/TOURNAMENT_CANONICAL_SELECTION.md.

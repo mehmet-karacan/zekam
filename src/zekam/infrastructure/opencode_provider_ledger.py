@@ -683,47 +683,102 @@ class SQLiteDocumentEmbeddingJournal:
         vectors = []
         evidence = []
         parents = {}
+        used_slots: dict[tuple[str, str, str, str], set[int]] = {}
         with self.host._connect() as db:
-            for input_digest in inputs:
-                row = db.execute(
-                    "select m.*,s.slot from provider_document_input_slot s "
+            candidates: dict[
+                str,
+                tuple[tuple[tuple[str, str, str, str], int, str, str, str, str, int], ...],
+            ] = {}
+            for input_digest in dict.fromkeys(inputs):
+                rows = db.execute(
+                    "select m.*,s.slot,v.claim_id,v.receipt_id from provider_document_input_slot s "
                     "join provider_document_input_manifest m on m.job_id=s.job_id "
                     "join provider_job j on j.id=m.job_id "
                     "join provider_effect_claim c on c.job_id=j.id and c.effect_digest=m.effect_digest and c.operation=m.operation "
                     "join provider_document_vector_result v on v.claim_id=c.id and v.profile_digest=m.profile_digest "
                     "where j.realm_id=? and j.project_id=? and m.profile_digest=? and s.input_digest=? "
-                    "order by j.created_at,j.id,s.slot limit 1",
+                    "order by j.created_at,j.id,s.slot limit 65",
                     (key[0], key[1], key[3], input_digest),
-                ).fetchone()
-                if row is None:
+                ).fetchall()
+                if not rows:
                     return None
-                body = {
-                    "job_id": row["job_id"],
-                    "effect_digest": row["effect_digest"],
-                    "operation": row["operation"],
-                    "profile_digest": row["profile_digest"],
-                    "input_digests": json.loads(row["input_digests_json"]),
+                if len(rows) > 64:
+                    raise PolicyViolation("Document regroup input claim adayi siniri asildi")
+                normalized = []
+                for row in rows:
+                    try:
+                        input_digests = json.loads(row["input_digests_json"])
+                    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                        raise PolicyViolation("Document regroup input manifest gecersiz") from exc
+                    body = {
+                        "job_id": row["job_id"],
+                        "effect_digest": row["effect_digest"],
+                        "operation": row["operation"],
+                        "profile_digest": row["profile_digest"],
+                        "input_digests": input_digests,
+                    }
+                    slot = row["slot"]
+                    if (
+                        digest(body) != row["binding_digest"]
+                        or not isinstance(input_digests, list)
+                        or len(input_digests) < 1
+                        or len(input_digests) > 64
+                        or any(not isinstance(value, str) for value in input_digests)
+                        or not 0 <= slot < len(input_digests)
+                        or input_digests[slot] != input_digest
+                    ):
+                        raise PolicyViolation("Document regroup input binding drift")
+                    parent_key = (key[0], key[1], row["effect_digest"], key[3])
+                    normalized.append(
+                        (
+                            parent_key,
+                            slot,
+                            str(row["binding_digest"]),
+                            str(row["claim_id"]),
+                            str(row["receipt_id"]),
+                            str(row["operation"]),
+                            len(input_digests),
+                        )
+                    )
+                candidates[input_digest] = tuple(normalized)
+
+            for position, input_digest in enumerate(inputs):
+                remaining_needed = sum(value == input_digest for value in inputs[position:])
+                available = [
+                    item
+                    for item in candidates[input_digest]
+                    if item[1] not in used_slots.setdefault(item[0], set())
+                ]
+                capacity: dict[tuple[str, str, str, str], int] = {}
+                for item in available:
+                    capacity[item[0]] = capacity.get(item[0], 0) + 1
+                capable = {
+                    parent_key
+                    for parent_key, count in capacity.items()
+                    if count >= remaining_needed
                 }
-                slot = row["slot"]
-                if (
-                    digest(body) != row["binding_digest"]
-                    or not isinstance(body["input_digests"], list)
-                    or not 0 <= slot < len(body["input_digests"])
-                    or body["input_digests"][slot] != input_digest
-                ):
-                    raise PolicyViolation("Document regroup input binding drift")
-                parent_key = (key[0], key[1], row["effect_digest"], key[3])
+                if len(capable) != 1:
+                    raise PolicyViolation("Document regroup input claim belirsiz")
+                parent_key = next(iter(capable))
+                row = min(
+                    (item for item in available if item[0] == parent_key),
+                    key=lambda item: item[1],
+                )
+                _, slot, manifest_digest, claim_id, receipt_id, operation, input_count = row
+                used_slots[parent_key].add(slot)
                 if parent_key not in parents:
-                    parents[parent_key] = self._load_key(parent_key, profile, row["operation"])
+                    parents[parent_key] = self._load_key(parent_key, profile, operation)
                 parent = parents[parent_key]
-                if parent is None or len(parent.vectors) != len(body["input_digests"]):
+                if parent is None or len(parent.vectors) != input_count:
                     raise PolicyViolation("Document regroup terminal vector evidence missing")
                 vectors.append(parent.vectors[slot])
                 evidence.append(
                     {
                         "input_digest": input_digest,
                         "slot": slot,
-                        "manifest_digest": row["binding_digest"],
+                        "manifest_digest": manifest_digest,
+                        "claim_id": claim_id,
+                        "receipt_id": receipt_id,
                         "result_digest": parent.evidence_digest,
                     }
                 )
