@@ -1339,7 +1339,7 @@ def _local_query_binding(
     Previously the query path called ``_project_plan`` to build the whole corpus
     plan/chunks and fed them into the local provider for
     qualification.  WP3 removes that: the accepted, bounded synthetic fixture
-    identity (same contract used by the remote canonical probe) is reused, so a
+    identity is reused, so a
     normal answer query does no corpus chunking / document embedding / indexing.
     The local provider is rebuilt per query (no remote/external call; the pinned
     multilingual-e5-small ONNX model runs through CPU execution), and its
