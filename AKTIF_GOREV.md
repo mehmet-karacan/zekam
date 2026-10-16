@@ -1795,6 +1795,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   reassociation ve duplicate call reddedilir. Historical report kaynak receipt
   ve row zincirini tekrar okur. Regresyonlar CALISTIRILMADI; state unverified
   kalir. Actual farkli verifier/receipt -> outcome ve host/kalite kabulu acik.
+
+  16 Ekim 2026 native outcome verifier: actual execution/oracle/artifact'i ayri
+  verifier role/model/config/Work job ve terminal receipt'e baglandi. Same
+  model/variant/upstream alias ve reused native session reddi eklendi. Typed
+  karar local oracle ile tek artifact kapsaminda eslestirilir; unknown upstream
+  unverified kalir, promotion yetkisi uretmez. Regresyonlar CALISTIRILMADI.
+  Verifier receipt -> skill_outcome_v2 recording ve full host/kalite kabulu acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

@@ -158,6 +158,7 @@ def _invoke_trial(
     instruction: str = _INSTRUCTION,
     agent_ref: str = "skill-trial-builder",
     execution_namespace: str = "skill-trial",
+    role: AssignmentRole = AssignmentRole.BUILDER,
 ) -> dict[str, Any]:
     context_raw = canonical_bytes(context)
     assert_public_safe_projection(context_raw, relative_path="skill-trial-input.json")
@@ -172,7 +173,7 @@ def _invoke_trial(
         realm_id=realm_id,
         project_id=UUID(binding.project_id),
         work_item_id=UUID(binding.work_item_id),
-        role=AssignmentRole.BUILDER,
+        role=role,
         agent_ref=agent_ref,
         instruction_digest=instruction_digest,
         context_manifest_digest=context_digest,

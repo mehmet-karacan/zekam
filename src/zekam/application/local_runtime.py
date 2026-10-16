@@ -41,6 +41,7 @@ RESERVED_JOB_OPERATIONS = (
     "skill.invocation.native-record",
     "skill.native.execute",
     "skill.invocation.from-execution",
+    "skill.outcome.native-verify",
 )
 _RUNTIME_KIND = re.compile(r"[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*")
 

@@ -113,6 +113,9 @@ def _observation(
     execution_namespace: str = "skill-trial",
     expected_context: dict[str, Any] | None = None,
     native_expected: dict[str, str] | None = None,
+    expected_role: str = "builder",
+    grade_exact_output: bool = True,
+    context_limit: int = 64_000,
 ) -> dict[str, Any]:
     if (
         not isinstance(body, dict)
@@ -132,7 +135,7 @@ def _observation(
         or assignment.get("id") != body["assignment_id"]
         or assignment.get("project_id") != binding.project_id
         or assignment.get("work_item_id") != binding.work_item_id
-        or assignment.get("role") != "builder"
+        or assignment.get("role") != expected_role
         or assignment.get("parent_assignment_id") is None
         or assignment.get("instruction_digest") != plan["instruction_contract_digest"]
     ):
@@ -149,7 +152,7 @@ def _observation(
     ):
         raise PolicyViolation("Skill aggregate job/assignment identity binding drift")
     context = _object(
-        objects, assignment["context_manifest_digest"], maximum=64_000, public_safe=True
+        objects, assignment["context_manifest_digest"], maximum=context_limit, public_safe=True
     )
     if expected_context is not None:
         context_valid = canonical_json(context) == canonical_json(expected_context)
@@ -222,7 +225,7 @@ def _observation(
         or dispatch["assignment_id"] != body["assignment_id"]
         or dispatch["invocation_id"] != body["invocation_id"]
         or dispatch["client_id"] != "opencode"
-        or dispatch["role"] != "builder"
+        or dispatch["role"] != expected_role
         or dispatch["outcome"] != body["outcome"]
         or dispatch["grants_authority"] is not False
     ):
@@ -296,7 +299,9 @@ def _observation(
         "native_identity": native_identity,
         "valid_output": valid,
         "output_digest": output_digest,
-        "exact_match": valid and output_digest == digest(case["expected_output"]),
+        "exact_match": grade_exact_output
+        and valid
+        and output_digest == digest(case["expected_output"]),
     }
     if canonical_json(expected) != canonical_json(body):
         raise PolicyViolation("Skill aggregate claimed grade differs from actual output")
