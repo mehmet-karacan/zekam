@@ -45,6 +45,9 @@ Run ve checkpoint record'larinda, CLI/dogal dil readback'inde canonical
 baglantisi projection katmaninda dusurulmuyor. E2E/unit regresyon kaynaklari
 eklendi, testler CALISTIRILMADI.
 
+`work show --json` exact Work icin bounded Run ozetlerini ve truncation bilgisini
+aynı canonical SQLite readback'ine ekliyor; salt-okunur kapsam korunuyor.
+
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

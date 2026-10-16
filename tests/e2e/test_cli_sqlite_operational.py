@@ -388,6 +388,8 @@ def test_cli_work_external_number_scope_history_and_transition(tmp_path: Path) -
     assert shown_body["bound_jobs"] == []
     assert shown_body["bound_jobs_truncated"] is False
     assert shown_body["bound_jobs_scope"] == "exact-work"
+    assert shown_body["runs"] == []
+    assert shown_body["runs_truncated"] is False
     assert shown_body["read_only"] is True
     assert shown_body["grants_authority"] is False
     ambiguous = _invoke(runner, "work", "show", "123", "--json", "--home", str(home))

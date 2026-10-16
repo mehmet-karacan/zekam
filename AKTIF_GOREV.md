@@ -1335,6 +1335,9 @@ resume/status/show dogal dil ozetleri canonical `source_snapshot_id` ve
 SQLite readback ve projection katmanlarinda korunur. Regresyon kaynagi hazirlandi,
 testler CALISTIRILMADI.
 
+`work show --json` exact Work icin bounded Run ozetlerini, limit ve truncation
+alanlariyla canonical SQLite readback'ine ekler; salt-okunur kapsam korunur.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  
