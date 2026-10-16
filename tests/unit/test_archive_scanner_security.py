@@ -273,6 +273,31 @@ def test_tar_traversal_ve_symlink_reddedilir(tmp_path: Path) -> None:
     assert report.reason_for("../disari.txt") == "arsiv traversal girdisi reddedildi"
 
 
+def test_tar_ozel_dosya_turu_reddedilir(tmp_path: Path) -> None:
+    archive = tmp_path / "ozel.tar"
+    with tarfile.open(archive, "w") as bundle:
+        fifo = tarfile.TarInfo("kanal")
+        fifo.type = tarfile.FIFOTYPE
+        bundle.addfile(fifo)
+    report = ArchiveInspector().inspect(archive)
+    assert report.included == ()
+    assert report.reason_for("kanal") == "arsiv ozel dosyasi reddedildi"
+
+
+def test_zip_ozel_dosya_turu_reddedilir(tmp_path: Path) -> None:
+    archive = tmp_path / "ozel.zip"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        info = zipfile.ZipInfo("kanal")
+        info.create_system = 3
+        info.external_attr = 0o010644 << 16  # FIFO mode, no extraction allowed.
+        bundle.writestr(info, b"")
+    archive.write_bytes(buffer.getvalue())
+    report = ArchiveInspector().inspect(archive)
+    assert report.included == ()
+    assert report.reason_for("kanal") == "arsiv ozel dosyasi reddedildi"
+
+
 def test_tar_bomba_getmembers_olmadan_kesilir(tmp_path: Path) -> None:
     """Cok girdili tar, limit asiminda tum metadata bellege alinmadan kesilir."""
 

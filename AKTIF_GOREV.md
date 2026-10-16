@@ -752,6 +752,12 @@ ayri kalir.
   route'u parser router'a baglandi. Test CALISTIRILMADI; belge kalite ve native
   kabul kapilari acik.
 
+  16 Ekim 2026 arsiv ozel dosya siniri: ZIP/TAR metadata'sinda FIFO, cihaz,
+  socket ve tanimsiz Unix dosya turleri normal icerik sayilmaz; gelecekteki
+  extract adimindan once `arsiv ozel dosyasi reddedildi` karariyla fail-closed
+  tutulur. Symlink/hardlink, traversal ve mevcut boyut/ratio sinirlari korunur.
+  Regresyon kaynaklari hazir, test CALISTIRILMADI.
+
 **Üretilen sözleşme/çıktı:** `FileInventoryRecord`, `EligibilityDecision`, `SourceVersion`, locator'lı `ContentUnit` mevcut tiplerle uzlaştırılır. Öneri `tests/integration/test_project_artifact_ingestion.py`, `tests/security/test_sensitive_config_metadata.py`.
 
 **Kabul ve negatif testler:** Testler: kaynak/generated aynı uzantı, gitignore metadata korunumu, nested dependency ağacı, UTF-8/BOM, büyük/şifreli/bozuk belge, archive bomb/XXE, same-name/different-content, source drift ve kaynakta sıfır mutation.

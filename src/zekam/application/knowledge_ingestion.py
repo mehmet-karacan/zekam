@@ -56,6 +56,7 @@ def _is_reparse(info: os.stat_result) -> bool:
 
     return bool(int(getattr(info, "st_file_attributes", 0)) & _REPARSE_POINT)
 
+
 # `package body` iki kelimelik bir turdur; `body` nesne adi degildir.
 _PLSQL_OBJECT = re.compile(
     r"create\s+(?:or\s+replace\s+)?"
@@ -137,9 +138,7 @@ class DirectoryScanner:
                 reparse = _is_reparse(info)
                 if entry.is_symlink() or reparse:
                     reason = (
-                        "symlink izlenmez"
-                        if entry.is_symlink()
-                        else "symlink/junction izlenmez"
+                        "symlink izlenmez" if entry.is_symlink() else "symlink/junction izlenmez"
                     )
                     decisions.append(ScanDecision(relative, False, reason))
                     continue
@@ -215,14 +214,17 @@ class ArchiveInspector:
         )
         decisions: list[ScanDecision] = []
         seen: set[str] = set()
-        for name, _, is_link in entries:
+        for name, _, entry_kind in entries:
             if name in seen:
                 # Yinelenen ad, iki ayri icerigin ayni yola yazilmasi; hangisi
                 # gecerli oldugu belirsizdir. Tum arsiv fail-closed reddedilir.
                 raise PolicyViolation("arsiv yinelenen girdi adi tasiyor")
             seen.add(name)
-            if is_link:
+            if entry_kind == "link":
                 decisions.append(ScanDecision(name, False, "arsiv baglantisi reddedildi"))
+                continue
+            if entry_kind == "special":
+                decisions.append(ScanDecision(name, False, "arsiv ozel dosyasi reddedildi"))
                 continue
             if (
                 name.startswith("/")
@@ -238,9 +240,9 @@ class ArchiveInspector:
             decisions.append(ScanDecision(name, True, "izinli"))
         return ScanReport(tuple(decisions), total)
 
-    def _zip(self, archive: Path) -> list[tuple[str, int, bool]]:
+    def _zip(self, archive: Path) -> list[tuple[str, int, str]]:
         """Read ZIP metadata with bounded reads, preserving raw entry names."""
-        entries: list[tuple[str, int, bool]] = []
+        entries: list[tuple[str, int, str]] = []
         total = 0
         archive_bytes = archive.stat().st_size
         with archive.open("rb") as stream:
@@ -320,13 +322,22 @@ class ArchiveInspector:
                     raise PolicyViolation("arsiv girdi adi tutarsiz")
                 stream.seek(central_cursor)
                 high_mode = mode >> 16
-                entries.append((name, size, high_mode != 0 and stat.S_ISLNK(high_mode)))
+                if high_mode and stat.S_ISLNK(high_mode):
+                    entry_kind = "link"
+                elif high_mode and not stat.S_ISREG(high_mode) and not stat.S_ISDIR(high_mode):
+                    # FIFO/device/socket/unknown Unix file types are never safe
+                    # archive content.  Reject them before any future extractor
+                    # could materialize an effectful filesystem node.
+                    entry_kind = "special"
+                else:
+                    entry_kind = "regular"
+                entries.append((name, size, entry_kind))
             if stream.tell() != central_end:
                 raise PolicyViolation("gecersiz ZIP merkezi dizini")
         return entries
 
-    def _tar(self, archive: Path) -> list[tuple[str, int, bool]]:
-        entries: list[tuple[str, int, bool]] = []
+    def _tar(self, archive: Path) -> list[tuple[str, int, str]]:
+        entries: list[tuple[str, int, str]] = []
         total = 0
         archive_bytes = archive.stat().st_size
         with tarfile.open(archive) as bundle:
@@ -339,7 +350,15 @@ class ArchiveInspector:
                     total_bytes=total,
                     compressed_bytes=archive_bytes,
                 )
-                entries.append((item.name, item.size, item.issym() or item.islnk()))
+                if item.issym() or item.islnk():
+                    entry_kind = "link"
+                elif item.isreg() or item.isdir():
+                    entry_kind = "regular"
+                else:
+                    # Device nodes, FIFOs and other special tar members must
+                    # never become eligible for a later extraction step.
+                    entry_kind = "special"
+                entries.append((item.name, item.size, entry_kind))
         return entries
 
 
