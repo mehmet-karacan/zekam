@@ -10,6 +10,7 @@ Conflict varsa hic proje dosyasi degisikligi olmadan red edilir.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -291,6 +292,37 @@ def test_entry_plan_is_inert_outside_zekam_workspace(tmp_path: Path) -> None:
     assert (other / "CLAUDE.md").read_bytes() == claude_before
     # Global client yuzeylerine hic yazim yok.
     assert _client_area_snapshot(home) == client_before
+
+
+def test_entry_marker_symlink_is_inert(tmp_path: Path) -> None:
+    home, source = _binded_project(tmp_path)
+    context = source / ".ai" / "repository-context.json"
+    outside = tmp_path / "outside-context.json"
+    outside.write_text(
+        json.dumps(
+            {
+                "schema": "zekam-repository-context/v2",
+                "project": "zekam",
+            }
+        ),
+        encoding="utf-8",
+    )
+    try:
+        context.unlink()
+        os.symlink(outside, context)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink olusturulamadi: {exc}")
+
+    planned = CliRunner().invoke(
+        app,
+        ["integration", "entry", "--project-root", str(source), "--home", str(home)],
+    )
+
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["inert"] is True
+    assert plan["inert_reason"] == "workspace-marker-missing-or-invalid"
+    assert plan["files"] == []
 
 
 def test_entry_apply_without_exact_plan_digest_is_rejected(tmp_path: Path) -> None:

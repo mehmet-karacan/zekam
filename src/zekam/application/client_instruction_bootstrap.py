@@ -445,17 +445,27 @@ def _is_zekam_workspace_root(project_root: Path) -> bool:
 
     if not project_root.is_dir():
         return False
+    ai_root = project_root / ".ai"
+    context_path = ai_root / "repository-context.json"
+    manifest_path = project_root / "PROJE_MANIFESTI.yaml"
+    if (
+        _unsafe(ai_root)
+        or not ai_root.is_dir()
+        or _unsafe(context_path)
+        or not context_path.is_file()
+        or _unsafe(manifest_path)
+        or not manifest_path.is_file()
+    ):
+        return False
     try:
-        context = json.loads(
-            read_instruction_text(project_root / ".ai" / "repository-context.json")
-        )
+        context = json.loads(read_instruction_text(context_path))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
     if not isinstance(context, dict) or context.get("project") != "zekam":
         return False
     if not str(context.get("schema", "")).startswith("zekam-repository-context/"):
         return False
-    return (project_root / "PROJE_MANIFESTI.yaml").is_file()
+    return True
 
 
 def _assert_project_local_target(project_root: Path, path: Path) -> None:
