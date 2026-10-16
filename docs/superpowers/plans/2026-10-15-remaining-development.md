@@ -112,6 +112,7 @@
 - Gorev 4 WP-04.06 source identity apply gate: Index apply, manifest v2 ve normalized parser profile kimligini planin project/revision/tree identity'siyle tekrar eslestirir; reassociation drift fail-closed kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 2/4 WP-07.02 source identity plan bagi: Canonical `project.index` Run plan ve RAG plan projection ayni `project_id + source_revision + tree_digest` source identity digestini tasir; Work/Run binding'de cross-project veya eski source reassociation gorunur kalir. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 2/4 WP-07.02 research source identity plan bagi: Research run plan ve effect claim ayni `project_id + source_revision + tree_digest` source identity digestini tasir; execution oncesi canli RAG tree/source identity drift'i fail-closed reddedilir. Regresyon kaynagi hazir, CALISTIRILMADI.
+- Gorev 2/4 WP-07.02 research source readback: Research report/status ve read-only receipt yuzeyleri source revision/tree/source identity/generation bagini kaybetmeden legacy payloadlarda bounded uyumlulugu korur. Regresyon kaynagi hazir, CALISTIRILMADI.
 
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 
