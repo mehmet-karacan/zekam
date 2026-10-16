@@ -47,6 +47,10 @@ ORACLE_INDEXER_VERSION = "zekam-oracle-metadata-indexer/v1"
 
 _ORACLE_IDENTIFIER = re.compile(r"^[A-Za-z][A-Za-z0-9_$#]{0,127}$")
 _JDBC_PREFIX = "jdbc:oracle:thin:@"
+_DYNAMIC_SQL_MARKERS = (
+    (re.compile(r"\bexecute\s+immediate\b", re.IGNORECASE), "execute-immediate"),
+    (re.compile(r"\bdbms_sql\s*\.\s*parse\b", re.IGNORECASE), "dbms-sql-parse"),
+)
 
 # DBMS_METADATA names differ from ALL_OBJECTS labels for body objects.
 SUPPORTED_OBJECT_TYPES: tuple[tuple[str, str], ...] = (
@@ -240,12 +244,73 @@ class OracleDdlObject:
 
 
 @dataclass(frozen=True, slots=True)
+class OracleUnresolvedRelation:
+    """A relation whose target cannot be resolved without executing dynamic SQL.
+
+    Only safe Oracle object identity is retained.  SQL text, bind values and
+    guessed target edges are deliberately excluded from the portable manifest.
+    """
+
+    owner: str
+    object_name: str
+    object_type: str
+    relation_kind: str
+    reason: str = "dynamic-sql-target"
+
+    def __post_init__(self) -> None:
+        values = (self.owner, self.object_name, self.object_type, self.relation_kind, self.reason)
+        if any(
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or len(value) > 128
+            or any(ord(char) < 32 for char in value)
+            for value in values
+        ):
+            raise ValidationFailed("Oracle unresolved relation kimligi gecersiz")
+        if self.relation_kind not in {kind for _, kind in _DYNAMIC_SQL_MARKERS}:
+            raise ValidationFailed("Oracle unresolved relation turu desteklenmiyor")
+        if self.reason != "dynamic-sql-target":
+            raise ValidationFailed("Oracle unresolved relation nedeni gecersiz")
+
+    def manifest_entry(self) -> dict[str, object]:
+        return {
+            "owner": self.owner,
+            "object_name": self.object_name,
+            "object_type": self.object_type,
+            "relation_kind": self.relation_kind,
+            "reason": self.reason,
+            "lineage_edge": False,
+        }
+
+
+def _dynamic_sql_relations(item: OracleDdlObject) -> tuple[OracleUnresolvedRelation, ...]:
+    """Expose dynamic SQL ambiguity without inventing a target relation."""
+
+    found: list[OracleUnresolvedRelation] = []
+    seen: set[str] = set()
+    for marker, kind in _DYNAMIC_SQL_MARKERS:
+        if marker.search(item.ddl) and kind not in seen:
+            seen.add(kind)
+            found.append(
+                OracleUnresolvedRelation(
+                    owner=item.owner,
+                    object_name=item.object_name,
+                    object_type=item.object_type,
+                    relation_kind=kind,
+                )
+            )
+    return tuple(found)
+
+
+@dataclass(frozen=True, slots=True)
 class OracleMetadataSnapshot:
     schema_name: str
     connection_identity_digest: str
     database_identity_digest: str
     objects: tuple[OracleDdlObject, ...]
     excluded_secret_objects: int
+    unresolved_relations: tuple[OracleUnresolvedRelation, ...] = ()
 
     @property
     def revision_digest(self) -> str:
@@ -256,6 +321,9 @@ class OracleMetadataSnapshot:
                 "database_identity_digest": self.database_identity_digest,
                 "objects": [item.manifest_entry() for item in self.objects],
                 "excluded_secret_objects": self.excluded_secret_objects,
+                "unresolved_relations": [
+                    item.manifest_entry() for item in self.unresolved_relations
+                ],
             }
         )
 
@@ -275,6 +343,7 @@ class OracleMetadataSnapshot:
             "object_type_counts": dict(sorted(counts.items())),
             "invalid_object_count": invalid,
             "excluded_secret_object_count": self.excluded_secret_objects,
+            "unresolved_relations": [item.manifest_entry() for item in self.unresolved_relations],
             "row_data_included": False,
         }
 
@@ -364,6 +433,7 @@ class OracleMetadataClient:
                 if len(rows) > MAX_OBJECTS:
                     raise PolicyViolation("Oracle metadata nesne sayisi siniri asildi")
                 objects: list[OracleDdlObject] = []
+                unresolved_relations: list[OracleUnresolvedRelation] = []
                 excluded_secret_objects = 0
                 total_bytes = 0
                 for object_name, object_type, status, last_ddl_at in rows:
@@ -394,17 +464,17 @@ class OracleMetadataClient:
                     if findings:
                         excluded_secret_objects += 1
                         continue
-                    objects.append(
-                        OracleDdlObject(
-                            owner=datasource.schema_name,
-                            object_name=str(object_name),
-                            object_type=str(object_type),
-                            status=str(status),
-                            last_ddl_at=str(last_ddl_at),
-                            ddl_digest=digest_of_bytes(ddl_bytes),
-                            _ddl=ddl,
-                        )
+                    item = OracleDdlObject(
+                        owner=datasource.schema_name,
+                        object_name=str(object_name),
+                        object_type=str(object_type),
+                        status=str(status),
+                        last_ddl_at=str(last_ddl_at),
+                        ddl_digest=digest_of_bytes(ddl_bytes),
+                        _ddl=ddl,
                     )
+                    objects.append(item)
+                    unresolved_relations.extend(_dynamic_sql_relations(item))
         except (ConfigurationError, PolicyViolation, ValidationFailed):
             raise
         except Exception as exc:
@@ -426,6 +496,7 @@ class OracleMetadataClient:
             database_identity_digest=database_identity_digest,
             objects=tuple(objects),
             excluded_secret_objects=excluded_secret_objects,
+            unresolved_relations=tuple(unresolved_relations),
         )
 
 
@@ -518,6 +589,20 @@ def build_oracle_metadata_index_plan(
     units: list[ContentUnit] = []
     for item in snapshot.objects:
         units.extend(_ddl_units(item, len(units)))
+    for relation in snapshot.unresolved_relations:
+        qualified = f"{relation.owner}.{relation.object_name}:{relation.object_type}"
+        units.append(
+            ContentUnit(
+                unit_id=f"{qualified}#unresolved-{relation.relation_kind}",
+                kind=UnitKind.DB_OBJECT,
+                text=(
+                    f"cozulemeyen {relation.relation_kind} iliskisi: {qualified}; "
+                    "dinamik SQL hedefi statik olarak belirlenemedi, lineage kenari uretilmedi"
+                ),
+                locator=Locator(object_name=qualified),
+                order=len(units),
+            )
+        )
     if not units:
         raise ValidationFailed("Oracle metadata DDL chunk uretmedi")
     manifest_document = {
@@ -528,6 +613,7 @@ def build_oracle_metadata_index_plan(
         "database_identity_digest": snapshot.database_identity_digest,
         "objects": [item.manifest_entry() for item in snapshot.objects],
         "excluded_secret_objects": snapshot.excluded_secret_objects,
+        "unresolved_relations": [item.manifest_entry() for item in snapshot.unresolved_relations],
         "row_data_included": False,
     }
     manifest = canonical_json(manifest_document).encode("utf-8")
@@ -550,6 +636,7 @@ def build_oracle_metadata_index_plan(
             "metadata_only": True,
             "row_data_included": False,
             "secret_scan": True,
+            "unresolved_relation_count": len(snapshot.unresolved_relations),
         },
     )
     chunk_profile = ChunkProfile(

@@ -75,3 +75,11 @@ tahmin edilmez. Kaynak dosyanın tamamı embedding sağlayıcısına gönderilme
 İlk GPU kabulünde 793 sanitize chunk ve 1.136 exact lineage kenarı üretilmiş; bunlar
 4.432 kaynak kod chunk'ı ve 4.064 `GPU_USER` metadata chunk'ıyla aynı 9.289 kayıtlık aktif
 generation içinde birleştirilmiştir.
+
+## Oracle dinamik SQL belirsizligi
+
+Oracle metadata indeksinde PL/SQL `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE` kullanimi
+statik olarak hedef nesneye baglanamaz. Bu durum `unresolved_relations` manifest alaninda
+guvenli nesne kimligi ve belirsizlik turu ile kaydedilir. Ham SQL, bind degeri veya kimligi
+tahmin edilmis lineage kenari uretilmez; indeks parcasi yalniz hedefin cozulemedigini
+belirtir.

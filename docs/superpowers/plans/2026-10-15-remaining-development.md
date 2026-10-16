@@ -40,6 +40,11 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
+  dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
+  turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak
+  degisikligi tamamlandi, testler CALISTIRILMADI; Oracle/native kabul kapisi acik.
+
 - Gorev 2 WP-07.01..04: `work resume` canonical SQLite Work eventlerini, son Run ozetlerini ve bounded bound job referanslarini acik Work penceresine baglar. Recent activity zaman sirali ve bounded; payload/owner token/grant disarida kalir. CLI regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve WP kabul kapilari acik.
 
 - Gorev 2 WP-07.01..04: Operational checkpoint payload dogrulamasi canonical JSON boyutunu 16 KiB, derinligi ve alan sayisini sinirlar; secret/credential/token/prompt/response/transcript/raw-content/private-key alan veya degerlerini ve `grants_authority=true` durumunu reddeder. Unit regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve WP kabul kapilari acik.
