@@ -74,6 +74,7 @@ def resume_command(
                         "status": run.status,
                         "plan_digest": run.plan_digest,
                         "terminal_receipt_digest": run.terminal_receipt_digest,
+                        "source_snapshot_id": run.source_snapshot_id,
                     }
                     for run in runs
                 )
@@ -523,6 +524,7 @@ def _run_document(run: Any) -> dict[str, Any]:
         "status": run.status,
         "plan_digest": run.plan_digest,
         "terminal_receipt_digest": run.terminal_receipt_digest,
+        "source_snapshot_id": run.source_snapshot_id,
     }
 
 

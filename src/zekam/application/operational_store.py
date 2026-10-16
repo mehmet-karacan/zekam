@@ -68,6 +68,7 @@ class RunRecord:
     status: str
     plan_digest: str
     terminal_receipt_digest: str | None = None
+    source_snapshot_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -953,7 +953,7 @@ class SQLiteOperationalUnitOfWork:
             )
         except sqlite3.IntegrityError as exc:
             raise ValidationFailed("Run constraint ihlali") from exc
-        return RunRecord(run_id, work_item_id, "planned", plan_digest)
+        return RunRecord(run_id, work_item_id, "planned", plan_digest, None, source_snapshot_id)
 
     def transition_run(
         self,
@@ -971,7 +971,7 @@ class SQLiteOperationalUnitOfWork:
         """
         connection = self._db()
         row = connection.execute(
-            "select id, work_item_id, status, plan_digest, terminal_receipt_digest"
+            "select id, work_item_id, source_snapshot_id, status, plan_digest, terminal_receipt_digest"
             " from run where id=?",
             (run_id,),
         ).fetchone()
@@ -1012,6 +1012,7 @@ class SQLiteOperationalUnitOfWork:
             to_status,
             row["plan_digest"],
             terminal_receipt_digest,
+            row["source_snapshot_id"],
         )
 
     def add_run_step(
@@ -1144,7 +1145,7 @@ class SQLiteOperationalUnitOfWork:
         rows = (
             self._db()
             .execute(
-                "select id,work_item_id,status,plan_digest,terminal_receipt_digest "
+                "select id,work_item_id,source_snapshot_id,status,plan_digest,terminal_receipt_digest "
                 "from run where work_item_id=? order by created_at "
                 + ordering
                 + ",id "
@@ -1161,6 +1162,7 @@ class SQLiteOperationalUnitOfWork:
                 row["status"],
                 row["plan_digest"],
                 row["terminal_receipt_digest"],
+                row["source_snapshot_id"],
             )
             for row in rows
         )
@@ -1654,7 +1656,7 @@ class SQLiteOperationalUnitOfWork:
         row = (
             self._db()
             .execute(
-                "select id, work_item_id, status, plan_digest, terminal_receipt_digest"
+                "select id, work_item_id, source_snapshot_id, status, plan_digest, terminal_receipt_digest"
                 " from run where id = ?",
                 (run_id,),
             )
@@ -1668,6 +1670,7 @@ class SQLiteOperationalUnitOfWork:
             row["status"],
             row["plan_digest"],
             row["terminal_receipt_digest"],
+            row["source_snapshot_id"],
         )
 
     def list_checkpoints(

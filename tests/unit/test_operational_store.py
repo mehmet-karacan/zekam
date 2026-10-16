@@ -96,6 +96,7 @@ def test_uow_persists_project_source_work_run_step_and_checkpoint(tmp_path: Path
             plan_digest=digest("plan-v1"),
             budget={"max_seconds": 60, "max_tokens": 1000},
         )
+        assert run.source_snapshot_id == snapshot.id
         first = uow.add_run_step(
             run_id=run.id,
             step_key="inspect",

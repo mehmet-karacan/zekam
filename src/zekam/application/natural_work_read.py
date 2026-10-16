@@ -142,6 +142,7 @@ def read_work_request(
                     "run_id": run.id,
                     "status": run.status,
                     "terminal_receipt_digest": run.terminal_receipt_digest,
+                    "source_snapshot_id": run.source_snapshot_id,
                     "checkpoints": [
                         {
                             "id": row.id,

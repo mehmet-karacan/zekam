@@ -29,7 +29,9 @@ snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 
 ## Devam baglantisi
 
-`recent_events` ve `runs` alanlari Work'in canonical event/run zincirini; `bound_jobs`
+`recent_events` ve `runs` alanlari Work'in canonical event/run zincirini; Run ozetleri
+`source_snapshot_id` alanini koruyarak planin baglandigi kaynak snapshot'ini gosterebilir.
+`bound_jobs`
 alanlari ise project, Work revision, Run, step, source snapshot, config ve plan
 digest bagini gosterir. Bu gorunum yeni lease veya grant uretmez. Efekt baslatmadan
 once mevcut lease, grant, source ve binding kosullari yeniden dogrulanmalidir.
