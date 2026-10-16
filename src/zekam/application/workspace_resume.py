@@ -25,6 +25,12 @@ _RAG_STATE_LIMIT = 64 * 1024
 _PROMPT_LIMIT = 16 * 1024
 
 
+def _read_only_uow(store: Any) -> Any:
+    """Use a non-locking read transaction when the operational store supports it."""
+    reader = getattr(store, "read_only_unit_of_work", None)
+    return reader() if callable(reader) else store.unit_of_work()
+
+
 def _bounded(value: object, *, limit: int = 500) -> str:
     text = " ".join(str(value or "").split())
     return text[:limit]
@@ -183,7 +189,7 @@ def _knowledge_refs(database: Path) -> list[dict[str, str]]:
         from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
         store = SQLiteOperationalStore(database)
-        with store.unit_of_work() as uow:
+        with _read_only_uow(store) as uow:
             notes = uow.list_knowledge_notes(state="active", limit=8)
             uow.commit()
     except Exception:
@@ -232,7 +238,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
     dependencies: dict[str, dict[str, Any]] = {}
     if database.is_file():
         store = SQLiteOperationalStore(database)
-        with store.unit_of_work() as uow:
+        with _read_only_uow(store) as uow:
             projects = uow.list_projects_limited(limit=_PROJECT_LIMIT, include_archived=False)
             open_work = uow.list_work_limited(
                 limit=_OPEN_WORK_LIMIT + 1, states=tuple(sorted(OPEN_STATES))

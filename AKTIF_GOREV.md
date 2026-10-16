@@ -1343,6 +1343,8 @@ ozeti de okunur; salt-okunur kapsam korunur.
 dogal dil yollarinda SQLite read-only transaction kullanilir; gereksiz
 `BEGIN IMMEDIATE` write lock tutulmaz. Mutasyon yollarinin optimistic commit
 kapisi degismez. Unit regresyon kaynagi hazirlandi, testler CALISTIRILMADI.
+`workspace_resume` ve bounded knowledge ref okumalari da desteklenen store'da
+ayni read-only UoW yolunu kullanir.
 
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
