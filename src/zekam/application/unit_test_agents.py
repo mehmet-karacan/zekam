@@ -151,6 +151,7 @@ class AgentResponse:
     output_bytes: int
     #: "canonical" uretim yolu; testlerde istemci replay/mock ise adapter etiketi.
     client_id: str
+    execution_evidence_digest: str | None = None
 
     @property
     def envelope_digest(self) -> str:
@@ -184,6 +185,7 @@ class CanonicalUnitTestAgentGateway:
     max_context_bytes: int = 200_000
     is_remote: bool = False
     now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC)
+    artifact_registrar: Callable[[str, int, str], None] | None = None
 
     @property
     def remote(self) -> bool:
@@ -354,6 +356,18 @@ class CanonicalUnitTestAgentGateway:
             raise AgentDispatchFailure(result.failure_category or result.outcome.value)
         payload = self._load_artifact(result.payload)
         envelope = self._envelope(payload, task)
+        from zekam.application.unit_test_execution_evidence import capture_agent_execution
+
+        execution_evidence = capture_agent_execution(
+            self.objects,
+            task=task,
+            assignment=assignment,
+            invocation=invocation,
+            dispatch=result,
+            envelope=envelope,
+            adapter=adapter,
+            artifact_registrar=self.artifact_registrar,
+        )
         return AgentResponse(
             specialty=task.specialty,
             assignment_id=assignment_id,
@@ -363,6 +377,7 @@ class CanonicalUnitTestAgentGateway:
             context_bytes=len(context_bytes),
             output_bytes=len(canonical_bytes(payload)),
             client_id=adapter.descriptor.client_id,
+            execution_evidence_digest=execution_evidence,
         )
 
 

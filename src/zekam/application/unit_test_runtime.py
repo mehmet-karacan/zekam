@@ -299,6 +299,7 @@ def compose_agent_gateway(
         adapters=adapters,
         cwd=binding.project_root,
         is_remote=binding.remote_model,
+        artifact_registrar=artifact_registrar,
     )
 
 

@@ -191,6 +191,9 @@ class LoopState:
     context_gaps: list[str] = field(default_factory=list)
     flaky_diagnoses: list[dict[str, Any]] = field(default_factory=list)
     last_builder_agent_id: str | None = None
+    last_builder_execution_digest: str | None = None
+    accepted_builder_execution_digests: list[str] = field(default_factory=list)
+    builder_provenance_complete: bool = True
     stale_flag: bool = False
     scope_flag: bool = False
     context_flag: bool = False
@@ -224,6 +227,9 @@ class LoopState:
             "context_gaps": self.context_gaps,
             "flaky_diagnoses": self.flaky_diagnoses,
             "last_builder_agent_id": self.last_builder_agent_id,
+            "last_builder_execution_digest": self.last_builder_execution_digest,
+            "accepted_builder_execution_digests": list(self.accepted_builder_execution_digests),
+            "builder_provenance_complete": self.builder_provenance_complete,
             "stale_flag": self.stale_flag,
             "scope_flag": self.scope_flag,
             "context_flag": self.context_flag,
@@ -272,6 +278,14 @@ class LoopState:
             context_gaps=list(p["context_gaps"]),
             flaky_diagnoses=list(p["flaky_diagnoses"]),
             last_builder_agent_id=p["last_builder_agent_id"],
+            last_builder_execution_digest=p.get("last_builder_execution_digest"),
+            accepted_builder_execution_digests=list(
+                p.get("accepted_builder_execution_digests", [])
+            ),
+            builder_provenance_complete=p.get(
+                "builder_provenance_complete", not p["accepted_files"]
+            )
+            is True,
             stale_flag=bool(p["stale_flag"]),
             scope_flag=bool(p["scope_flag"]),
             context_flag=bool(p["context_flag"]),

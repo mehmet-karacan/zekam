@@ -855,6 +855,7 @@ class _Session:
         if response is None:
             return
         state.last_builder_agent_id = response.envelope.agent_id
+        state.last_builder_execution_digest = response.execution_evidence_digest
         try:
             body = parse_build_body(response.body, self.request)
             char_required = self._validate_proposal(body, batch_ids, policy, plan)
@@ -1580,6 +1581,8 @@ class _Session:
         evidence = {
             **base,
             "verifier_envelope": response.envelope_digest,
+            "builder_execution_digest": state.last_builder_execution_digest,
+            "verifier_execution_digest": response.execution_evidence_digest,
             "verdict": verdict_body.effective_verdict.value,
             "quality_codes": list(verdict_body.quality_codes),
         }
@@ -1669,6 +1672,10 @@ class _Session:
         state.accepted_observations = new_obs
         state.accepted_measurement_digest = record.record_digest
         state.accepted_candidate_digest = manifest.candidate_digest
+        if state.last_builder_execution_digest is None:
+            state.builder_provenance_complete = False
+        elif state.last_builder_execution_digest not in state.accepted_builder_execution_digests:
+            state.accepted_builder_execution_digests.append(state.last_builder_execution_digest)
         state.char_gate -= char_required
         if verdict_body.new_material_risks and state.plan is not None:
             state.plan = state.plan.with_scenarios(verdict_body.new_material_risks)
@@ -1799,6 +1806,9 @@ class _Session:
             expected_candidate=state.accepted_candidate_digest,
             extra={
                 "final_verifier_envelope": response.envelope_digest,
+                "final_verifier_execution_digest": response.execution_evidence_digest,
+                "builder_execution_digests": list(state.accepted_builder_execution_digests),
+                "builder_provenance_complete": state.builder_provenance_complete,
                 "measurement_digest": record.record_digest,
                 "freshness": "re-verified-from-disk-before-terminal",
             },
