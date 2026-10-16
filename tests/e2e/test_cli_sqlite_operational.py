@@ -558,6 +558,8 @@ def test_work_resume_reads_canonical_activity_and_runs(tmp_path: Path) -> None:
             "status": "planned",
             "plan_digest": digest("resume-plan"),
             "terminal_receipt_digest": None,
+            "source_snapshot_id": None,
+            "config_revision_id": config.id,
         }
     ]
     assert document["recent_activity"][0]["work_item_id"] == work.id
