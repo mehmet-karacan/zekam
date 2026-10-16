@@ -9,6 +9,7 @@ from typing import Any
 from zekam.application.bounded_file import read_bounded_text
 from zekam.application.capability_inventory import compact_capability_summary
 from zekam.application.opencode_lifecycle import resume_projection
+from zekam.application.run_readback import run_document
 from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation
@@ -37,51 +38,6 @@ def _bounded(value: object, *, limit: int = 500) -> str:
     return text[:limit]
 
 
-def _run_document(run: Any) -> dict[str, Any]:
-    """Kanonik Run baglarini bounded resume belgesine tasir."""
-
-    source_snapshot_id = run.source_snapshot_id
-    source_fingerprint = {
-        "snapshot_id": source_snapshot_id,
-        "binding_id": getattr(run, "source_binding_id", None),
-        "revision_ref": getattr(run, "source_revision_ref", None),
-        "tree_digest": getattr(run, "source_tree_digest", None),
-        "content_digest": getattr(run, "source_content_digest", None),
-        "config_digest": getattr(run, "source_config_digest", None),
-    }
-    source_bound = source_snapshot_id is not None
-    source_complete = not source_bound or all(
-        source_fingerprint[key] is not None
-        for key in ("binding_id", "revision_ref", "tree_digest", "content_digest", "config_digest")
-    )
-    config_fingerprint = {
-        "revision_id": run.config_revision_id,
-        "digest": getattr(run, "config_digest", None),
-    }
-    config_complete = (
-        run.config_revision_id is not None and config_fingerprint["digest"] is not None
-    )
-    fingerprints_complete = source_complete and config_complete
-    fingerprints_consistent = fingerprints_complete and (
-        not source_bound or source_fingerprint["config_digest"] == config_fingerprint["digest"]
-    )
-    return {
-        "id": run.id,
-        "status": run.status,
-        "plan_digest": run.plan_digest,
-        "terminal_receipt_digest": run.terminal_receipt_digest,
-        "source_snapshot_id": run.source_snapshot_id,
-        "config_revision_id": run.config_revision_id,
-        "fingerprints": {
-            "source": source_fingerprint,
-            "config": config_fingerprint,
-            "complete": fingerprints_complete,
-            "consistent": fingerprints_consistent,
-            "revalidation_required": not fingerprints_consistent,
-        },
-    }
-
-
 def _work_document(
     item: Any,
     projects: dict[str, str],
@@ -100,7 +56,7 @@ def _work_document(
         "acceptance_criteria": [_bounded(value) for value in item.acceptance_criteria[:20]],
         "evidence_recorded": item.evidence_digest is not None,
         "dependencies": dependencies,
-        "recent_runs": [_run_document(run) for run in recent_runs],
+        "recent_runs": [run_document(run) for run in recent_runs],
         "recent_runs_truncated": recent_runs_truncated,
         "recent_runs_limit": _RECENT_RUN_LIMIT,
     }

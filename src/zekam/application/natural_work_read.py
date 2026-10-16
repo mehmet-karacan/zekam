@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from zekam.application.operational_store import OperationalUnitOfWork
+from zekam.application.run_readback import run_document
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.intake import normalize_text
@@ -144,6 +145,7 @@ def read_work_request(
                     "terminal_receipt_digest": run.terminal_receipt_digest,
                     "source_snapshot_id": run.source_snapshot_id,
                     "config_revision_id": run.config_revision_id,
+                    "fingerprints": run_document(run)["fingerprints"],
                     "checkpoints": [
                         {
                             "id": row.id,

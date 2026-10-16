@@ -15,6 +15,9 @@ Dogru Work kimligiyle cagrilan `work show --json` de ayni bounded alanlari salt
 okunur olarak verir; exact Work icin son Run ozetleri ve truncation durumu da
 canonical SQLite'dan okunur. Bagimlilik ozeti de ayni exact Work scope'unda
 okunur.
+`work resume --json`, `work show --json`, dogal dil Work status ve
+`workspace_resume` ayni `run_document` projection'ini kullanir; Run fingerprint
+alanlari yuzeyler arasinda farkli okunmaz.
 Checkpoint readback'i de canonical `source_snapshot_id` alanini korur; kaynak
 snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 

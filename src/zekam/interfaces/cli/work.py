@@ -13,6 +13,7 @@ from rich.console import Console
 
 from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.operational_store import OperationalWorkRecord
+from zekam.application.run_readback import run_document
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
@@ -68,17 +69,7 @@ def resume_command(
                     for event in events
                 )
                 runs = uow.list_runs(work_id, limit=_RESUME_RUN_LIMIT)
-                recent_runs[work_id] = tuple(
-                    {
-                        "id": run.id,
-                        "status": run.status,
-                        "plan_digest": run.plan_digest,
-                        "terminal_receipt_digest": run.terminal_receipt_digest,
-                        "source_snapshot_id": run.source_snapshot_id,
-                        "config_revision_id": run.config_revision_id,
-                    }
-                    for run in runs
-                )
+                recent_runs[work_id] = tuple(run_document(run) for run in runs)
             bound_jobs = uow.list_bound_jobs_limited(
                 work_item_ids=returned_work_ids,
                 limit=_RESUME_BOUND_JOB_LIMIT + 1,
@@ -524,15 +515,7 @@ def _json_object(raw: str, label: str) -> dict[str, Any]:
 
 
 def _run_document(run: Any) -> dict[str, Any]:
-    return {
-        "id": run.id,
-        "work_item_id": run.work_item_id,
-        "status": run.status,
-        "plan_digest": run.plan_digest,
-        "terminal_receipt_digest": run.terminal_receipt_digest,
-        "source_snapshot_id": run.source_snapshot_id,
-        "config_revision_id": run.config_revision_id,
-    }
+    return run_document(run, include_work_item_id=True)
 
 
 def _step_document(step: Any) -> dict[str, Any]:

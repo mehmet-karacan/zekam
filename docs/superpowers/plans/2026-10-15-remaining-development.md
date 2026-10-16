@@ -105,6 +105,7 @@
 - Gorev 5 WP-09/10 native usage: desteklenen exact OpenCode v2.0.29 schema kaynagindan step_finish token component ve host USD estimate optional CAS artifact'e baglandi. Legacy/partial null, native skill iki-step coverage ve total/identity readback eklendi; strict artifact consumers guncellendi. Tournament historical/new selector ayri kapsamda raporlar. Provider requests/billed cost bilinmez, hard-cap/gercek native kabul acik. Regresyon kaynaklari hazir, CALISTIRILMADI; docs/OPENCODE_NATIVE_USAGE.md.
 
 - Gorev 2 WP-07.04 resume Run fingerprint readback: bounded Run ozetleri canonical source binding/revision/tree/content/config ve config revision digestlerini ayni SQLite joininden tasir. Eksik veya source-config uyumsuz bag `complete=false`, `consistent=false`, `revalidation_required=true` olarak fail-closed gorunur; yeni lease/grant/efekt uretilmez. Regresyon kaynagi hazir, CALISTIRILMADI.
+- Gorev 2 WP-07.04 ortak Run projection: `work resume`, `work show`, dogal dil Work status ve `workspace_resume` ayni bounded `run_document` yardimcisini kullanir; fingerprint alanlari yuzeyler arasinda kaybolmaz. Regresyon kaynagi hazir, CALISTIRILMADI.
 
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 

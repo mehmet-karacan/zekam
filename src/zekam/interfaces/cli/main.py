@@ -48,6 +48,7 @@ from zekam.application.project_rag_runtime import (
     resolve_question_project,
     resolve_registered_project,
 )
+from zekam.application.run_readback import run_document
 from zekam.application.request_routing import (
     RegisteredProject,
     load_project_families,
@@ -628,6 +629,7 @@ def _ask_work_status(
                             "terminal_receipt_digest": run.terminal_receipt_digest,
                             "source_snapshot_id": run.source_snapshot_id,
                             "config_revision_id": run.config_revision_id,
+                            "fingerprints": run_document(run)["fingerprints"],
                             "receipt": {
                                 "status": receipt_status,
                                 "digest": run.terminal_receipt_digest,
