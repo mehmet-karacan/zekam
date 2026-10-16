@@ -25,6 +25,7 @@ def _manifest() -> dict[str, object]:
     return {
         "schema": "zekam-local-embedding-install/v1",
         "repository": subject.MODEL_REPOSITORY,
+        "source_revision": subject.MODEL_REVISION,
         "revision": subject.MODEL_REVISION,
         "model_ref": subject.EXACT_MODEL_ID,
         "model_file": subject.MODEL_FILE,
