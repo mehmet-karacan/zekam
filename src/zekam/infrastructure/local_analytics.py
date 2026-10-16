@@ -94,12 +94,17 @@ _COUNT_METRICS = frozenset(
         "budget_used",
         "candidate_count",
         "count",
+        "cost_micros",
         "dimension",
         "error_count",
         "failure_count",
+        "input_tokens",
         "memory_bytes",
+        "output_tokens",
+        "provider_calls",
         "recovery_count",
         "success_count",
+        "tokens",
         "trial_count",
     }
 )
@@ -750,6 +755,123 @@ class LocalAnalyticsStore:
                 _sync_directory(self.raw)
                 raise
         return digest(manifest)
+
+    def usage_for_refs(
+        self,
+        *,
+        work_ref: str | None = None,
+        run_ref: str | None = None,
+        limit: int = 128,
+    ) -> dict[str, Any]:
+        """Project bounded, read-only usage for one canonical Work or Run.
+
+        Analytics is a derived projection, so it can only report measurements
+        that were actually emitted as immutable events.  Missing metrics remain
+        ``None`` and are never inferred from a budget or from elapsed wall time.
+        The projection carries only safe dimensions and event digests; prompts,
+        responses and secrets are not present in the event schema.
+        """
+
+        if (work_ref is None) == (run_ref is None):
+            raise ValidationFailed("Local analytics Work veya Run ref ister")
+        if type(limit) is not int or not 1 <= limit <= MAX_EVENTS:
+            raise ValidationFailed("Local analytics usage pencere siniri gecersiz")
+        selected_ref = run_ref if run_ref is not None else work_ref
+        assert selected_ref is not None
+        _token(selected_ref, "usage reference")
+        if work_ref is not None:
+            _token(work_ref, "usage Work ref")
+        if run_ref is not None:
+            _token(run_ref, "usage Run ref")
+
+        if not self.manifests.is_dir() or not self.raw.is_dir():
+            return {
+                "schema": "zekam-analytics-usage/v1",
+                "status": "unknown",
+                "reference": selected_ref,
+                "reference_kind": "run" if run_ref is not None else "work",
+                "models": [],
+                "provider_calls": None,
+                "tokens": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "duration_seconds": None,
+                "cost_micros": None,
+                "event_count": 0,
+                "event_ids": [],
+                "events_truncated": False,
+                "reason": "analytics-events-missing",
+                "grants_authority": False,
+            }
+
+        events: list[dict[str, Any]] = []
+        for _manifest, rows in self._segments():
+            for event in rows:
+                if work_ref is not None and event.get("work_ref") != work_ref:
+                    continue
+                if run_ref is not None and event.get("run_ref") != run_ref:
+                    continue
+                events.append(event)
+        events.sort(key=lambda item: (str(item["occurred_at"]), str(item["event_id"])))
+        truncated = len(events) > limit
+        selected = events[-limit:]
+        metric_names = (
+            "provider_calls",
+            "tokens",
+            "input_tokens",
+            "output_tokens",
+            "duration_seconds",
+            "cost_micros",
+        )
+        totals: dict[str, float] = {name: 0.0 for name in metric_names}
+        observed: dict[str, int] = {name: 0 for name in metric_names}
+        models: set[str] = set()
+        for event in selected:
+            dimensions = event.get("dimensions")
+            if isinstance(dimensions, dict) and isinstance(dimensions.get("model_ref"), str):
+                models.add(_stored_token(dimensions["model_ref"], "usage model ref"))
+            metrics = event.get("metrics")
+            if not isinstance(metrics, dict):
+                raise PolicyViolation("Local analytics usage metric projection drift")
+            for name in metric_names:
+                value = metrics.get(name)
+                if value is None:
+                    continue
+                if type(value) is not float or not math.isfinite(value) or value < 0.0:
+                    raise PolicyViolation("Local analytics usage metric drift")
+                totals[name] += value
+                observed[name] += 1
+
+        def total(name: str) -> int | float | None:
+            if observed[name] == 0:
+                return None
+            value = totals[name]
+            return int(value) if name != "duration_seconds" else value
+
+        has_measurement = any(observed.values())
+        complete = (
+            has_measurement
+            and not truncated
+            and all(observed[name] > 0 for name in metric_names)
+        )
+        return {
+            "schema": "zekam-analytics-usage/v1",
+            "status": "observed" if complete else ("partial" if has_measurement else "unknown"),
+            "reference": selected_ref,
+            "reference_kind": "run" if run_ref is not None else "work",
+            "models": sorted(models),
+            "provider_calls": total("provider_calls"),
+            "tokens": total("tokens"),
+            "input_tokens": total("input_tokens"),
+            "output_tokens": total("output_tokens"),
+            "duration_seconds": total("duration_seconds"),
+            "cost_micros": total("cost_micros"),
+            "event_count": len(events),
+            "event_ids": [str(item["event_id"]) for item in selected],
+            "events_truncated": truncated,
+            "source_digests": sorted({str(item["source_digest"]) for item in selected}),
+            "grants_authority": False,
+        }
 
     def _segments(self) -> tuple[tuple[dict[str, Any], tuple[dict[str, Any], ...]], ...]:
         result: list[tuple[dict[str, Any], tuple[dict[str, Any], ...]]] = []

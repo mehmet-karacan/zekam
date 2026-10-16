@@ -68,6 +68,7 @@ from zekam.domain.intake import normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.work import OPEN_STATES
 from zekam.infrastructure.local_core_services import LocalCoreServices
+from zekam.infrastructure.local_analytics import LocalAnalyticsStore
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.interfaces.cli import backup as backup_commands
@@ -474,6 +475,114 @@ def _is_work_status_question(question: str) -> bool:
     return any(phrase in normalized for phrase in _WORK_STATUS_PHRASES)
 
 
+def _unknown_usage(*, reference: str, reference_kind: str, reason: str) -> dict[str, Any]:
+    """Return the stable no-measurement shape used by Work reports."""
+
+    return {
+        "schema": "zekam-analytics-usage/v1",
+        "status": "unknown",
+        "reference": reference,
+        "reference_kind": reference_kind,
+        "models": [],
+        "provider_calls": None,
+        "tokens": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "duration_seconds": None,
+        "cost_micros": None,
+        "event_count": 0,
+        "event_ids": [],
+        "events_truncated": False,
+        "reason": reason,
+        "grants_authority": False,
+    }
+
+
+def _analytics_usage(
+    resolved_home: Path, *, work_ref: str | None = None, run_ref: str | None = None
+) -> dict[str, Any]:
+    """Read measured usage without bootstrapping or mutating the analytics store."""
+
+    reference = run_ref if run_ref is not None else work_ref
+    reference_kind = "run" if run_ref is not None else "work"
+    if reference is None:
+        raise PolicyViolation("Analytics usage exact Work veya Run ref ister")
+    try:
+        return LocalAnalyticsStore(resolved_home / "analytics").usage_for_refs(
+            work_ref=work_ref, run_ref=run_ref
+        )
+    except (OSError, ZekamError):
+        return _unknown_usage(
+            reference=reference, reference_kind=reference_kind, reason="analytics-unavailable"
+        )
+
+
+def _merge_usage(
+    usage_documents: list[dict[str, Any]], *, reference: str, reference_kind: str
+) -> dict[str, Any]:
+    """Merge disjoint Work usage projections without inventing missing values."""
+
+    if not usage_documents:
+        return _unknown_usage(
+            reference=reference, reference_kind=reference_kind, reason="analytics-events-missing"
+        )
+    metric_names = (
+        "provider_calls",
+        "tokens",
+        "input_tokens",
+        "output_tokens",
+        "duration_seconds",
+        "cost_micros",
+    )
+    merged: dict[str, Any] = {
+        name: None for name in metric_names
+    }
+    for name in metric_names:
+        values = [item.get(name) for item in usage_documents]
+        if all(isinstance(value, int | float) and not isinstance(value, bool) for value in values):
+            merged[name] = sum(values)
+    event_ids = sorted(
+        {
+            str(event_id)
+            for item in usage_documents
+            for event_id in item.get("event_ids", [])
+            if isinstance(event_id, str)
+        }
+    )
+    models = sorted(
+        {
+            str(model)
+            for item in usage_documents
+            for model in item.get("models", [])
+            if isinstance(model, str)
+        }
+    )
+    source_digests = sorted(
+        {
+            str(source)
+            for item in usage_documents
+            for source in item.get("source_digests", [])
+            if isinstance(source, str)
+        }
+    )
+    complete = all(merged[name] is not None for name in metric_names)
+    has_events = any(int(item.get("event_count", 0) or 0) > 0 for item in usage_documents)
+    return {
+        "schema": "zekam-analytics-usage/v1",
+        "status": "observed" if complete else ("partial" if has_events else "unknown"),
+        "reference": reference,
+        "reference_kind": reference_kind,
+        "models": models,
+        **merged,
+        "event_count": sum(int(item.get("event_count", 0) or 0) for item in usage_documents),
+        "event_ids": event_ids[:128],
+        "events_truncated": len(event_ids) > 128
+        or any(item.get("events_truncated") is True for item in usage_documents),
+        "source_digests": source_digests,
+        "grants_authority": False,
+    }
+
+
 def _work_status_refs(
     resolved_home: Path,
     question: str,
@@ -528,6 +637,17 @@ def _ask_work_record(
     store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
     with store.read_only_unit_of_work() as uow:
         document = read_work_request(uow, request, project_ref=refs[0])
+    if request.operation in {"show", "checkpoints"}:
+        for run in document.get("runs", []):
+            if isinstance(run, dict) and isinstance(run.get("run_id", run.get("id")), str):
+                run_ref = str(run.get("run_id", run.get("id")))
+                run["usage"] = _analytics_usage(resolved_home, run_ref=run_ref)
+        if isinstance(document.get("work"), dict) and isinstance(document["work"].get("id"), str):
+            document["usage"] = _analytics_usage(
+                resolved_home, work_ref=str(document["work"]["id"])
+            )
+        body = {key: value for key, value in document.items() if key != "report_digest"}
+        document["report_digest"] = digest(body)
     if output_json:
         _print_json(document)
     else:
@@ -587,6 +707,7 @@ def _ask_work_status(
 
     store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
     projects: list[dict[str, Any]] = []
+    all_usage: list[dict[str, Any]] = []
     with store.read_only_unit_of_work() as uow:
         for ref in refs:
             project = uow.resolve_project(ref)
@@ -611,6 +732,7 @@ def _ask_work_status(
             )
             dependencies = uow.work_dependency_summaries(tuple(item.id for item in rows))
             items: list[dict[str, Any]] = []
+            project_usage: list[dict[str, Any]] = []
             for item in rows:
                 events = list(uow.list_work_events(item.id, limit=_WORK_STATUS_EVENT_LIMIT + 1))
                 runs: list[dict[str, Any]] = []
@@ -656,17 +778,11 @@ def _ask_work_status(
                             "checkpoints_truncated": len(checkpoint_window)
                             > _WORK_STATUS_CHECKPOINT_LIMIT,
                             # Run budget is a limit, never an actual usage measurement.
-                            "usage": {
-                                "status": "unknown",
-                                "model": "unknown",
-                                "provider_calls": None,
-                                "tokens": None,
-                                "duration_seconds": None,
-                                "cost_micros": None,
-                                "reason": "run-usage-receipt-missing",
-                            },
+                            "usage": _analytics_usage(resolved_home, run_ref=str(run.id)),
                         }
                     )
+                item_usage = _analytics_usage(resolved_home, work_ref=str(item.id))
+                project_usage.append(item_usage)
                 items.append(
                     {
                         "id": item.id,
@@ -680,12 +796,13 @@ def _ask_work_status(
                         "events_truncated": len(events) > _WORK_STATUS_EVENT_LIMIT,
                         "runs": runs,
                         "runs_truncated": len(run_window) > _WORK_STATUS_RUN_LIMIT,
-                        "usage": {
-                            "status": "unknown",
-                            "reason": "run-usage-receipt-missing",
-                        },
+                        "usage": item_usage,
                     }
                 )
+            merged_project_usage = _merge_usage(
+                project_usage, reference=ref, reference_kind="project"
+            )
+            all_usage.append(merged_project_usage)
             projects.append(
                 {
                     "project_ref": ref,
@@ -711,10 +828,7 @@ def _ask_work_status(
                         for item in items
                         if item["state"] not in {"completed", "cancelled", "archived"}
                     ],
-                    "usage": {
-                        "status": "unknown",
-                        "reason": "run-usage-receipt-missing",
-                    },
+                    "usage": merged_project_usage,
                 }
             )
         # No commit: this report is a read-only snapshot of operational authority.
@@ -733,15 +847,9 @@ def _ask_work_status(
             "checkpoints_per_run": _WORK_STATUS_CHECKPOINT_LIMIT,
             "bound_jobs_per_project": _WORK_STATUS_BOUND_JOB_LIMIT,
         },
-        "usage": {
-            "status": "unknown",
-            "model": "unknown",
-            "provider_calls": None,
-            "tokens": None,
-            "duration_seconds": None,
-            "cost_micros": None,
-            "reason": "run-usage-receipt-missing",
-        },
+        "usage": _merge_usage(
+            all_usage, reference="all-projects", reference_kind="project-set"
+        ),
         "provider_calls": 0,
         "index_triggered": False,
         "read_only": True,
@@ -754,7 +862,16 @@ def _ask_work_status(
         completed = sum(item["counts"].get("completed", 0) for item in projects)
         total_items = sum(sum(item["counts"].values()) for item in projects)
         console.print(f"toplam is: {total_items}; tamamlanan: {completed}; acik: {total}")
-        console.print("model/sure/maliyet: unknown (usage receipt yok)")
+        usage = document["usage"]
+        if usage["status"] == "unknown":
+            console.print("model/sure/maliyet: unknown (usage olcumu yok)")
+        else:
+            console.print(
+                "model: "
+                + (", ".join(usage["models"]) or "unknown")
+                + f"; sure: {usage['duration_seconds'] if usage['duration_seconds'] is not None else 'unknown'}"
+                + f"; maliyet(micros): {usage['cost_micros'] if usage['cost_micros'] is not None else 'unknown'}"
+            )
         for project in projects:
             console.print(f"{project['project_ref']}: {project['open_count']} acik is")
             if project["dependency_blocked_count"]:
