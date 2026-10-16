@@ -51,6 +51,8 @@ def test_ask_exact_work_history_uses_project_scope_without_rag(tmp_path: Path, m
     assert document["work"]["title"] == "gpu"
     assert document["events"][0]["event_kind"] == "created"
     assert document["work"]["dependencies"]["supported"] is False
+    assert document["bound_jobs"] == []
+    assert document["bound_jobs_scope"] == "exact-work"
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert database.read_bytes() == before

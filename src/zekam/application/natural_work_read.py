@@ -23,6 +23,7 @@ _READ = re.compile(r"(?<!\w)(?:goster|listele|detay|durum|gecmis|bagimlilik|oncu
 _MUTATION = re.compile(
     r"(?<!\w)(?:olustur|ekle|sil|kaldir|kapat|tamamla|baslat|degistir|gecir|guncelle|kaydet)"
 )
+_BOUND_JOB_LIMIT = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,10 @@ def read_work_request(
         raise ValidationFailed("Work read istegi exact kayit ve izinli islem ister")
     project = uow.resolve_project(project_ref)
     work = uow.resolve_work(request.reference, project_id=project.id)
+    bound_jobs = uow.list_bound_jobs_limited(
+        work_item_ids=(work.id,),
+        limit=_BOUND_JOB_LIMIT + 1,
+    )
     body: dict[str, Any] = {
         "schema": "zekam-natural-work-read/v1",
         "status": "reported",
@@ -113,6 +118,9 @@ def read_work_request(
             "dependencies": uow.work_dependency_summaries((work.id,))[work.id],
         },
         "bounded": True,
+        "bound_jobs": list(bound_jobs[:_BOUND_JOB_LIMIT]),
+        "bound_jobs_truncated": len(bound_jobs) > _BOUND_JOB_LIMIT,
+        "bound_jobs_scope": "exact-work",
         "read_only": True,
         "grants_authority": False,
         "provider_calls": 0,
@@ -146,4 +154,5 @@ def read_work_request(
                 }
             )
         body.update(runs=results, runs_truncated=len(runs) > 5, run_limit=5, checkpoint_limit=5)
+    body["bound_job_limit"] = _BOUND_JOB_LIMIT
     return body | {"report_digest": digest(body)}

@@ -1305,6 +1305,12 @@ rapora eklenir; payload, owner token ve grant alani cikmaz. E2E regresyon kaynag
 hazirlandi, testler CALISTIRILMADI; lease/grant yeniden edinimi ve Work kabul
 matrisi aciktir.
 
+**16 Ekim 2026 WP-07 exact Work read canonical bound job readback:** Tekil dogal
+dil Work okumalari exact Work icin bounded bound job ve source snapshot digest
+alanlarini canonical SQLite okuyucusundan verir; `exact-work` scope'u ve
+truncation durumu aciktir. Unit/E2E regresyon kaynaklari hazirlandi, testler
+CALISTIRILMADI; lease/grant yeniden edinimi ve Work kabul matrisi aciktir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

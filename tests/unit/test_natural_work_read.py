@@ -85,6 +85,10 @@ def test_work_read_is_scoped_bounded_and_does_not_write(tmp_path: Path) -> None:
         assert report["truncated"] is True
         assert report["grants_authority"] is False
         assert report["provider_calls"] == 0
+        assert report["bound_jobs"] == []
+        assert report["bound_jobs_truncated"] is False
+        assert report["bound_jobs_scope"] == "exact-work"
+        assert report["bound_job_limit"] == 50
         with pytest.raises(ValidationFailed):
             read_work_request(uow, WorkReadRequest(work.id, "show"), project_ref="b")
         with pytest.raises(ValidationFailed):
@@ -111,3 +115,5 @@ def test_dependency_and_checkpoint_reads_use_canonical_store(tmp_path: Path) -> 
             uow, WorkReadRequest(a.id, "checkpoints"), project_ref="demo"
         )
         assert checkpoints["runs"] == []
+        assert checkpoints["bound_jobs"] == []
+        assert checkpoints["bound_jobs_scope"] == "exact-work"

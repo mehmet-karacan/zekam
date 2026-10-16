@@ -208,6 +208,7 @@
 
 - Baslangic: 578238ef2aea1af614a766039cca3787a2e1e6f0. Kullanici bu sirali gelistirme ve son test duzenini onayladi.
 - Gorev 2 WP-07 status readback: dogal dil Work durum raporu, donen acik Work penceresine bounded bound job ve source snapshot digest ozetini baglar; scope/truncation canonical SQLite okuyucusundan gelir. E2E regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul matrisi acik.
+- Gorev 2 WP-07 exact read: tekil dogal dil Work okumasina exact-work bound job/source snapshot readback eklendi; unit/E2E regresyon kaynaklari hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul matrisi acik.
 - Eski test sonuclari yeni degisiklikler icin kanit sayilmaz. Hicbir WP bu planla kapatilmaz.
 - Gorev 1 gelistirmesi 747c6ea: lease/process marker ayrimi ve native root-drift reddi. Regresyonlar hazir; CALISTIRILMADI.
 - Gorev 3 native admission parcasi: start/checkpoint/close LOCAL_EFFECT ve work-item hint baglantisi eklendi. Regresyonlar hazir; CALISTIRILMADI. Shell/publication ve diger istemci baglari acik.

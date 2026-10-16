@@ -9,6 +9,9 @@ eventlerini, son Run ozetlerini ve bound job referanslarini okur. Dogal dildeki
 proje basina donen acik Work penceresine uygular; iki yuzey farkli bir operational
 authority veya job payload'i uretmez.
 
+Tekil dogal dil Work okumalari (`ask ... is kaydini goster`) da exact Work
+kapsaminda ayni okuyucuyu kullanir; bu yuzeyde scope `exact-work` olarak raporlanir.
+
 ## Sinirlar
 
 - En fazla 100 acik Work okunur.
