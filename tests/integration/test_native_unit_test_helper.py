@@ -44,7 +44,7 @@ def test_native_measure_without_opencode_records_real_receipt(
     def forbidden(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("native yol OpenCode adapter'i kuramaz")
 
-    monkeypatch.setattr("zekam.application.unit_test_runtime.opencode_adapter", forbidden)
+    monkeypatch.setattr("zekam.application.unit_test_runtime.opencode_batch_adapter", forbidden)
     request = env.request(percent="50")
     result = env.measure(request)
     assert result.outcome is NativeOutcome.TARGET_MET, result.to_document()

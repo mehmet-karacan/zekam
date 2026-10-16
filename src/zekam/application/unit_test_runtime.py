@@ -63,7 +63,7 @@ from zekam.domain.unit_test_engineering import (
     UnitTestStopReason,
     UnitTestTerminal,
 )
-from zekam.infrastructure.clients.adapters import opencode_adapter
+from zekam.infrastructure.clients.opencode_batch import opencode_batch_adapter
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 from zekam.infrastructure.unit_test_records import CasAssignmentStore, CasRecordIndex
@@ -253,7 +253,12 @@ def compose_agent_gateway(
         request.request_digest,
         registrar=artifact_registrar,
     )
-    adapter = opencode_adapter(str(binding.opencode_executable), model_id=binding.model_id)
+    adapter = opencode_batch_adapter(
+        str(binding.opencode_executable),
+        objects=index_objects,
+        model_id=binding.model_id,
+        network_authorized=binding.allow_network and binding.remote_model,
+    )
     adapters = dict.fromkeys(AgentSpecialty, adapter)
     return CanonicalUnitTestAgentGateway(
         work=WorkBinding(
@@ -282,8 +287,8 @@ def compose_unit_test_runtime(
 ) -> UnitTestRuntime:
     """Mevcut operational UoW ve exact binding ile gercek loop adaptorlerini baglar.
 
-    Eski explicit OpenCode batch yolu: davranis degismez; Maven bilesenleri ve agent gateway
-    artik ayri kurulur.
+    Explicit OpenCode batch native V2 run/event/CAS adapter'ini kullanir;
+    Maven bilesenleri ve agent gateway ayri kurulur.
     """
 
     parts = compose_maven_measurement(request, binding.maven_binding())

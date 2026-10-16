@@ -31,11 +31,10 @@ Regresyon kaynaklari: `tests/integration/test_process_stream_limits.py`,
 Python child'larla stdout/stderr flood, interruption, pre-cancel, terminal parent
 descendant pipe ve forged exit/JSON senaryolari hazir, CALISTIRILMADI.
 
-WP-09 explicit OpenCode batch composition halen genel assignment/context-digest
-CLI protokolunu kullaniyor. Bu protokolun kurulu OpenCode native run/event/prompt
-akisina ve CAS icerigine baglanmasi siradaki uygulama acigidir; fixture basarisi
-gercek OpenCode modeli veya unit-test engineering kabulu sayilmaz. Native Maven
-measurement yolu bu model adapter'ini kullanmaz.
+WP-09 explicit OpenCode batch composition native run/event/CAS adapter'ine
+baglandi; `docs/OPENCODE_NATIVE_BATCH.md`. Fixture basarisi gercek OpenCode
+modeli veya unit-test engineering kabulu sayilmaz. Native Maven measurement
+yolu bu model adapter'ini kullanmaz.
 
 ## Digest-bound stdin
 
@@ -50,5 +49,6 @@ process-tree cleanup'a gider. Normal cikista tam teslim edilmeyen girdi sonuc
 olarak kabul edilmez. Stdin ust siniri 262144 byte'tir.
 
 Bu parca OpenCode batch icin Windows argv sinirini asmadan CAS context tasima
-zeminidir. Native run/event parsing ve config tool-denial baglantisi ayrica
-gereklidir. Yerel Python child regresyon kaynaklari eklendi; CALISTIRILMADI.
+zeminidir. Native run/event parsing ve config tool-denial baglantisi batch
+adapter'inda kurulur. Yerel Python child regresyon kaynaklari eklendi;
+CALISTIRILMADI.

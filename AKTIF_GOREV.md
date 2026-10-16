@@ -1607,6 +1607,13 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
 
 **Kabul ve negatif testler:** Testler: multi-module, same class name, existing tests preserved, zero tests, stale JaCoCo, failed build, no-progress, model switch resume, rounding threshold ve protected production/build digest.
 
+**16 Ekim 2026 — WP-09 native batch gelistirmesi:** Composition V2 native
+run/standalone/JSON, CAS stdin, exact version probe, isolated config/home ve
+deny permissions/policies yoluna baglandi. Sonuc kimligi native event'lerden
+alinir; dispatch yalniz CAS artifact digest tasir. Regresyon kodu hazir,
+CALISTIRILMADI. Local/custom provider profili, farkli verifier modeli ve gercek
+tool-denial/end-to-end kabul acik; `docs/OPENCODE_NATIVE_BATCH.md`.
+
 **16 Ekim 2026 — WP-09/08 executable cozumleme gelistirmesi:** Arastirma ve
 test CLI ortak shell-free resolver'a baglandi; @opencode/cli ve eski
 opencode-ai npm shim referansindan secilir. Eksik/belirsiz shim reddedilir.

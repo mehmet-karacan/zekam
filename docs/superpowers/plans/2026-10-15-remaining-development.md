@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-09 native batch: composition generic wrapper yerine gercek V2 run/standalone/JSON + CAS stdin adapter'ine baglandi. Exact version probe, isolated config/home, project disable, deny permissions/policies, observed session/message ve artifact-only sonuc eklendi. Parser/negative process/CAS/native measurement ayrimi regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili, farkli verifier modeli ve gercek native tool-denial/end-to-end kabul acik; docs/OPENCODE_NATIVE_BATCH.md.
+
 - Gorev 5 WP-09/08 stdin: optional digest-bound bounded input, concurrent raw-fd writer ve ortak timeout/cancel/tree cleanup eklendi; prompt argv/spec kaydina girmez. Windows argv/pipe siniri, simultaneous output, blocked-reader timeout/interrupt ve pre-start drift/size regresyon kodu hazir, CALISTIRILMADI. Native adapter bu tasimaya baglanacak; gercek kabul halen acik.
 
 - Gorev 5 WP-09/08 executable: arastirma ve test CLI ortak shell-free npm resolver'a baglandi. Kurulu @opencode/cli ile eski opencode-ai ayrimi shim referansindan yapilir; missing/ambiguous shim fail-closed. Regresyon kaynaklari hazir, CALISTIRILMADI. Native run/event/CAS + V2 effect-oncesi tool-denial baglantisi acik; docs/OPENCODE_BINARY_COZUMLEME.md.

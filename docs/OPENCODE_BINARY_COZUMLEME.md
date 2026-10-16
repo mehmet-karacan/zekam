@@ -19,9 +19,10 @@ Resolver bir surum/capability veya tool-denial guvenlik kaniti uretmez.
 ## Acik native adapter baglantisi
 
 Genel `SubprocessClientAdapter` icin kullanilan assignment/digest flag'leri
-gercek OpenCode `run` protokolu degildir. CAS instruction/context okuma,
-native JSON event parsing, bounded stdin prompt ve effect oncesi tool-denial
-baglantisi tamamlanmadan bu generic adapter gercek batch kabulu sayilamaz.
+gercek OpenCode `run` protokolu degildir. Test batch composition artik
+`OpenCodeBatchAdapter` ile CAS instruction/context, bounded stdin ve native
+JSON event protokolune baglidir; `docs/OPENCODE_NATIVE_BATCH.md`.
+Generic wrapper adapter'i gercek native batch kabulu sayilmaz.
 
 V2 config'te `permissions` ve `policies` vardir. Built-in `plan` agent'i tum
 shell/tool effect'lerini yasaklamaz. Noninteractive permission reject de default
