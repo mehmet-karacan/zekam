@@ -187,6 +187,26 @@ create table if not exists provider_document_input_slot(
 ) strict;
 create index if not exists provider_document_input_lookup
 on provider_document_input_slot(input_digest,job_id);
+create table if not exists provider_document_input_reconciliation(
+  realm_id text not null,
+  project_id text not null,
+  profile_digest text not null,
+  request_digest text not null,
+  body_json text not null check(json_valid(body_json)),
+  body_digest text not null,
+  created_at text not null,
+  primary key(realm_id,project_id,profile_digest,request_digest)
+) strict;
+create index if not exists provider_document_input_reconciliation_lookup
+on provider_document_input_reconciliation(realm_id,project_id,profile_digest,request_digest);
+create trigger if not exists provider_document_input_reconciliation_no_update
+before update on provider_document_input_reconciliation begin
+  select raise(abort,'provider_document_input_reconciliation append-only');
+end;
+create trigger if not exists provider_document_input_reconciliation_no_delete
+before delete on provider_document_input_reconciliation begin
+  select raise(abort,'provider_document_input_reconciliation append-only');
+end;
 create trigger if not exists provider_document_input_manifest_no_update
 before update on provider_document_input_manifest begin
   select raise(abort,'provider_document_input_manifest append-only');
@@ -669,6 +689,189 @@ class SQLiteDocumentEmbeddingJournal:
         for vector in vectors:
             profile.validate_vector(vector)
 
+    @staticmethod
+    def _reconciliation_request_digest(
+        key: tuple[str, str, str, str], inputs: tuple[str, ...]
+    ) -> str:
+        return digest(
+            {
+                "schema": "zekam-provider-document-input-reconciliation-request/v1",
+                "realm_id": key[0],
+                "project_id": key[1],
+                "effect_digest": key[2],
+                "profile_digest": key[3],
+                "input_digests": list(inputs),
+            }
+        )
+
+    def _validate_reconciliation_slot(
+        self,
+        key: tuple[str, str, str, str],
+        profile: EmbeddingProfile,
+        item: Mapping[str, Any],
+        input_digest: str,
+    ) -> tuple[str, str, tuple[tuple[float, ...], ...]]:
+        required = {
+            "input_digest",
+            "slot",
+            "parent_effect_digest",
+            "manifest_digest",
+            "claim_id",
+            "receipt_id",
+            "result_digest",
+            "operation",
+        }
+        if set(item) != required or item.get("input_digest") != input_digest:
+            raise PolicyViolation("Document reconciliation input kaniti drift")
+        slot = item.get("slot")
+        parent_effect_digest = item.get("parent_effect_digest")
+        operation = item.get("operation")
+        if (
+            type(slot) is not int
+            or not 0 <= slot < 64
+            or not isinstance(parent_effect_digest, str)
+            or not isinstance(operation, str)
+            or not operation.startswith("provider-contract:opencode-embedding-document-")
+            or not all(
+                isinstance(item.get(name), str)
+                for name in ("manifest_digest", "claim_id", "receipt_id", "result_digest")
+            )
+        ):
+            raise PolicyViolation("Document reconciliation slot typed evidence invalid")
+        parent_key = (key[0], key[1], parent_effect_digest, key[3])
+        parent = self._load_key(parent_key, profile, operation)
+        if parent is None or slot >= len(parent.vectors):
+            raise PolicyViolation("Document reconciliation parent vector kaniti eksik")
+        with self.host._connect() as db:
+            source = db.execute(
+                "select v.claim_id,v.receipt_id,c.operation,r.status,v.vectors_digest,"
+                "m.binding_digest,s.input_digest "
+                "from provider_document_vector_result v "
+                "join provider_effect_claim c on c.id=v.claim_id "
+                "join provider_effect_receipt r on r.id=v.receipt_id and r.claim_id=c.id "
+                "join provider_document_input_manifest m on m.job_id=c.job_id "
+                "join provider_document_input_slot s on s.job_id=m.job_id "
+                "where v.realm_id=? and v.project_id=? and v.effect_digest=? "
+                "and v.profile_digest=? and s.input_digest=? and s.slot=?",
+                (*parent_key, input_digest, slot),
+            ).fetchone()
+        if source is None or tuple(source) != (
+            item["claim_id"],
+            item["receipt_id"],
+            operation,
+            "completed",
+            item["result_digest"],
+            item["manifest_digest"],
+            input_digest,
+        ):
+            raise PolicyViolation("Document reconciliation claim/receipt kaniti drift")
+        if parent.evidence_digest != item["result_digest"]:
+            raise PolicyViolation("Document reconciliation result kaniti drift")
+        return parent_effect_digest, operation, parent.vectors
+
+    def _load_reconciliation(
+        self,
+        key: tuple[str, str, str, str],
+        profile: EmbeddingProfile,
+        inputs: tuple[str, ...],
+    ) -> RecoveredDocumentVectors | None:
+        request_digest = self._reconciliation_request_digest(key, inputs)
+        with self.host._connect() as db:
+            row = db.execute(
+                "select body_json,body_digest from provider_document_input_reconciliation "
+                "where realm_id=? and project_id=? and profile_digest=? and request_digest=?",
+                (*key[:2], key[3], request_digest),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            body = json.loads(str(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise PolicyViolation("Document reconciliation body JSON gecersiz") from exc
+        if (
+            not isinstance(body, dict)
+            or canonical_json(body) != str(row[0])
+            or digest(body) != str(row[1])
+            or body.get("schema") != "zekam-provider-document-input-reconciliation/v1"
+            or body.get("realm_id") != key[0]
+            or body.get("project_id") != key[1]
+            or body.get("profile_digest") != key[3]
+            or body.get("request_digest") != request_digest
+            or body.get("requested_key") != list(key)
+            or body.get("input_digests") != list(inputs)
+        ):
+            raise PolicyViolation("Document reconciliation request binding drift")
+        slots = body.get("slots")
+        if not isinstance(slots, list) or len(slots) != len(inputs) or not slots:
+            raise PolicyViolation("Document reconciliation slot listesi gecersiz")
+        vectors: list[tuple[float, ...]] = []
+        used: set[tuple[str, int]] = set()
+        for input_digest, item in zip(inputs, slots, strict=True):
+            if not isinstance(item, dict):
+                raise PolicyViolation("Document reconciliation slot nesnesi gecersiz")
+            parent_effect_digest, _operation, parent_vectors = self._validate_reconciliation_slot(
+                key, profile, item, input_digest
+            )
+            slot = item["slot"]
+            marker = (parent_effect_digest, slot)
+            if marker in used:
+                raise PolicyViolation("Document reconciliation slot duplicate")
+            used.add(marker)
+            vectors.append(parent_vectors[slot])
+        evidence = digest({"requested_key": key, "slots": slots})
+        if body.get("evidence_digest") != evidence:
+            raise PolicyViolation("Document reconciliation evidence digest drift")
+        for vector in vectors:
+            profile.validate_vector(vector)
+        return RecoveredDocumentVectors(tuple(vectors), evidence)
+
+    def _store_reconciliation(
+        self,
+        key: tuple[str, str, str, str],
+        inputs: tuple[str, ...],
+        slots: list[dict[str, Any]],
+    ) -> str:
+        request_digest = self._reconciliation_request_digest(key, inputs)
+        evidence_digest = digest({"requested_key": key, "slots": slots})
+        body = {
+            "schema": "zekam-provider-document-input-reconciliation/v1",
+            "realm_id": key[0],
+            "project_id": key[1],
+            "profile_digest": key[3],
+            "request_digest": request_digest,
+            "requested_key": list(key),
+            "input_digests": list(inputs),
+            "slots": slots,
+            "evidence_digest": evidence_digest,
+        }
+        body_json = canonical_json(body)
+        body_digest = digest(body)
+        with self.host._connect() as db:
+            db.execute("begin immediate")
+            existing = db.execute(
+                "select body_json,body_digest from provider_document_input_reconciliation "
+                "where realm_id=? and project_id=? and profile_digest=? and request_digest=?",
+                (*key[:2], key[3], request_digest),
+            ).fetchone()
+            if existing is None:
+                db.execute(
+                    "insert into provider_document_input_reconciliation values(?,?,?,?,?,?,?)",
+                    (
+                        key[0],
+                        key[1],
+                        key[3],
+                        request_digest,
+                        body_json,
+                        body_digest,
+                        dt.datetime.now(dt.UTC).isoformat(),
+                    ),
+                )
+            elif tuple(existing) != (body_json, body_digest):
+                db.rollback()
+                raise PolicyViolation("Document reconciliation immutable drift")
+            db.commit()
+        return evidence_digest
+
     def load(
         self,
         prepared: PreparedProviderContractCall,
@@ -680,6 +883,10 @@ class SQLiteDocumentEmbeddingJournal:
             self._validate_vectors(prepared, profile, exact.vectors)
             return exact
         inputs = _document_input_digests(prepared, profile)
+        reconciled = self._load_reconciliation(key, profile, inputs)
+        if reconciled is not None:
+            self._validate_vectors(prepared, profile, reconciled.vectors)
+            return reconciled
         vectors = []
         evidence = []
         parents = {}
@@ -776,15 +983,16 @@ class SQLiteDocumentEmbeddingJournal:
                     {
                         "input_digest": input_digest,
                         "slot": slot,
+                        "parent_effect_digest": parent_key[2],
                         "manifest_digest": manifest_digest,
                         "claim_id": claim_id,
                         "receipt_id": receipt_id,
+                        "operation": operation,
                         "result_digest": parent.evidence_digest,
                     }
                 )
-        return RecoveredDocumentVectors(
-            tuple(vectors), digest({"requested_key": key, "slots": evidence})
-        )
+        evidence_digest = self._store_reconciliation(key, inputs, evidence)
+        return RecoveredDocumentVectors(tuple(vectors), evidence_digest)
 
     def _load_key(
         self,

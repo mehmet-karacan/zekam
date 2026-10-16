@@ -73,6 +73,13 @@
   `ProviderCallQuotaExceeded` sinifina bagladi; generic policy mesaji yerine
   canonical quota sinyali korunuyor. Testler CALISTIRILMADI.
 
+- Gorev 4 WP-05.04: Yeniden gruplanan embedding girdileri icin input-level
+  claim/receipt eslesmesi append-only `provider_document_input_reconciliation`
+  ledger tablosuna baglandi. Requested input sirasi, parent effect, slot,
+  manifest, claim, receipt ve vector evidence digest'i her recovery'de yeniden
+  okunuyor; duplicate veya drift fail-closed kaliyor. Testler CALISTIRILMADI;
+  provider quota, legacy adoption ve gercek performance kabul kapilari acik.
+
 - Gorev 4 WP-05.04: Project source identity artik bounded discovery
   `inventory_digest` alanini da tasiyor. Manifest ve normalized document
   parser profile ayni metadata kimligiyle baglandi; ignored/generated veya
