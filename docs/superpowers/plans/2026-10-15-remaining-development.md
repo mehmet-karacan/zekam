@@ -48,6 +48,13 @@
   uygular. Yeni regresyon kaynaklari eklendi, AST/diff kontrolleri yapildi;
   pytest CALISTIRILMADI. Commitler: `6cbd2d2`, `af55982`, `44c0afc`.
 
+- 17 Ekim 2026 kaynak denetimi: onceki "compose_agent_gateway generic
+  digest-flag" acigi artik gecerli degil. `unit_test_runtime.py` gercek
+  `opencode_batch_adapter` V2 run/standalone/JSON/CAS akisina bagli; bunu
+  `52518cb` ve sonraki native batch commitleriyle dogruladim. Kalan kapilar
+  kaynak degil, kurulu OpenCode/native host, verifier bagimsizligi ve final
+  kabul kanitidir; testler CALISTIRILMADI.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari
