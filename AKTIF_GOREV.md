@@ -494,6 +494,16 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
   absent target yerine kendi fsync/readback icerigini ister. Config/pin ve file
   drift terminal basariyi engeller; existing adoption/retry izni dogmaz. Yeni
   regresyonlar CALISTIRILMADI; genel kabul ve rotasyon aciktir.
+
+  16 Ekim 2026 signed public registry rotation: exact onceki completed receipt
+  lineage/head'i, eski approval producer'in sureli imzasi ve yeni admitted pin
+  canonical publication.trust.rotate plan/Work/claim'e baglandi. Shared global
+  lease, bounded tam terminal census/lineage, private atomic replace, post-effect
+  readback ve historical signature/window replay eklendi. Unknown effect, fork,
+  stale head veya missing ancestor trust'a donusmez; initial enrollment existing
+  history'yi sifirlayamaz. `tests/unit/test_git_publication_rotation.py` regresyon
+  kaynaklari hazir, CALISTIRILMADI. Key ownership/provisioning, actual producer
+  ve native enforcement kabulleri acik; `docs/PUBLIC_REGISTRY_ROTASYONU.md`.
 - [x] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
 - [x] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
 

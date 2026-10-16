@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 3 WP-02.03 public registry rotation: onceki full canonical receipt lineage/head, old approval signature/window ve yeni admitted config pin exact Work/claim'e baglandi. Global registry lease, bounded terminal census, no reset/fork/unknown adoption, private staging/fsync/atomic replace ve post-effect readback/complete replay eklendi. Strict public CLI JSON, trust-source/rotation-plan/rotate yuzeyleri ve gercek SQLite/CAS regresyon kaynaklari hazir, CALISTIRILMADI. Signing key provisioning/ownership, actual test/verifier producer ve native enforcement kabulleri acik; docs/PUBLIC_REGISTRY_ROTASYONU.md.
+
 - Gorev 3 enrollment post-effect admission duzeltmesi: ortak canonical runtime callback'i yazma sonrasinda tekrar cagirdigi icin target-absent kontrolu kendi tamamlanan yazmasini reddediyordu. Process-local own-write phase ile once absent, sonra exact fsync/readback icerigi dogrulanir; current config/pin/callback ve foreign-existing reddi korunur. Pre/post ve post-effect drift regresyon kaynaklari hazir, CALISTIRILMADI.
 
 - Gorev 3 WP-02.03 ilk public registry enrollment: ortak strict public schema, existing settings/active config pin, exact Work/Run/plan ve reserved publication.trust.enroll claim/checkpoint/receipt CLI'a baglandi. Exclusive private yeni dosya, fsync/readback, no-adopt/no-overwrite/no-silent-rotation ve completed replay missing/drift reddi eklendi. Gercek SQLite/CAS regresyon kaynaklari hazir, CALISTIRILMADI; kullanici home/anahtar degisikligi yok. Signing key ownership/rotation, actual test/verifier producer ve native enforcement kabulleri acik.

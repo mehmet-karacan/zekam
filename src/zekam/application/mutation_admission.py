@@ -426,6 +426,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
 # registry.
 _LOCAL_EFFECT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("git", "publication", "trust-enroll"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("git", "publication", "trust-rotate"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("git", "publication", "apply"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "create"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("backup", "verify"): MutationAdmissionExemption.LOCAL_EFFECT,

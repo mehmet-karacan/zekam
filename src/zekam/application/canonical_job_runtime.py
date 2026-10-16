@@ -140,6 +140,7 @@ def run_canonical_job(
 
     if operation not in {
         "publication.trust.enroll",
+        "publication.trust.rotate",
         "project.index",
         "test.measure",
         "test.run",
@@ -190,7 +191,12 @@ def run_canonical_job(
         lease_seconds=60,
         supported_operations=(operation,),
         job_id=job.id,
-        resources=(f"canonical-project:{binding.project_id}",),
+        resources=(f"canonical-project:{binding.project_id}",)
+        + (
+            ("canonical-global:publication-trust",)
+            if operation in {"publication.trust.enroll", "publication.trust.rotate"}
+            else ()
+        ),
     )
     if work is None:
         raise PolicyViolation("Canonical job lease unavailable")

@@ -227,3 +227,14 @@ def test_post_effect_file_drift_prevents_terminal_success(enrollment):
         _enroll(f, validate=drift)
     with pytest.raises(PolicyViolation):
         _enroll(f)
+
+
+def test_new_plan_cannot_reset_completed_registry_history_when_file_is_missing(enrollment):
+    f = enrollment
+    _enroll(f)
+    f.path.unlink()
+    with pytest.raises(PolicyViolation, match="already has canonical history"):
+        subject.build_trust_enrollment_plan(
+            f.home, canonical_bytes(f.registry), project_id=f.binding.project_id
+        )
+    assert not f.path.exists()

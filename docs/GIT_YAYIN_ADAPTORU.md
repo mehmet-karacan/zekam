@@ -98,6 +98,10 @@ ve malformed/session/drift regresyon kaynaklari hazir; CALISTIRILMADI.
 
 ## Ilk public registry enrollment
 
+Signed public registry rotasyonu icin ayri canonical producer/CLI eklendi;
+ayrinti `docs/PUBLIC_REGISTRY_ROTASYONU.md`. Onceki receipt head'i, eski approval
+signature ve yeni admitted pin baglanir; key sahipligi/native kabul aciktir.
+
 `git publication trust-plan <registry-file> --project <kayitli-proje>` incelenmis
 public producer metadata'sini mevcut kalici Settings ve aktif canonical config
 pin'iyle eslestirir. Registry semasi loader ile ortaktir; strict bounded JSON,

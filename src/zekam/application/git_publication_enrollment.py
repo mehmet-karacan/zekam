@@ -11,7 +11,12 @@ from pathlib import Path
 from uuid import UUID
 
 from zekam.application.bounded_file import read_bounded_bytes
-from zekam.application.canonical_job_runtime import replay_canonical_job, run_canonical_job
+from zekam.application.canonical_job_runtime import (
+    canonical_job_key,
+    replay_canonical_job,
+    run_canonical_job,
+)
+from zekam.application.git_publication_registry_state import registry_terminals
 from zekam.application.config import load_settings
 from zekam.application.git_publication_trust import (
     _strict_json,
@@ -59,7 +64,12 @@ def _private_boundary(home):
 
 
 def _enrollment_plan(
-    home: Path, raw: bytes, *, project_id: str, own_write_completed: bool = False
+    home: Path,
+    raw: bytes,
+    *,
+    project_id: str,
+    own_write_completed: bool = False,
+    current_job_key: str | None = None,
 ) -> dict:
     if str(UUID(project_id)) != project_id:
         raise PolicyViolation("Publication enrollment canonical project UUID required")
@@ -79,6 +89,10 @@ def _enrollment_plan(
             "Publication enrollment current settings/active config/registry drift"
         )
     path = _private_boundary(home)
+    if registry_terminals(home, current_job_key=current_job_key):
+        raise PolicyViolation(
+            "Publication initial enrollment already has canonical history; explicit recovery/rotation required"
+        )
     if path.exists() and not own_write_completed:
         raise PolicyViolation(
             "Publication enrollment cannot adopt or overwrite an existing registry"
@@ -162,6 +176,21 @@ def _read_effect(home, plan):
         raise PolicyViolation("Publication enrollment registry readback drift")
 
 
+def enrollment_result(plan):
+    return {
+        "schema": "zekam-publication-trust-enrollment-result/v1",
+        "plan": plan,
+        "registry_byte_digest": plan["registry_byte_digest"],
+        "trust_digest": plan["trust_digest"],
+        "file_readback_verified": True,
+        "signing_keys_created": 0,
+        "producer_execution_verified": False,
+        "publication_authorized": False,
+        "provider_calls": 0,
+        "grants_authority": False,
+    }
+
+
 def enroll_publication_trust(
     home: Path, *, plan: dict, binding: LocalJobBinding, validate_inputs
 ) -> dict:
@@ -172,18 +201,7 @@ def enroll_publication_trust(
     )
 
     def expected_result():
-        return {
-            "schema": "zekam-publication-trust-enrollment-result/v1",
-            "plan": plan,
-            "registry_byte_digest": plan["registry_byte_digest"],
-            "trust_digest": plan["trust_digest"],
-            "file_readback_verified": True,
-            "signing_keys_created": 0,
-            "producer_execution_verified": False,
-            "publication_authorized": False,
-            "provider_calls": 0,
-            "grants_authority": False,
-        }
+        return enrollment_result(plan)
 
     if replay is not None:
         _read_effect(home, plan)
@@ -206,6 +224,7 @@ def enroll_publication_trust(
             canonical_bytes(plan["registry"]),
             project_id=plan["project_id"],
             own_write_completed=own_write_completed,
+            current_job_key=canonical_job_key(binding.binding_digest, OPERATION, input_digest),
         )
         if canonical_bytes(rebuilt) != canonical_bytes(plan):
             raise PolicyViolation("Publication enrollment current plan drift")

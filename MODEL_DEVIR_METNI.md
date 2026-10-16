@@ -37,8 +37,14 @@ gercek signing key ownership/rotation, actual test/verifier producer ve native
 enforcement halen acik. Regresyonlar CALISTIRILMADI; kullanici home'una yazilmadi.
 Enrollment'in ortak runtime post-effect callback uyumsuzlugu kaynak incelemesiyle
 duzeltildi: pre-phase absent, process-local own-write sonrasi exact file readback.
-Post-effect drift kabul edilmez; regresyonlar CALISTIRILMADI. Rotasyon siradaki
-tasarlanan bagdir; henuz uygulanmis sayilmaz.
+Post-effect drift kabul edilmez; regresyonlar CALISTIRILMADI.
+Signed public registry rotation producer/CLI eklendi: old canonical receipt head/
+lineage, old approval timed signature, new admitted pin, global lease, private
+atomic replace ve post-effect/historical readback. Census unknown/fork/reset'i
+reddeder; full chain bound asilirsa partial trust yoktur. Ayrinti
+docs/PUBLIC_REGISTRY_ROTASYONU.md. Testler CALISTIRILMADI; gercek signing key
+ownership/provisioning, actual test/verifier receipt producers ve native enforcement
+halen acik. Bunlar siradaki kaynak/kabul baglaridir; full WP kapanisi uretilmedi.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

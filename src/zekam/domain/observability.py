@@ -267,6 +267,19 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     CommandContract("git push-check", "Push kapisini degerlendirir", mutating=False),
     CommandContract("git publication plan", "Exact yayin subject/planini okur", mutating=False),
     CommandContract(
+        "git publication trust-source", "Canonical registry receipt zincirini okur", mutating=False
+    ),
+    CommandContract(
+        "git publication trust-rotation-plan",
+        "Public registry rotation planini okur",
+        mutating=False,
+    ),
+    CommandContract(
+        "git publication trust-rotate",
+        "Imzali registry rotasyonunu canonical claim ile kaydeder",
+        mutating=True,
+    ),
+    CommandContract(
         "git publication trust-plan", "Ilk public registry kurulum planini okur", mutating=False
     ),
     CommandContract(

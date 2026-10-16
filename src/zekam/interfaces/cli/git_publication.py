@@ -15,7 +15,13 @@ from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.canonical_job_runtime import replay_canonical_job
 from zekam.application.composition import build_context
 from zekam.application.git_publication import GitPublicationPlan, GitPublicationService
-from zekam.application.git_publication_trust import load_publication_trust
+from zekam.application.git_publication_trust import _strict_json, load_publication_trust
+from zekam.application.git_publication_rotation import (
+    build_trust_rotation_plan,
+    preview_trust_rotation,
+    read_registry_source,
+    rotate_publication_trust,
+)
 from zekam.application.git_publication_enrollment import (
     build_trust_enrollment_plan,
     enroll_publication_trust,
@@ -43,6 +49,109 @@ from zekam.interfaces.cli.session import HOME_HELP, fail_from
 
 app = typer.Typer(name="publication", help="Imzali canonical Git yayini", no_args_is_help=True)
 console = Console()
+
+
+@app.command("trust-rotation-plan")
+def trust_rotation_plan_command(
+    registry_file: Annotated[Path, typer.Argument()],
+    previous: Annotated[str, typer.Option("--previous")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    try:
+        context = _context(home)
+        slug = resolve_registered_project(context.home, project)
+        with SQLiteOperationalStore(
+            context.settings.database.sqlite_path(context.home)
+        ).unit_of_work() as uow:
+            registered = uow.resolve_project(slug)
+        plan = build_trust_rotation_plan(
+            context.home,
+            read_bounded_bytes(registry_file, max_bytes=32 * 1024),
+            previous_reference=previous,
+            project_id=registered.id,
+        )
+        console.print_json(json.dumps(plan))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication rotation source/registry input unavailable")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("trust-source")
+def trust_source_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    try:
+        context = _context(home)
+        console.print_json(json.dumps(read_registry_source(context.home, reference)))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication registry source receipt unavailable")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("trust-rotate")
+def trust_rotate_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    approval_file: Annotated[Path, typer.Option("--approval-file")],
+    run_id: Annotated[UUID | None, typer.Option("--run-id")] = None,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    try:
+        context = _context(home)
+        plan = load_trust_enrollment_plan(plan_file)
+        approval = _read(approval_file)
+        if not apply:
+            console.print_json(json.dumps(preview_trust_rotation(context.home, plan, approval)))
+            return
+        if run_id is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Publication rotation exact Work/plan apply binding required")
+        with SQLiteOperationalStore(
+            context.settings.database.sqlite_path(context.home)
+        ).unit_of_work() as uow:
+            work = uow.get_work(uow.get_run(str(run_id)).work_item_id)
+        runtime = SQLiteLocalRuntimeStore(
+            context.settings.database.sqlite_path(context.home), existing_only=True
+        )
+        binding = runtime.resolve_work_binding(
+            run_id=str(run_id),
+            work_revision=work.revision if work_revision is None else work_revision,
+            project_id=plan["project_id"],
+            plan_digest=plan_digest,
+        )
+
+        def validate():
+            if canonical_json(load_trust_enrollment_plan(plan_file)) != canonical_json(
+                plan
+            ) or canonical_json(_read(approval_file)) != canonical_json(approval):
+                raise PolicyViolation("Publication rotation plan/approval file drift")
+
+        console.print_json(
+            json.dumps(
+                rotate_publication_trust(
+                    context.home,
+                    plan=plan,
+                    binding=binding,
+                    approval=approval,
+                    validate_inputs=validate,
+                )
+            )
+        )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise fail_from(
+            ValidationFailed("Publication rotation plan/approval/readback unavailable")
+        ) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
 
 
 @app.command("trust-plan")
@@ -131,11 +240,11 @@ def trust_enroll_command(
 
 def _read(path: Path) -> dict:
     try:
-        body = json.loads(read_bounded_bytes(path, max_bytes=128 * 1024))
+        body = _strict_json(read_bounded_bytes(path, max_bytes=128 * 1024))
         if not isinstance(body, dict):
             raise ValueError("object")
         return body
-    except (OSError, ValueError, UnicodeError) as exc:
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError) as exc:
         raise ValidationFailed("Publication input bounded JSON object olmali") from exc
 
 
