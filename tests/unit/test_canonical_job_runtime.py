@@ -197,6 +197,34 @@ def test_native_source_reader_missing_report_projection_is_not_silently_legacy(w
         read_native_measurement_source(world.home, result["canonical_job_id"])
 
 
+@pytest.mark.parametrize("failed,with_report_facts", [(True, True), (False, False)])
+def test_publication_test_source_rejects_failed_or_legacy_measurement_before_source_access(
+    world, monkeypatch, failed, with_report_facts
+):
+    from uuid import uuid4
+    from zekam.application import git_publication_test_source as publication
+    from zekam.application.git_publication import GitPublicationPlan, GitPublicationTarget
+
+    result = _native_source_fixture(world, failed=failed, with_report_facts=with_report_facts)
+    plan = GitPublicationPlan(
+        uuid4(),
+        uuid4(),
+        world.binding,
+        GitPublicationTarget(
+            digest("root"), "origin", digest("remote"), "refs/heads/main", "a" * 40
+        ),
+        digest("pending-test"),
+        digest("pending-review"),
+    )
+    monkeypatch.setattr(
+        publication,
+        "resolve_project_source",
+        lambda *_args: pytest.fail("Unqualified measurement must not access project source"),
+    )
+    with pytest.raises(PolicyViolation, match="successful exact source scope"):
+        publication.read_publication_test_source(world.home, result["canonical_job_id"], plan=plan)
+
+
 def test_native_source_reader_rejects_missing_attempt_cas(world):
     from zekam.application.unit_test_source_evidence import read_native_measurement_source
 

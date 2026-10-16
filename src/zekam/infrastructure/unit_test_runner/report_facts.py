@@ -282,6 +282,7 @@ def validate_report_facts(body, *, record, binding) -> dict:
         "state": "verified-parser-projection",
         "projection_digest": digest(body),
         "module_count": len(modules),
+        "target_modules": [module["module"] for module in modules],
         "report_count": total_reports,
         "combined": combined,
         "jacoco_report_count": len(jacoco),

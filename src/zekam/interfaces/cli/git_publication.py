@@ -339,6 +339,8 @@ def plan_command(
             document = {
                 "schema": "zekam-git-publication-subject/v1",
                 "subject_digest": plan.subject_digest,
+                "plan": plan.body(),
+                "evidence_bound": False,
                 "binding": binding.body(),
                 "target": target.body(),
                 "realm_id": str(trust.realm_id),
@@ -365,6 +367,27 @@ def plan_command(
                 "grants_authority": False,
             }
         console.print_json(json.dumps(document, ensure_ascii=False))
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("test-source")
+def test_source_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    source_reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Test receipt'ini exact current source/HEAD ve yerel ham raporlarla eslestirir."""
+    from zekam.application.git_publication_test_source import read_publication_test_source
+
+    try:
+        document = _read(plan_file)
+        plan = publication_plan_from_body(document.get("plan", document))
+        context = _context(home)
+        result = read_publication_test_source(context.home, source_reference, plan=plan)
+        console.print_json(json.dumps(result, ensure_ascii=False))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication test source kaniti okunamadi")) from exc
     except ZekamError as exc:
         raise fail_from(exc) from exc
 

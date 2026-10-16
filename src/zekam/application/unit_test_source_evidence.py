@@ -151,7 +151,7 @@ def _linked_measurement(result, envelope, candidate, *, request, attempt, receip
     return record, binding
 
 
-def read_native_measurement_source(home: Path, reference: str) -> dict:
+def _read_native_measurement_source(home: Path, reference: str) -> tuple:
     """Read a job ID/key with its actual execution key and immutable receipt chain.
 
     Historical freshness is reported as recorded. No current source check, raw
@@ -241,10 +241,11 @@ def read_native_measurement_source(home: Path, reference: str) -> dict:
             raise PolicyViolation("Measurement source observation budget exceeded")
         observations = ledger.list_observations(attempt.attempt_id)
         envelope = _object(objects, receipt.evidence_digest)
+        candidate = _object(objects, attempt.candidate_digest)
         record, measurement_binding = _linked_measurement(
             result,
             envelope,
-            _object(objects, attempt.candidate_digest),
+            candidate,
             request=request,
             attempt=attempt,
             receipt=receipt,
@@ -274,6 +275,8 @@ def read_native_measurement_source(home: Path, reference: str) -> dict:
         "job_id": snapshot["job_id"],
         "execution_id": binding.run_id,
         "project_id": binding.project_id,
+        "config_revision_id": binding.config_revision_id,
+        "config_digest": binding.config_digest,
         "source_snapshot_id": binding.source_snapshot_id,
         "request_digest": request.request_digest,
         "source_revision": request.source_revision,
@@ -300,4 +303,9 @@ def read_native_measurement_source(home: Path, reference: str) -> dict:
         "provider_calls": 0,
         "grants_authority": False,
     }
-    return body | {"report_digest": digest(body)}
+    return body | {"report_digest": digest(body)}, request, record, measurement_binding, candidate
+
+
+def read_native_measurement_source(home: Path, reference: str) -> dict:
+    """Public historical report; no current checkout or publication authority."""
+    return _read_native_measurement_source(home, reference)[0]
