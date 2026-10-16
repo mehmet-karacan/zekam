@@ -18,6 +18,7 @@ from zekam.application.unit_test_intent import (
     classify_unit_test_request,
 )
 from zekam.application.unit_test_loop_state import LedgerLoopControl
+from zekam.application.unit_test_models import batch_model_plan, validate_batch_models
 from zekam.application.unit_test_outcome import (
     EXIT_CLARIFICATION,
     EXIT_ENVIRONMENT_MISSING,
@@ -236,6 +237,8 @@ def _plan_document(
     model: str | None,
     execution: dict[str, object],
     native: bool = False,
+    verifier_model: str | None = None,
+    max_remote_calls: int = 0,
 ) -> dict[str, object]:
     document: dict[str, object] = {
         "schema": "zekam-unit-test-plan/v1",
@@ -258,6 +261,18 @@ def _plan_document(
             "local-runtime-ready",
         ],
     }
+    if not native:
+        selection = batch_model_plan(model, verifier_model, max_remote_calls)
+        document["agent_execution"] = selection
+        # Invalid model strings (including credentials) must not be echoed.
+        document["model_requested"] = selection["models"]["builder"]
+        document["run_requires"] = [
+            "exact-plan-digest",
+            "explicit-run-authorization",
+            "local-runtime-ready",
+            "distinct-verifier-model",
+            "explicit-agent-call-budget",
+        ]
     if native:
         # Eski plan digest'leri degismesin diye yalniz native planda eklenir.
         document["mode"] = "native-helper"
@@ -284,6 +299,8 @@ def plan_command(
     metric: Annotated[str | None, typer.Option("--metric")] = None,
     policy: Annotated[str | None, typer.Option("--policy")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    verifier_model: Annotated[str | None, typer.Option("--verifier-model")] = None,
+    max_remote_calls: Annotated[int, typer.Option("--max-remote-calls", min=0, max=10000)] = 0,
     max_attempts: Annotated[int, typer.Option("--max-attempts")] = 3,
     process_timeout_seconds: Annotated[int, typer.Option("--process-timeout-seconds")] = 600,
     total_elapsed_seconds: Annotated[int, typer.Option("--total-elapsed-seconds")] = 1800,
@@ -343,7 +360,13 @@ def plan_command(
         project_root, _native_modules(target_module) if native else tuple(target_module or ())
     )
     document = _plan_document(
-        request, intent=intent, model=model, execution=execution, native=native
+        request,
+        intent=intent,
+        model=model,
+        execution=execution,
+        native=native,
+        verifier_model=verifier_model,
+        max_remote_calls=max_remote_calls,
     )
     if canonical_source:
         try:
@@ -494,6 +517,7 @@ def run_command(
     metric: Annotated[str | None, typer.Option("--metric")] = None,
     policy: Annotated[str | None, typer.Option("--policy")] = None,
     model: Annotated[str | None, typer.Option("--model")] = None,
+    verifier_model: Annotated[str | None, typer.Option("--verifier-model")] = None,
     max_attempts: Annotated[int, typer.Option("--max-attempts")] = 3,
     process_timeout_seconds: Annotated[int, typer.Option("--process-timeout-seconds")] = 600,
     total_elapsed_seconds: Annotated[int, typer.Option("--total-elapsed-seconds")] = 1800,
@@ -517,7 +541,7 @@ def run_command(
     build: Annotated[bool, typer.Option("--build")] = False,
     remote_model: Annotated[bool, typer.Option("--remote-model")] = False,
     allow_network: Annotated[bool, typer.Option("--allow-network")] = False,
-    max_remote_calls: Annotated[int, typer.Option("--max-remote-calls")] = 0,
+    max_remote_calls: Annotated[int, typer.Option("--max-remote-calls", min=0, max=10000)] = 0,
     resume: Annotated[bool, typer.Option("--resume")] = False,
     home: Annotated[str | None, typer.Option("--home")] = None,
     canonical_work_revision: Annotated[
@@ -575,7 +599,14 @@ def run_command(
         graph_generation_digest=graph_generation_digest,
     )
     execution = _execution_plan(project_root, tuple(target_module or ()))
-    expected = _plan_document(request, intent=intent, model=model, execution=execution)
+    expected = _plan_document(
+        request,
+        intent=intent,
+        model=model,
+        execution=execution,
+        verifier_model=verifier_model,
+        max_remote_calls=max_remote_calls,
+    )
     if expected["plan_digest"] != plan_digest:
         _finish(
             gate_document("policy-violation", reasons=("exact-plan-digest-mismatch",)),
@@ -591,6 +622,9 @@ def run_command(
             EXIT_ENVIRONMENT_MISSING,
         )
     try:
+        validate_batch_models(model, verifier_model)
+        if max_remote_calls < 1:
+            raise PolicyViolation("Batch explicit remote call budget ister")
         parsed_realm = UUID(realm_id or "")
         parsed_project = UUID(project_uuid or "")
         parsed_work = UUID(work_item_id or "")
@@ -617,6 +651,7 @@ def run_command(
             allow_network=allow_network,
             remote_model=remote_model,
             model_id=model,
+            verifier_model_id=verifier_model,
             plan_id=parsed_plan,
             step_id=step_id,
         )

@@ -24,12 +24,14 @@ from zekam.application.canonical_job_runtime import run_canonical_job, validate_
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.object_store import ObjectStore
 from zekam.application.unit_test_agents import (
+    VERIFYING,
     AgentSpecialty,
     CanonicalUnitTestAgentGateway,
     UnitTestAgentGateway,
     WorkBinding,
 )
 from zekam.application.unit_test_ledger import UnitTestLedger
+from zekam.application.unit_test_models import validate_batch_models, validate_model_id
 from zekam.application.unit_test_loop import UnitTestLoopService
 from zekam.application.unit_test_loop_state import (
     ControlSignal,
@@ -101,6 +103,7 @@ class UnitTestRuntimeBinding:
     model_id: str | None = None
     plan_id: UUID | None = None
     step_id: str | None = None
+    verifier_model_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("project_root", "object_store_root", "lock_dir", "opencode_executable"):
@@ -113,8 +116,9 @@ class UnitTestRuntimeBinding:
             raise ConfigurationError("OpenCode executable exact dosya olmali")
         if self.allow_network and not self.remote_model:
             raise ValidationFailed("network yalniz explicit remote model baglaminda acilabilir")
-        if self.model_id is not None and not self.model_id.strip():
-            raise ValidationFailed("model_id bos olamaz")
+        for model_id in (self.model_id, self.verifier_model_id):
+            if model_id is not None:
+                validate_model_id(model_id)
 
     def maven_binding(self) -> MavenMeasurementBinding:
         """Agent'tan bagimsiz Maven olcum bagi (executable/model alanlari tasimaz)."""
@@ -247,6 +251,7 @@ def compose_agent_gateway(
 ) -> UnitTestAgentGateway:
     """Yalniz acik OpenCode batch yolu icin agent gateway; native yol bunu cagirmaz."""
 
+    validate_batch_models(binding.model_id, binding.verifier_model_id)
     index = CasRecordIndex(index_objects)
     assignments = CasAssignmentStore(
         index,
@@ -259,7 +264,15 @@ def compose_agent_gateway(
         model_id=binding.model_id,
         network_authorized=binding.allow_network and binding.remote_model,
     )
-    adapters = dict.fromkeys(AgentSpecialty, adapter)
+    verifier = opencode_batch_adapter(
+        str(binding.opencode_executable),
+        objects=index_objects,
+        model_id=binding.verifier_model_id,
+        network_authorized=binding.allow_network and binding.remote_model,
+    )
+    adapters = {
+        specialty: verifier if specialty in VERIFYING else adapter for specialty in AgentSpecialty
+    }
     return CanonicalUnitTestAgentGateway(
         work=WorkBinding(
             realm_id=binding.realm_id,
@@ -1015,6 +1028,7 @@ def unit_test_job_input_digest(
             "realm_id": str(binding.realm_id),
             "assignment_id": str(binding.coordinator_assignment_id),
             "model_id": binding.model_id,
+            "verifier_model_id": binding.verifier_model_id,
             "remote_model": binding.remote_model,
             "plan_id": str(binding.plan_id) if binding.plan_id else None,
             "step_id": binding.step_id,

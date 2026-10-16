@@ -1614,6 +1614,15 @@ alinir; dispatch yalniz CAS artifact digest tasir. Regresyon kodu hazir,
 CALISTIRILMADI. Local/custom provider profili, farkli verifier modeli ve gercek
 tool-denial/end-to-end kabul acik; `docs/OPENCODE_NATIVE_BATCH.md`.
 
+**16 Ekim 2026 — WP-09 builder/verifier model bagi:** Plan/run iki explicit
+model ve ortak remote-call butcesini ayni digest'e baglar; canonical job girdisi
+verifier secimini de pin eder. Verifier/defect-triage/final-verifier farkli model
+adapter'ina yonlenir. Ayni modelin variant/provider etiketi bagimsizlik sayilmaz.
+Native model/profile bagi context ve assignment/invocation kimligine de dahildir;
+degisen model eski sonuc kimligiyle cakismaz.
+Regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili ve
+gercek bagimsiz verifier/native kabul kaniti acik.
+
 **16 Ekim 2026 — WP-09/08 executable cozumleme gelistirmesi:** Arastirma ve
 test CLI ortak shell-free resolver'a baglandi; @opencode/cli ve eski
 opencode-ai npm shim referansindan secilir. Eksik/belirsiz shim reddedilir.

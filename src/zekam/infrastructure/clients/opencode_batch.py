@@ -15,8 +15,15 @@ from pathlib import Path
 from typing import Any
 
 from zekam.application.object_store import ObjectStore
+from zekam.application.unit_test_models import validate_model_id
 from zekam.application.unit_test_secret_scan import find_secret_value
-from zekam.domain.canonical import canonical_bytes, canonical_json, digest_of_bytes, parse_digest
+from zekam.domain.canonical import (
+    canonical_bytes,
+    canonical_json,
+    digest,
+    digest_of_bytes,
+    parse_digest,
+)
 from zekam.domain.clients import (
     CanonicalDispatchPermit,
     ClientDescriptor,
@@ -174,6 +181,18 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
     objects: ObjectStore | None = None
     network_authorized: bool = False
 
+    @property
+    def execution_binding_digest(self) -> str:
+        return digest(
+            {
+                "schema": "zekam-opencode-batch-execution/v1",
+                "descriptor": self.descriptor.descriptor_digest,
+                "model": self.model_id,
+                "profile": batch_config(),
+                "network_authorized": self.network_authorized,
+            }
+        )
+
     def _object(self, key: str, limit: int) -> bytes:
         parse_digest(key)
         if self.objects is None:
@@ -195,6 +214,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             raise PolicyViolation("OpenCode batch client identity drift")
         if self.model_id is None or "/" not in self.model_id or self.model_id.startswith("-"):
             raise PolicyViolation("OpenCode batch explicit provider/model ister")
+        validate_model_id(self.model_id)
         if not self.network_authorized:
             raise PolicyViolation(
                 "OpenCode V2 batch builtin provider icin explicit remote/network onayi ister"

@@ -34,7 +34,7 @@ from zekam.application.unit_test_plan import (
 from zekam.application.unit_test_plateau import StrategyKind
 from zekam.application.unit_test_secret_scan import find_secret_value
 from zekam.domain.agents import AgentAssignment, AgentInvocation, AssignmentRole
-from zekam.domain.canonical import canonical_bytes, digest
+from zekam.domain.canonical import canonical_bytes, digest, parse_digest
 from zekam.domain.envelope import (
     AgentResultEnvelope,
     AgentRole,
@@ -262,6 +262,10 @@ class CanonicalUnitTestAgentGateway:
             "ordinal": task.ordinal,
             "context": task.context,
         }
+        execution_binding = getattr(adapter, "execution_binding_digest", None)
+        if execution_binding is not None:
+            parse_digest(execution_binding)
+            context_doc["execution_binding_digest"] = execution_binding
         context_bytes = canonical_bytes(context_doc)
         if len(context_bytes) > self.max_context_bytes:
             raise PolicyViolation("Agent context siniri asildi; kesilerek cagri yapilmaz")
@@ -272,6 +276,18 @@ class CanonicalUnitTestAgentGateway:
         context_digest = self.objects.put(context_bytes, media_type="application/json").digest
 
         assignment_id = _deterministic("assignment", task)
+        if execution_binding is not None:
+            assignment_id = uuid5(
+                assignment_id,
+                digest(
+                    {
+                        "execution_binding": execution_binding,
+                        "realm_id": str(self.work.realm_id),
+                        "work_item_id": str(self.work.work_item_id),
+                        "parent_assignment_id": str(self.work.coordinator_assignment_id),
+                    }
+                ),
+            )
         draft = AgentAssignment(
             id=assignment_id,
             realm_id=self.work.realm_id,
@@ -293,6 +309,9 @@ class CanonicalUnitTestAgentGateway:
         assignment = replace(draft, assignment_digest=digest(draft.identity_body()))
         invocation_id = _deterministic("invocation", task)
         identity = f"{adapter.descriptor.client_id}:{task.specialty.value}:{task.ordinal}"
+        if execution_binding is not None:
+            invocation_id = uuid5(invocation_id, f"{assignment_id}:{execution_binding}")
+            identity = f"{identity}:{execution_binding}"
         body = {
             "id": str(invocation_id),
             "realm_id": str(self.work.realm_id),

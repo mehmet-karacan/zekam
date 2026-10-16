@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-09 modeller: iki explicit builder/verifier model secimi, uc verifying specialty icin ayri adapter, plan digest'inde ortak remote-call butcesi ve canonical job input'ta verifier bagi eklendi. Native model/profile binding context ve assignment/invocation kimliklerine de dahil. Ayni model/variant/provider etiketi ayrimi fail-closed; model planinda bagimsizlik kanitlanmis sayilmaz. CLI/model/specialty/digest/canonical kimlik regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili ve gercek bagimsiz kabul acik.
+
 - Gorev 5 WP-09 native batch: composition generic wrapper yerine gercek V2 run/standalone/JSON + CAS stdin adapter'ine baglandi. Exact version probe, isolated config/home, project disable, deny permissions/policies, observed session/message ve artifact-only sonuc eklendi. Parser/negative process/CAS/native measurement ayrimi regresyon kaynaklari hazir, CALISTIRILMADI. Local/custom provider profili, farkli verifier modeli ve gercek native tool-denial/end-to-end kabul acik; docs/OPENCODE_NATIVE_BATCH.md.
 
 - Gorev 5 WP-09/08 stdin: optional digest-bound bounded input, concurrent raw-fd writer ve ortak timeout/cancel/tree cleanup eklendi; prompt argv/spec kaydina girmez. Windows argv/pipe siniri, simultaneous output, blocked-reader timeout/interrupt ve pre-start drift/size regresyon kodu hazir, CALISTIRILMADI. Native adapter bu tasimaya baglanacak; gercek kabul halen acik.

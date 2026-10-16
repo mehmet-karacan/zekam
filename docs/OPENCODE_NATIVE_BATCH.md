@@ -8,7 +8,7 @@ measurement bu yoldan bagimsizdir; OpenCode/model/provider gerektirmez.
 1. Canonical assignment/invocation once kaydedilir; adapter permit'i dogrular.
 2. Instruction/context CAS metadata boyutu ve gercek byte/digest'i tekrar
    dogrulanir. Secret degerli prompt provider'a gonderilmez.
-3. Exact provider/model ve remote/network onayi gerekir. Default provider
+3. Exact builder/verifier provider/model ve remote/network onayi gerekir. Default provider
    secilmez. Kisitli profilde custom global provider tanimlari alinmaz; local
    provider profili baglantisi halen aciktir. Local istegi remote cagrisiymis
    gibi calistirarak bu bosluk gizlenmez.
@@ -46,10 +46,26 @@ Protokol degisikliginde version pini ve capability kaniti birlikte yenilenir.
 
 ## Acik kabul ve gelistirme
 
+`test plan` ve `test run` iki explicit model (`--model`, `--verifier-model`) ve
+ortak `--max-remote-calls` limitini ayni plan digest'ine baglar. Verifier secimi
+canonical job input digest'ine de dahildir. Native adapter model/profile/executable
+execution binding'ini context ve assignment/invocation kimligine baglar; model
+degisince eski canonical assignment/result kimligi yeniden kullanilmaz.
+Planner/builder bir adapter kullanir;
+verifier, defect-triage ve final-verifier diger model adapter'ini kullanir.
+Her dispatch yeni native session acar. Ayni modelin variant veya provider
+etiketini degistirmek bagimsiz verifier kabul edilmez. Bu kontrol gercek model
+alias'larinin/catalog'un ve calisma bagimsizliginin kabul kaniti yerine gecmez.
+Plan `independent_verification_proven=false` tasir.
+
+Ortak limit rol farki olmadan mevcut loop sayacinda uygulanir; verifier cagrisi
+ayri sinirsiz butce kullanmaz. Bu sayac provider HTTP request/token/cost olcumu
+degildir. Native olcum plani modellerden ve bu limitten bagimsiz kalir.
+
 Regresyon fixture kaynaklari yazildi, CALISTIRILMADI. Canli model/provider ve
 Maven calistirilmadi. Bu asama WP-09 kapanisi degildir. Custom/local provider
-profili, builder'dan farkli verifier modeli secimi/butce bagi ve gercek native
-tool-denial/end-to-end kabul kaniti halen gereklidir.
+profili ve gercek native tool-denial/end-to-end/bagimsiz verifier kabul kaniti
+halen gereklidir.
 
 Birincil kaynak: https://github.com/anomalyco/opencode/tree/v2/packages/cli/src/run
 ve ayni repodaki packages/cli/src/server-process.ts, packages/schema/src/config,
