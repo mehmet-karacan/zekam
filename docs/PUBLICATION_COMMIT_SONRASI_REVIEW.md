@@ -9,6 +9,14 @@ plan hazirlar. Model cagirmaz, kaynak icerigini ekrana vermez, yetki uretmez.
 - Historical builder'in full test tree, secili production ve Maven build/plan
   baglari guncel native olcumle ayni olmak zorundadir. Commit revision degisikligi
   eski review'u yeni subject'e tasimaz: yeni reviewer guncel subject'i inceler.
+- Historical source revision guncel HEAD'in gercek atasi olmalidir. Tum commit
+  araliginin net Git farki yalniz accepted test dosyalarina dokunabilir; silme,
+  chmod, symlink/submodule, binary, invalid UTF-8 ve baska dosya reddedilir.
+  Rename guessing, external diff/textconv ve replace-object history kullanilmaz.
+  Context exact Git before/after blob metinlerini ve tam OID'leri tasir; immutable
+  okuyucu Git blob hash'lerini tekrar hesaplar. Git okumalarinin toplami 30 saniye,
+  proof 150000 byte ve 512 dosya ile sinirlidir. Context'in toplam 200000 byte
+  kapisi ayrica uygulanir. Truncation veya partial kabul yoktur.
 - Context, secili production dosyalarinin ve kabul edilen test dosyalarinin tam
   UTF-8 icerigini, davranis planini ve olcum baglarini tasir. Tam repository review
   iddiasi yoktur. Eksik/kesilmis context ile model cagrisi yapilmaz.

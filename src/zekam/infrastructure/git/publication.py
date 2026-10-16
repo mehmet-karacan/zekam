@@ -35,6 +35,15 @@ class BoundGitPushTransport:
     def _command(
         self, *arguments: str, cancel: threading.Event | None = None, allow_missing: bool = False
     ) -> str:
+        return (
+            self._command_bytes(*arguments, cancel=cancel, allow_missing=allow_missing)
+            .decode("utf-8", errors="replace")
+            .strip()
+        )
+
+    def _command_bytes(
+        self, *arguments: str, cancel: threading.Event | None = None, allow_missing: bool = False
+    ) -> bytes:
         root = self.source_root.resolve(strict=True)
         # Never inherit Git command/config/directory overrides from the caller.
         # Existing OS credentials/SSH agent remain host-owned, not copied to plans.
@@ -43,6 +52,7 @@ class BoundGitPushTransport:
         }
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
+        environment["GIT_NO_REPLACE_OBJECTS"] = "1"
         command = (
             "git",
             "-c",
@@ -75,9 +85,9 @@ class BoundGitPushTransport:
                 raise PolicyViolation("Git publication output bounded siniri asildi")
             if process.returncode != 0:
                 if allow_missing and process.returncode == 1:
-                    return ""
+                    return b""
                 raise PolicyViolation("Git publication command basarisiz; ham cikti gizlendi")
-            return bytes(reader.buffer).decode("utf-8", errors="replace").strip()
+            return bytes(reader.buffer)
         finally:
             if state != "exited" or process.poll() is None or thread.is_alive():
                 hard_kill_tree(tree)

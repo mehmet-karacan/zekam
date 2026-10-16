@@ -36,6 +36,10 @@ from zekam.application.unit_test_verifier_source import read_verifier_source
 from zekam.domain.canonical import canonical_bytes, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.clients.opencode_batch import OpenCodeBatchAdapter
+from zekam.infrastructure.git.publication_review import (
+    capture_review_changes,
+    validate_review_changes,
+)
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_schema import _connect
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -71,6 +75,7 @@ _PLAN_FIELDS = frozenset(
         "execution_binding_digest",
         "context_manifest_digest",
         "instruction_digest",
+        "change_digest",
         "production_digests",
         "accepted_test_digests",
         "budget",
@@ -221,6 +226,12 @@ def prepare_publication_review(
     root = resolve_project_source(home, row["slug"])
     production = _read_bound_files(root, measured["production_digests"])
     tests = _read_bound_files(root, accepted)
+    changes = capture_review_changes(
+        root,
+        base_revision=history["source_revision"],
+        head=publication.target.head,
+        allowed_paths=set(tests),
+    )
     try:
         context = {
             "review_scope": "selected-production-and-accepted-unit-test-changes",
@@ -240,6 +251,7 @@ def prepare_publication_review(
             ],
             "behavior_plan": state["plan"],
             "accepted_files": accepted,
+            "commit_changes": changes,
         }
     except UnicodeDecodeError as exc:
         raise PolicyViolation(
@@ -277,6 +289,7 @@ def prepare_publication_review(
         "instruction_digest": digest_of_bytes(
             (_INSTRUCTIONS[AgentSpecialty.FINAL_VERIFIER] + _FORMAT_NOTE).encode()
         ),
+        "change_digest": changes["change_digest"],
         "production_digests": measured["production_digests"],
         "accepted_test_digests": accepted,
         "budget": {
@@ -626,6 +639,11 @@ def read_publication_review(home: Path, reference: str):
     old_terminal = _object(objects, history["terminal_evidence_digest"])
     old_record = _object(objects, history["measurement_record_digest"])
     old_binding = _object(objects, old_record["binding_digest"])
+    changes = validate_review_changes(
+        execution["context"].get("commit_changes"),
+        allowed_paths={path for path, _value in plan["accepted_test_digests"]},
+        head=target.head,
+    )
     connection = _connect(home / "state/operational.db", read_only=True)
     try:
         source = connection.execute(
@@ -635,7 +653,9 @@ def read_publication_review(home: Path, reference: str):
     finally:
         connection.close()
     if (
-        source is None
+        changes["change_digest"] != plan["change_digest"]
+        or changes["base_revision"] != history["source_revision"]
+        or source is None
         or source["source_binding_id"] != request.source_binding_id
         or old_tree["state"] != "stable"
         or canonical_bytes(sorted(old_files.items())) != canonical_bytes(candidate["files"])
@@ -676,6 +696,7 @@ def read_publication_review(home: Path, reference: str):
         "model_independence": "configured-upstream-distinct",
         "native_model_identity_observed": False,
         "historical_source_proof": True,
+        "unit_test_change_range_verified": True,
         "current_source_rechecked": False,
         "independent_quality_verified": False,
         "publication_authorized": False,

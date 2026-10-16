@@ -80,6 +80,7 @@ def review_world(world, tmp_path, monkeypatch):
         "builder_execution_digests": [digest("builder-execution")],
         "job_id": str(uuid4()),
         "execution_id": str(uuid4()),
+        "source_revision": "b" * 40,
         "source_evidence_digest": digest("builder-receipt"),
     }
     native = {
@@ -123,6 +124,28 @@ def review_world(world, tmp_path, monkeypatch):
     monkeypatch.setattr(subject, "read_verifier_source", lambda *_args: history)
     monkeypatch.setattr(subject, "read_agent_execution", lambda *_args: builder)
     monkeypatch.setattr(subject, "resolve_project_source", lambda *_args: root)
+    from zekam.infrastructure.git.publication_review import _blob_id
+
+    changes = {
+        "schema": "zekam-publication-review-changes/v1",
+        "base_revision": history["source_revision"],
+        "head": plan.target.head,
+        "grants_authority": False,
+        "changes": [
+            {
+                "path": test,
+                "status": "A",
+                "old_mode": "000000",
+                "new_mode": "100644",
+                "old_blob": "0" * 40,
+                "new_blob": _blob_id(contents[test], 40),
+                "before": None,
+                "after": contents[test].decode(),
+            }
+        ],
+    }
+    changes["change_digest"] = digest(changes)
+    monkeypatch.setattr(subject, "capture_review_changes", lambda *_args, **_kwargs: changes)
     return SimpleNamespace(
         world=world,
         root=root,
