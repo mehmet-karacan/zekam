@@ -163,6 +163,124 @@ def _revision(package_digest: str, *, scope_ref: str = "project-a") -> PersonalS
     )
 
 
+def test_cli_consumes_evaluation_and_review_receipts_without_activating(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+    from zekam.interfaces.cli import skill as cli
+
+    operational = _operational(tmp_path / "operational.db")
+    lifecycle = SQLiteSkillLifecycle(_learning(tmp_path, operational), operational)
+    revision = lifecycle.propose_revision(
+        _revision(digest("package")), _origins(operational), now=NOW
+    )
+    allowed = ((SkillScopeKind.PROJECT, "project-a"),)
+    monkeypatch.setattr(cli, "_paths", lambda _: (None, lifecycle, tmp_path))
+    monkeypatch.setattr(cli, "_cli_scope", lambda *_args: allowed)
+    runner = CliRunner()
+    evaluation = SkillEvaluationV2(
+        revision,
+        digest("record-plan"),
+        "equal",
+        5,
+        "evaluation-actor",
+        "verification-actor",
+        digest("eval-evidence"),
+        digest("verify-evidence"),
+        "eval-job",
+        "verify-job",
+        {"quality": {"baseline": 1.0, "candidate": 1.0}},
+        {"sample_size": 5},
+    )
+    _authorize_evaluation(operational, evaluation)
+
+    def record(kind: str, body: dict) -> dict:
+        path = tmp_path / f"{kind}.json"
+        path.write_text(json.dumps(body), encoding="utf-8")
+        args = [f"{kind}-record", str(path), "--project", "project-a"]
+        preview = runner.invoke(cli.app, args)
+        assert preview.exit_code == 0, preview.output
+        plan = json.loads(preview.output)
+        assert plan["execution_evidence_verified"] is False
+        wrong = runner.invoke(cli.app, args + ["--uygula", "--plan-digest", digest("wrong")])
+        assert wrong.exit_code != 0
+        apply_args = args + ["--uygula", "--plan-digest", plan["plan_digest"]]
+        first = runner.invoke(cli.app, apply_args)
+        assert first.exit_code == 0, first.output
+        replay = runner.invoke(cli.app, apply_args)
+        assert replay.exit_code == 0, replay.output
+        assert json.loads(replay.output) == json.loads(first.output)
+        result = json.loads(first.output)
+        assert result["activated"] is False
+        snapshot = SQLiteLocalRuntimeStore(operational).job_snapshot(result["operational_job_id"])
+        assert snapshot["state"] == "completed"
+        assert snapshot["effects"][0]["operation"] == f"skill.{kind}.record-v2"
+        return result
+
+    result = record("evaluation", evaluation.body())
+    evaluation_digest = result["evaluation_digest"]
+    review = {
+        "schema": "zekam-personal-skill-review-input/v2",
+        "revision_digest": revision,
+        "evaluation_digest": evaluation_digest,
+        "reviewer_ref": "review-actor",
+        "reviewer_execution_identity": "review-job",
+        "reviewer_evidence_digest": digest("review-evidence"),
+        "approved": True,
+        "reason": "Equal results are retained without activation.",
+        "grants_authority": False,
+    }
+    _authorize_review(
+        operational,
+        revision,
+        evaluation_digest,
+        **{
+            k: v
+            for k, v in review.items()
+            if k not in {"schema", "revision_digest", "evaluation_digest", "grants_authority"}
+        },
+    )
+    record("review", review)
+    assert lifecycle.discover("research", allowed_scopes=allowed)["items"] == []
+    with pytest.raises(PolicyViolation, match="missing"):
+        lifecycle.recorded_evidence_digest(
+            evaluation.body() | {"plan_digest": digest("missing")}, kind="evaluation"
+        )
+
+
+def test_recorded_evidence_cannot_substitute_for_execution_receipts(tmp_path: Path) -> None:
+    operational = _operational(tmp_path / "operational.db")
+    lifecycle = SQLiteSkillLifecycle(_learning(tmp_path, operational), operational)
+    revision = lifecycle.propose_revision(
+        _revision(digest("package")), _origins(operational), now=NOW
+    )
+    fabricated = SkillEvaluationV2(
+        revision,
+        digest("fabricated-plan"),
+        "improved",
+        5,
+        "actor-a",
+        "actor-b",
+        digest("a"),
+        digest("b"),
+        "record-job-a",
+        "record-job-b",
+        {"quality": {"baseline": 0.0, "candidate": 1.0}},
+        {"sample_size": 5},
+    )
+    for role in ("evaluator", "verifier"):
+        _terminal_receipt(
+            operational,
+            run_ref=getattr(fabricated, f"{role}_execution_identity"),
+            evidence_digest=getattr(fabricated, f"{role}_evidence_digest"),
+            operation="skill.evaluation.record-v2",
+            effect_digest=evaluation_evidence_effect_digest(fabricated, role=role),
+        )
+    with pytest.raises(PolicyViolation, match="terminal receipt"):
+        lifecycle.record_evaluation(fabricated, now=NOW)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

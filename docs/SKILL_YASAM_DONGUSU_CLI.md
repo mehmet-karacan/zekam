@@ -36,3 +36,30 @@ review/receipt fixture'lariyla plan effect parity, foreign scope, rollback,
 CLI preview, yanlis digest reddi, gercek local worker deprecation ve replay
 senaryolarina baglandi. Testler CALISTIRILMADI; final toplu asamayi bekler.
 Gercek native dagitim/invocation, evaluation producer ve kabul kaniti aciktir.
+
+## Mevcut terminal evaluation ve review kanitini kaydetme
+
+`skill evaluation-record <evidence-file> --project <proje>` ve
+`skill review-record <evidence-file> --project <proje>` once kayit plani verir.
+`--uygula --plan-digest <exact-digest>` kaydi canonical local job/lease/claim/receipt
+ile yapar. Assistant kimlikleri mevcut canonical ciktidan kendisi cozer.
+Girdi dosyasi kaynak repo disinda tutulur; UTF-8, regular/link-free, 32 KiB,
+duplicate-key/non-finite/secret/PII ve exact field/type sinirlari uygulanir.
+
+Evaluation girdisi `SkillEvaluationV2.body()` sozlesmesidir; review girdisi
+`zekam-personal-skill-review-input/v2` schema'si, revision_digest,
+evaluation_digest, reviewer_ref, reviewer_execution_identity,
+reviewer_evidence_digest, approved, reason ve grants_authority=false alanlaridir.
+Preview `execution_evidence_verified=false` tasir; preview dosyasi kalite veya
+yurutme kaniti degildir. Apply store'un mevcut exact evaluator/verifier receipt,
+distinct operational job ve reviewer independence kontrollerini uygular.
+Yeni recording receipt'i bu kaynak execution receipt'lerinin yerine gecmez.
+Gecersiz kaynak kaniti claimed kayit isini basarisiz yapabilir; basarili kayit
+veya active sonucu uretilmez. Ayni completed plan tekrarinda ledger salt okunur
+acilir, body hash/esitlik yeniden okunur; kayip ledger kaydi yeniden yaratılmaz.
+
+Bu baglanti model/harness calistirmaz, deneme sayisi veya metrik uretmez ve skill'i
+aktif etmez. Gercek skill evaluation/reviewer producer, model bagimsizligi ve
+native invocation kabul kapilari halen aciktir. Sabit evolution fixture harness'i
+gercek skill davranis olcumu olarak kullanilmaz. CLI/local worker/replay ve yanlis
+receipt-operation regresyon kaynaklari hazir; testler CALISTIRILMADI.

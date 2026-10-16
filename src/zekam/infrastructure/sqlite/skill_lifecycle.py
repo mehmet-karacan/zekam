@@ -594,6 +594,45 @@ class SQLiteSkillLifecycle:
             db.commit()
         return revision_digest
 
+    def recorded_evidence_digest(self, document: Mapping[str, object], *, kind: str) -> str:
+        """Read an exact existing recording; replay must never reconstruct lost rows."""
+        if kind == "evaluation":
+            sql = (
+                "select evaluation_digest,body_json from skill_evaluation_v2 "
+                "where revision_digest=? and plan_digest=?"
+            )
+            parameters = (document["revision_digest"], document["plan_digest"])
+        elif kind == "review":
+            sql = (
+                "select review_digest,body_json from skill_review_v2 "
+                "where revision_digest=? and evaluation_digest=? and reviewer_ref=?"
+            )
+            parameters = (
+                document["revision_digest"],
+                document["evaluation_digest"],
+                document["reviewer_ref"],
+            )
+        else:
+            raise ValidationFailed("Skill evidence recording kind invalid")
+        with closing(self._connect(read_only=True)) as db:
+            rows = db.execute(sql, parameters).fetchall()
+        if len(rows) != 1:
+            raise PolicyViolation("Skill evidence recorded replay missing or ambiguous")
+        try:
+            stored = json.loads(str(rows[0]["body_json"]))
+            value = str(rows[0][0])
+            if not isinstance(stored, dict) or digest(stored) != value:
+                raise PolicyViolation("Skill evidence recorded body digest drift")
+            stored.pop("created_at")
+            expected = dict(document)
+            if kind == "review":
+                expected["schema"] = "zekam-personal-skill-review/v2"
+            if canonical_json(stored) != canonical_json(expected):
+                raise PolicyViolation("Skill evidence recorded replay drift")
+        except (KeyError, ValueError, TypeError) as exc:
+            raise PolicyViolation("Skill evidence recorded body malformed") from exc
+        return value
+
     def record_evaluation(self, evaluation: SkillEvaluationV2, *, now: dt.datetime) -> str:
         if type(evaluation) is not SkillEvaluationV2:
             raise ValidationFailed("Exact skill evaluation v2 required")

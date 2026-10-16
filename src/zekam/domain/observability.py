@@ -105,6 +105,8 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     ),
     CommandContract(
         "skill lifecycle-apply",
+        "skill evaluation-record",
+        "skill review-record",
         "Skill lifecycle CAS ve receipt uygular",
         mutating=True,
         requires_apply_flag=True,

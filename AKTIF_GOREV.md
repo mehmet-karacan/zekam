@@ -1705,6 +1705,12 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
 - [ ] **WP-10.01** — Kayıt türlerini karar/deneyim/başarısızlık/ders/skill olarak ayır. Provenance, scope, freshness, superseded, conflict ve yetkili düzeltme/arşivleme yollarını doğal dile bağla.
 - [ ] **WP-10.02** — Doğrulanmış kök nedenden lesson candidate üret; aynı evidence'ı iki bağımsız gözlem sayma. Memory'yi kullanıcı talimatı veya execution authority'si gibi uygulama.
 - [ ] **WP-10.03** — Skill adayını değerlendir, independent review, sürüm, active pointer, dağıtım, gerçek invocation, deprecation ve rollback ile tamamla. Kaynak paket/projection drift'i okunabilir raporlansın.
+
+  16 Ekim 2026 receipt consumption dilimi: mevcut exact terminal evaluator/verifier/reviewer
+  kaniti scoped evaluation-record/review-record CLI ile ayri canonical recording claim ve
+  receipt'e baglandi. Strict bounded input ve salt okunur completed replay eklendi.
+  Recording receipt execution kaniti yerine gecmez; aday aktive edilmez. Regresyon kodu
+  hazir, CALISTIRILMADI. Gercek evaluation/reviewer producer ve native invocation acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

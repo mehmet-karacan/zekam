@@ -38,11 +38,19 @@ def test_native_record_commands_are_explicit_local_effects(command: str) -> None
 
 
 def test_native_resume_remains_read_only_in_admission_registry() -> None:
-    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
-        ("continuity", "native", "resume")
-    )
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(("continuity", "native", "resume"))
     assert not admission.mutating
     assert admission.exemption is None
+
+
+@pytest.mark.parametrize("command", ["evaluation-record", "review-record"])
+def test_skill_evidence_record_requires_local_effect_admission(command: str) -> None:
+    path = ("skill", command)
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": True})
+    assert admission.mutating
+    assert admission.exemption is MutationAdmissionExemption.LOCAL_EFFECT
+    assert not admission.grants_authority
+    assert not DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": False}).mutating
 
 
 def test_active_local_mutations_remain_explicit(tmp_path: Path) -> None:

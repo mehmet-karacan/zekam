@@ -28,10 +28,12 @@ from zekam.application.skill_packages import (
     build_projection_plan,
     projection_receipt,
 )
+from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ZekamError
 from zekam.domain.personal_skill import (
     PersonalSkillRevision,
+    SkillEvaluationV2,
     SkillOriginEvidence,
     SkillOriginKind,
     SkillScopeKind,
@@ -634,6 +636,124 @@ def evaluate_command(revision_digest: Annotated[str, typer.Argument()]) -> None:
     except ZekamError as exc:
         typer.echo(f"Hata: {exc}", err=True)
         raise typer.Exit(70) from exc
+
+
+def _record_evidence_command(
+    evidence_file: Path,
+    *,
+    kind: str,
+    project: str,
+    apply: bool,
+    plan_digest: str | None,
+    home: str | None,
+) -> None:
+    """Consume existing terminal evidence behind a separate recording claim."""
+    try:
+        body = load_skill_evidence(evidence_file, kind=kind)
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        lifecycle.require_revision_scope(body["revision_digest"], allowed_scopes=scopes)
+        plan = skill_evidence_record_plan(body, kind=kind, project_ref=scopes[0][1])
+        if not apply:
+            _emit(plan | {"apply": False, "execution_evidence_verified": False})
+            return
+        if plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Skill evidence --plan-digest exact olmali")
+
+        def result_document(value: str) -> dict[str, object]:
+            result = {
+                "schema": "zekam-skill-evidence-record-result/v2",
+                "kind": kind,
+                f"{kind}_digest": value,
+                "plan_digest": plan["plan_digest"],
+                "activated": False,
+                "provider_calls": 0,
+                "grants_authority": False,
+            }
+            return result | {"receipt_digest": digest(result)}
+
+        def persist() -> dict[str, object]:
+            # Re-read scope at effect time; the input cannot grant foreign scope.
+            lifecycle.require_revision_scope(body["revision_digest"], allowed_scopes=scopes)
+            if kind == "evaluation":
+                evaluation = SkillEvaluationV2(
+                    **{
+                        key: value
+                        for key, value in body.items()
+                        if key not in {"schema", "activatable", "grants_authority"}
+                    }
+                )
+                value = lifecycle.record_evaluation(evaluation, now=dt.datetime.now(dt.UTC))
+            else:
+                value = lifecycle.record_review(
+                    **{
+                        key: value
+                        for key, value in body.items()
+                        if key not in {"schema", "grants_authority"}
+                    },
+                    now=dt.datetime.now(dt.UTC),
+                )
+            return result_document(value)
+
+        def replay() -> dict[str, object]:
+            return result_document(lifecycle.recorded_evidence_digest(body, kind=kind))
+
+        _emit(
+            _run_claimed_effect(
+                lifecycle,
+                resolved_home,
+                operation=plan["effect"]["operation"],
+                effect=plan["effect"],
+                idempotency_key=f"skill-{kind}-record-v2:{plan['plan_digest']}",
+                apply_effect=persist,
+                replay_effect=replay,
+                logical_resources=(f"skill-registry:personal-v2:{scopes[0][1]}",),
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, RecursionError) as exc:
+        typer.echo("Hata: Skill evidence dosyasi okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("evaluation-record")
+def evaluation_record_command(
+    evidence_file: Annotated[Path, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Record measured evaluation only when both exact terminal receipts exist."""
+    _record_evidence_command(
+        evidence_file,
+        kind="evaluation",
+        project=project,
+        apply=apply,
+        plan_digest=plan_digest,
+        home=home,
+    )
+
+
+@app.command("review-record")
+def review_record_command(
+    evidence_file: Annotated[Path, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Record a review backed by its distinct terminal verification job."""
+    _record_evidence_command(
+        evidence_file,
+        kind="review",
+        project=project,
+        apply=apply,
+        plan_digest=plan_digest,
+        home=home,
+    )
 
 
 @app.command("lifecycle-plan")
