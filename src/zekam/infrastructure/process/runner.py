@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,13 @@ from pathlib import Path
 from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import PolicyViolation
 from zekam.domain.sandbox import ProcessResult, ProcessSpec
+from zekam.infrastructure.process.bounded_stream import (
+    BoundedReader,
+    finish_pipes,
+    hard_kill_tree,
+    start_process_tree,
+    wait_for,
+)
 
 #: Cagiran ortamdan devralinmasina izin verilen degiskenler.
 INHERITED_ENV_NAMES = ("PATH", "SYSTEMROOT", "TEMP", "TMP", "LANG", "LC_ALL")
@@ -50,7 +58,9 @@ def build_env(spec: ProcessSpec, *, inherit: bool = True) -> dict[str, str]:
     return environment
 
 
-def run(spec: ProcessSpec, *, cwd: Path, inherit_env: bool = True) -> ProcessOutput:
+def run(
+    spec: ProcessSpec, *, cwd: Path, inherit_env: bool = True, cancel: threading.Event | None = None
+) -> ProcessOutput:
     """Komutu sandbox calisma dizininde calistirir.
 
     Calisma dizini var olmalidir; aksi halde islem sessizce cagiran surecin
@@ -61,30 +71,51 @@ def run(spec: ProcessSpec, *, cwd: Path, inherit_env: bool = True) -> ProcessOut
         raise PolicyViolation("sandbox calisma dizini bulunamadi")
 
     started = time.monotonic()
-    timed_out = False
+    if cancel is not None and cancel.is_set():
+        raise PolicyViolation("komut iptal edildi")
+    tree = start_process_tree(
+        spec.argv, cwd, env=build_env(spec, inherit=inherit_env), stderr=subprocess.PIPE
+    )
+    process = tree.process
+    assert process.stdout is not None and process.stderr is not None and process.stdin is not None
+    limit = spec.max_output_bytes
+    stdout_reader, stderr_reader = (
+        BoundedReader(process.stdout, limit),
+        BoundedReader(process.stderr, limit),
+    )
+    readers: list[threading.Thread] = []
     try:
-        completed = subprocess.run(
-            list(spec.argv),
-            cwd=str(cwd),
-            env=build_env(spec, inherit=inherit_env),
-            capture_output=True,
-            timeout=spec.timeout_seconds,
-            check=False,
-            shell=False,
+        for reader in (stdout_reader, stderr_reader):
+            thread = threading.Thread(target=reader.read, daemon=True)
+            thread.start()
+            readers.append(thread)
+        process.stdin.close()
+        outcome = wait_for(
+            process,
+            started + spec.timeout_seconds,
+            stdout_reader.overflow,
+            stderr_reader.overflow,
+            cancel=cancel,
         )
-        stdout, stderr, exit_code = completed.stdout, completed.stderr, completed.returncode
-    except subprocess.TimeoutExpired as expired:
-        timed_out = True
-        stdout = expired.stdout or b""
-        stderr = expired.stderr or b""
-        exit_code = 124
-    except OSError as exc:
-        raise PolicyViolation("komut calistirilamadi") from exc
+        if outcome != "exited":
+            hard_kill_tree(tree)
+        finish_pipes(tree, tuple(readers))
+        if outcome == "cancelled" or (cancel is not None and cancel.is_set()):
+            raise PolicyViolation("komut iptal edildi; gec sonuc reddedildi")
+    except BaseException:
+        try:
+            hard_kill_tree(tree)
+        finally:
+            finish_pipes(tree, tuple(readers))
+        raise
 
     duration_ms = int((time.monotonic() - started) * 1000)
-    limit = spec.max_output_bytes
-    truncated = len(stdout) > limit or len(stderr) > limit
-    stdout, stderr = stdout[:limit], stderr[:limit]
+    timed_out = outcome == "deadline"
+    truncated = stdout_reader.overflow.is_set() or stderr_reader.overflow.is_set()
+    stdout, stderr = bytes(stdout_reader.buffer[:limit]), bytes(stderr_reader.buffer[:limit])
+    exit_code = 124 if timed_out else process.returncode
+    if exit_code is None:
+        raise PolicyViolation("komut terminal status olmadan sonuc donduremez")
 
     result = ProcessResult(
         spec_digest=spec.spec_digest,

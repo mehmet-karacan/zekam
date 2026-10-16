@@ -31,6 +31,29 @@ def main() -> int:
     if mode == "bad-json":
         sys.stdout.write("bu JSON degil")
         return 0
+    if mode == "success-nonzero":
+        sys.stdout.write(json.dumps({"outcome": "success", "payload": {"finding_count": 2}}))
+        return 7
+    if mode == "spoof-exit":
+        sys.stdout.write(
+            json.dumps({"outcome": "success", "exit_code": 0, "payload": {"finding_count": 2}})
+        )
+        return 7
+    if mode == "duplicate-json":
+        sys.stdout.write('{"outcome":"failed","outcome":"success","payload":{"finding_count":2}}')
+        return 0
+    if mode == "invalid-utf8":
+        sys.stdout.buffer.write(b'{"outcome":"success","payload":{"value":"\xff"}}')
+        return 0
+    if mode == "stderr-overflow":
+        sys.stdout.write(
+            json.dumps({"outcome": "success", "exit_code": 0, "payload": {"finding_count": 2}})
+        )
+        sys.stdout.flush()
+        sys.stderr.buffer.write(b"x" * (2 * 1024 * 1024))
+        sys.stderr.flush()
+        time.sleep(30)
+        return 0
     if mode == "unknown-outcome":
         sys.stdout.write(json.dumps({"outcome": "harika", "payload": {}}))
         return 0

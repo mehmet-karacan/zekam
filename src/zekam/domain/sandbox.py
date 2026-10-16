@@ -308,7 +308,7 @@ class ProcessResult:
 
     @property
     def succeeded(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return self.exit_code == 0 and not self.timed_out and not self.truncated
 
     def as_dict(self) -> dict[str, Any]:
         return {

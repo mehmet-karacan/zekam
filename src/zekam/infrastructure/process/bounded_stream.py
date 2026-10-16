@@ -82,6 +82,7 @@ class _WindowsJob:
 class ProcessTree:
     process: subprocess.Popen[bytes]
     windows_job: _WindowsJob | None = None
+    owns_process_group: bool = False
 
 
 @dataclass(slots=True)
@@ -101,7 +102,7 @@ class BoundedReader:
         while True:
             try:
                 chunk = os.read(self.stream.fileno(), 65_536)
-            except OSError:
+            except (OSError, ValueError):
                 return
             if not chunk:
                 return
@@ -159,7 +160,7 @@ def start_process_tree(
             finally:
                 windows_job.close()
             raise
-    return ProcessTree(process, windows_job)
+    return ProcessTree(process, windows_job, os.name != "nt" and start_new_session)
 
 
 def hard_kill_tree(tree: ProcessTree) -> None:
@@ -174,20 +175,21 @@ def hard_kill_tree(tree: ProcessTree) -> None:
             except subprocess.TimeoutExpired:
                 process.kill()
         return
-    if process.poll() is not None:
+    if process.poll() is not None and not tree.owns_process_group:
         return
-    if os.name == "nt":
+    if os.name == "nt" or not tree.owns_process_group:
         process.kill()
         return
     try:
-        process_group = getattr(os, "getpgid")(process.pid)  # noqa: B009
         getattr(os, "killpg")(  # noqa: B009
-            process_group,
+            process.pid,
             getattr(signal, "SIGKILL"),  # noqa: B009
         )
     except OSError:
         if process.poll() is None:
             process.kill()
+    finally:
+        tree.owns_process_group = False
 
 
 def finish_pipes(
@@ -209,12 +211,19 @@ def finish_pipes(
     finally:
         if tree.windows_job is not None:
             tree.windows_job.close()
+        elif tree.owns_process_group:
+            # A terminal parent may leave descendants holding the output pipes.
+            # Only groups created by start_process_tree are owned by this handle.
+            hard_kill_tree(tree)
         if process.stdin is not None:
             process.stdin.close()
         for thread in reader_threads:
             thread.join(timeout=reader_join_timeout)
         if process.stdout is not None:
             process.stdout.close()
+        stderr = getattr(process, "stderr", None)
+        if stderr is not None:
+            stderr.close()
 
 
 def wait_for(

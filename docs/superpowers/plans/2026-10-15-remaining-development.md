@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-09/08 process: stream-time output cap, timeout/cancel/Ctrl+C ve owned descendant cleanup; strict client JSON/UTF8 ve observed exit-status baglandi. Yerel child/forged-result regresyon kodu hazir, CALISTIRILMADI. Siradaki exact kaynak acigi: compose_agent_gateway explicit OpenCode batch'i generic digest-flag protokolunden gercek native run/event + CAS prompt adapter'ine baglamak; native Maven measurement bundan ayridir.
+
 - Gorev 6 WP-11 receipt key: signed skill claim/usage bagina public key-binding digest, ayri private key dosyasindan exclusive restore ve journal tree backup eklendi. Key bundle'a konulmaz; eksik/yanlis key yeni rastgele authority ile maskelenmez. Key/HMAC readback ve backup/restore regresyon kodu hazir, CALISTIRILMADI. Legacy signed bundle recovery ve gercek kabul acik.
 
 - Gorev 6 WP-11 cohort: existing operational quiescence, provider unresolved-effect reddi, bounded tum-DB writer fence ve regular file boundary digest baglandi. Manifest/restore versioned cohort ayrimi tasir; eski bundle kaniti yukseltilmez. Lock release/aktif sahip/drift/deadline regresyon kodu hazir, CALISTIRILMADI. Gercek restore/continuity/performance kabul kapilari acik.

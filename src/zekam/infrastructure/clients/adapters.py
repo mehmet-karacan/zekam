@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -157,9 +157,8 @@ class SubprocessClientAdapter:
                 payload={},
                 failure_category="timeout",
             )
-        try:
-            document: Any = json.loads(output.stdout.decode("utf-8", errors="replace"))
-        except json.JSONDecodeError:
+
+        def failed(category: str) -> DispatchResult:
             return DispatchResult(
                 assignment_id=request.assignment_id,
                 invocation_id=request.invocation_id,
@@ -168,9 +167,43 @@ class SubprocessClientAdapter:
                 outcome=DispatchOutcome.FAILED,
                 exit_code=output.result.exit_code,
                 payload={},
-                failure_category="unparsable-result",
+                failure_category=category,
             )
-        return parse_result(self.descriptor, request, document)
+
+        if output.result.truncated:
+            return failed("output-limit")
+
+        def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            document: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in document:
+                    raise ValueError("duplicate JSON key")
+                document[key] = value
+            return document
+
+        try:
+            document = json.loads(
+                output.stdout.decode("utf-8", errors="strict"),
+                object_pairs_hook=unique_object,
+                parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite JSON")),
+            )
+        except UnicodeDecodeError:
+            return failed("invalid-encoding")
+        except (json.JSONDecodeError, ValueError, RecursionError):
+            return failed("unparsable-result" if output.result.exit_code == 0 else "process-exit")
+        if (
+            isinstance(document, dict)
+            and "exit_code" in document
+            and (
+                type(document["exit_code"]) is not int
+                or document["exit_code"] != output.result.exit_code
+            )
+        ):
+            return failed("exit-status-drift")
+        result = parse_result(self.descriptor, request, document)
+        if output.result.exit_code != 0 and result.is_success:
+            return failed("process-exit")
+        return replace(result, exit_code=output.result.exit_code)
 
     def _assert_cancellable(self) -> None:
         """Timeout iptal demektir; istemci iptali desteklemiyorsa gorunur olsun."""

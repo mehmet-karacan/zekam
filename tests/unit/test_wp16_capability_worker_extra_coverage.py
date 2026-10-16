@@ -287,7 +287,7 @@ def test_bounded_reader_and_posix_kill_fallback(
         raise OSError("gone")
 
     monkeypatch.setattr("zekam.infrastructure.process.bounded_stream.os.killpg", fail_killpg)
-    stream.hard_kill_tree(stream.ProcessTree(cast(Any, live)))
+    stream.hard_kill_tree(stream.ProcessTree(cast(Any, live), owns_process_group=True))
     assert live.killed
 
 

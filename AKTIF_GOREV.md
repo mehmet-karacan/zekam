@@ -1607,6 +1607,15 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
 
 **Kabul ve negatif testler:** Testler: multi-module, same class name, existing tests preserved, zero tests, stale JaCoCo, failed build, no-progress, model switch resume, rounding threshold ve protected production/build digest.
 
+**16 Ekim 2026 — WP-09/08 process boundary gelistirmesi:** Genel process
+runner stdout/stderr sinirini capture sonunda degil akis sirasinda uygular;
+overflow, timeout, cancel ve Ctrl+C owned child group/Job ve pipe temizligine
+baglandi. Terminal parent'in acik pipe birakan descendants'i kesilir; inherited
+group oldurulmez. Client JSON exit iddiasi gozlenen status'u asamaz; strict
+UTF-8/JSON ve truncated reddi eklendi. Regresyon kodu hazir, CALISTIRILMADI.
+Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
+`docs/PROCESS_AKIS_SINIRLARI.md`. WP-09 kapanmadi.
+
 ### WP-10 — Bellek, Skill, Fikir, Radar Ve Ölçülü Gelişim
 
 **Bağımlılık/onay:** WP-05/07/08; task promotion ile bağlı.  

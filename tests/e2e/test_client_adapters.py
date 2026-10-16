@@ -99,6 +99,25 @@ def test_asili_kalan_istemci_timeout_ile_iptal_edilir(tmp_path: Path) -> None:
     assert result.failure_category == "timeout"
 
 
+@pytest.mark.parametrize(
+    "mode,category",
+    [
+        ("success-nonzero", "process-exit"),
+        ("spoof-exit", "exit-status-drift"),
+        ("duplicate-json", "unparsable-result"),
+        ("invalid-utf8", "invalid-encoding"),
+        ("stderr-overflow", "output-limit"),
+    ],
+)
+def test_process_evidence_cannot_be_overridden_by_success_json(
+    tmp_path: Path, mode: str, category: str
+) -> None:
+    result = _dispatch(_adapter(mode), _request(), tmp_path)
+    assert result.outcome is DispatchOutcome.FAILED
+    assert result.failure_category == category
+    assert result.payload == {}
+
+
 def test_iptal_beyani_olmayan_istemcide_timeout_gorunur_hata_verir(tmp_path: Path) -> None:
     adapter = _adapter("hang", capabilities=frozenset({"chat", "structured-result"}))
     with pytest.raises(PolicyViolation):
