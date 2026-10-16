@@ -126,6 +126,13 @@ claim/receipt gerekir. Bu yuzey serbest native shell'i izole etmez veya dolayli
 wrapper yayininin engellendigini kanitlamaz. Fixture kodu gercek host kabulu
 sayilmaz; mevcut user home'una trust/enrollment otomatik uygulanmaz.
 
+Native test-only yayin icin actual producer receipt cifti `evidence-bundle`
+yolunda canonical olarak kabul edilir; `apply-admission` tam plani actual kabul
+receipt'inden cozer ve yeni push sirasinda current test/source/ham rapor validator'unu
+mevcut exact approval/claim/transport yoluna ekler. Ayrinti
+[PUBLICATION_NATIVE_HOST.md](PUBLICATION_NATIVE_HOST.md). Bu baglanti private key
+provisioning veya OS credential isolation kabulu yerine gecmez.
+
 Bkz. [ZEKAM_YETKINLIK_ENVANTERI.md](ZEKAM_YETKINLIK_ENVANTERI.md). Kaynak implementasyonu,
 yerel geçiş ve CLI/model qualification ayrı raporlanır; dört CLI için gerçek kabul koşusu
 henüz yapılmamıştır.

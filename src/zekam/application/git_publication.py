@@ -7,7 +7,7 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from uuid import UUID
 
 from zekam.application.canonical_job_runtime import (
@@ -171,6 +171,7 @@ class GitPublicationService:
     home: Path
     ledger: PublicationLedger
     transport: GitPublicationTransport
+    validate_evidence: Callable[[GitPublicationPlan], None] | None = None
 
     def _authorization(self, plan: GitPublicationPlan, authorization_id: UUID) -> None:
         now = dt.datetime.now(dt.UTC)
@@ -233,6 +234,8 @@ class GitPublicationService:
             ):
                 raise PolicyViolation("Git publication source/remote/head drift")
             validate_bound_source(self.home, binding=plan.binding, source_revision=plan.target.head)
+            if self.validate_evidence is not None:
+                self.validate_evidence(plan)
 
         # Reject invalid evidence before opening a new canonical job. Re-read it
         # after the effect claim as well; no DB write lock spans transport.push.

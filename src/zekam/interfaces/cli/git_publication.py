@@ -702,6 +702,51 @@ def apply_command(
         raise fail_from(exc) from exc
 
 
+@app.command("apply-admission")
+def apply_admission_command(
+    reference: Annotated[str, typer.Argument()],
+    plan_digest: Annotated[str, typer.Option("--plan-digest")],
+    authorization_id: Annotated[UUID | None, typer.Option("--authorization-id")] = None,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Canonical admission'dan plani cozer; exact approval ile native yayin yolunu kullanir."""
+    from zekam.application.git_publication_host import (
+        publication_from_admission,
+        apply_admitted_publication,
+    )
+
+    try:
+        context = _context(home)
+        if apply:
+            if authorization_id is None:
+                raise ValidationFailed(
+                    "Publication native yayin exact approved authorization ister"
+                )
+            result = apply_admitted_publication(
+                context.home,
+                reference=reference,
+                authorization_id=authorization_id,
+                plan_digest=plan_digest,
+            )
+        else:
+            plan = publication_from_admission(context.home, reference)
+            if plan.plan_digest != plan_digest:
+                raise PolicyViolation("Publication native exact approved plan digest drift")
+            result = {
+                "plan": plan.body(),
+                "plan_digest": plan.plan_digest,
+                "apply": False,
+                "publication_authorized": False,
+                "grants_authority": False,
+            }
+        console.print_json(json.dumps(result, ensure_ascii=False))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication native admission kaynagi okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
 @app.command("revoke")
 def revoke_command(
     input_file: Annotated[Path, typer.Argument()],

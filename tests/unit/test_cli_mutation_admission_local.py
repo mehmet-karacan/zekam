@@ -43,6 +43,16 @@ def test_native_resume_remains_read_only_in_admission_registry() -> None:
     assert admission.exemption is None
 
 
+@pytest.mark.parametrize("command", ["evidence-bundle", "apply-admission"])
+def test_native_publication_apply_is_explicit_local_effect_and_preview_is_read_only(command):
+    path = ("git", "publication", command)
+    preview = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": False})
+    effect = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": True})
+    assert not preview.mutating and preview.exemption is None
+    assert effect.mutating and effect.exemption is MutationAdmissionExemption.LOCAL_EFFECT
+    assert not effect.requires_existing_hydration and not effect.grants_authority
+
+
 @pytest.mark.parametrize("command", ["evaluation-record", "review-record"])
 def test_skill_evidence_record_requires_local_effect_admission(command: str) -> None:
     path = ("skill", command)

@@ -332,6 +332,8 @@ class ActiveRuntimeContinuityIdentity:
 # catch-up surfaces; their handlers retain their own exact effect admission.
 _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("git", "publication", "import-evidence"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("git", "publication", "evidence-bundle"): MutationAdmissionExemption.LOCAL_EFFECT,
+    ("git", "publication", "apply-admission"): MutationAdmissionExemption.LOCAL_EFFECT,
     ("git", "publication", "import-approval"): MutationAdmissionExemption.CONTROL_PLANE,
     ("git", "publication", "revoke"): MutationAdmissionExemption.CONTROL_PLANE,
     ("auth", "revoke"): MutationAdmissionExemption.CONTROL_PLANE,
