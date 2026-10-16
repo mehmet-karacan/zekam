@@ -43,6 +43,7 @@ from zekam.application.provider_adapter import (
     ProviderDeadlineExceeded,
     ProviderHTTPUnavailable,
     ProviderOutcomeUnknown,
+    ProviderCallQuotaExceeded,
 )
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
@@ -1488,7 +1489,7 @@ def apply_project_index(
         verify_document_embedding_batch(texts, embedded, provider_profile)
         provider_calls += embedded.receipt.provider_call_count
         if max_provider_calls is not None and provider_calls > max_provider_calls:
-            raise PolicyViolation("Project embedding provider cagrisi kotasi asildi")
+            raise ProviderCallQuotaExceeded("Project embedding provider cagrisi kotasi asildi")
         for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
             vectors[chunk.chunk_id] = vector
     if len(vectors) != len(plan.chunks):

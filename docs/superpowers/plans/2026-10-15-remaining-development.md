@@ -69,6 +69,10 @@
   dogrulamasi ve CAS oncesi atomiclik korunuyor. Testler CALISTIRILMADI;
   canli provider ve performans kabul matrisi acik.
 
+- Gorev 4 WP-05.03: Legacy embedding apply quota asimini mevcut typed
+  `ProviderCallQuotaExceeded` sinifina bagladi; generic policy mesaji yerine
+  canonical quota sinyali korunuyor. Testler CALISTIRILMADI.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak
