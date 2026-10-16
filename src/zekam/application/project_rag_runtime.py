@@ -3129,30 +3129,7 @@ def _index(
     if type(provider_batch_limit) is not int or provider_batch_limit < 1:
         raise ValidationFailed("Embedding provider batch limiti gecersiz")
     effective_batch_size = min(batch_size, provider_batch_limit)
-    if binding.route is EmbeddingRoute.REMOTE:
-        candidate = EmbeddingRouteCandidate(
-            model_ref=profile.exact_model_id,
-            dimension=profile.dimension,
-            qualified=True,
-            health_fresh=True,
-            verified=True,
-            latency_ms=float(binding.probe["latency_ms"]),
-            semantic_margin=float(binding.probe["semantic_margin"]),
-            qualification_evidence_digest=profile.profile_digest,
-            probe_evidence_digest=profile.probe_evidence_digest,
-        )
-        discovery, plan = _project_plan(
-            source_root,
-            project_id=project_id,
-            project_slug=project_slug,
-            knowledge=knowledge,
-            embedding_candidates=(candidate,),
-            allow_remote_source=True,
-            check_budget=lambda: _check_index_budget(cancel, deadline_monotonic),
-        )
-        if plan.embedding_route.kind is not EmbeddingRouteKind.QUALIFIED_REMOTE:
-            raise PolicyViolation("Remote embedding route plan/effect drift")
-    elif plan.embedding_route.kind is not EmbeddingRouteKind.LOCAL_PROVIDER:
+    if plan.embedding_route.kind is not EmbeddingRouteKind.LOCAL_PROVIDER:
         raise PolicyViolation("Local embedding route plan/effect drift")
     bound_plan = replace(
         plan,
@@ -3648,27 +3625,15 @@ def _query(
         else:
             try:
                 # WP3-A: the query path must NOT run full corpus plan chunking /
-                # document embedding / Oracle metadata / reindex.  Local-route
-                # qualification uses the accepted, bounded synthetic fixture
-                # identity (same contract as remote) and never asks the local
-                # provider to build a fresh corpus plan from source.
-                if knowledge.embedding_route is EmbeddingRoute.LOCAL:
-                    binding = _local_query_binding(
-                        paths["home"],
-                        paths["ledger"],
-                        project_id,
-                        knowledge,
-                    )
-                else:
-                    binding = _provider(
-                        paths["home"],
-                        paths["ledger"],
-                        config_file,
-                        project_id,
-                        (),
-                        knowledge,
-                        remote_authorized=authorize_remote_query,
-                    )
+                # document embedding / Oracle metadata / reindex. Local E5
+                # qualification uses the accepted bounded synthetic fixture and
+                # never asks the provider to build a fresh corpus plan from source.
+                binding = _local_query_binding(
+                    paths["home"],
+                    paths["ledger"],
+                    project_id,
+                    knowledge,
+                )
             except (OSError, subprocess.SubprocessError, ZekamError) as exc:
                 dense_disabled_reason = f"embedding-provider-unavailable:{type(exc).__name__}"
                 binding = _lexical_only_binding(
