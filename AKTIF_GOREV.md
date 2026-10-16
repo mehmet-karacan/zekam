@@ -1830,6 +1830,11 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   selector reddedilir. Regresyon kaynaklari hazir, CALISTIRILMADI. Actual
   dispatch/receipt/model bagimsizligi, fixture/baseline/no-progress runner ve
   WP kabul kapilari halen aciktir.
+
+  16 Ekim 2026 radar connection omru: repository transaction'lari commit/rollback
+  sonrasinda finally-close uygular; read ve write dosya handle'i GC'ye birakilmaz.
+  Retained gercek connection regresyon kaynaklari hazir, CALISTIRILMADI. Schema
+  veya migration version degismedi; genel kabul kapilari aciktir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.

@@ -119,3 +119,73 @@ def test_cli_read_surfaces_do_not_bootstrap_missing_campaign_store(tmp_path, com
     assert result.exit_code != 0
     assert "Radar store bulunamadi" in result.output
     assert not (home / "state" / "radar-campaigns.db").exists()
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_retained_connection_references_are_closed_after_repository_reads(
+    tmp_path, monkeypatch, read_only
+):
+    path = tmp_path / "radar.db"
+    writer = RadarCampaignRepository(path)
+    writer.create_campaign(
+        project_id="project",
+        campaign_id="campaign",
+        stage="discover",
+        state="ready",
+        plan_digest=digest("plan"),
+        plan={"safe": True},
+        idempotency_key="close-test",
+    )
+    repo = RadarCampaignRepository(path, read_only=read_only)
+    connections = []
+    original = repo._connect
+
+    def retained():
+        connection = original()
+        connections.append(connection)  # Prevent GC from hiding a leaked handle.
+        return connection
+
+    monkeypatch.setattr(repo, "_connect", retained)
+    assert repo.get_campaign("campaign").campaign_id == "campaign"
+    assert repo.candidates_document("campaign")["read_only"] is True
+    with pytest.raises(NotFound):
+        repo.get_campaign("missing")
+    assert connections
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("select 1")
+
+
+def test_failed_write_rolls_back_and_closes_retained_connection(tmp_path, monkeypatch):
+    path = tmp_path / "radar.db"
+    repo = RadarCampaignRepository(path)
+    campaign = repo.create_campaign(
+        project_id="project",
+        campaign_id="campaign",
+        stage="discover",
+        state="ready",
+        plan_digest=digest("plan"),
+        plan={},
+        idempotency_key="rollback-close-test",
+    )
+    connections = []
+    original = repo._connect
+
+    def retained():
+        connection = original()
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(repo, "_connect", retained)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with repo._connection() as connection:
+            connection.execute(
+                "insert into radar_coverage_gap values('g',?,'k','reason','now',null)",
+                (campaign.id,),
+            )
+            raise RuntimeError("interrupted")
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("select 1")
+    with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as db:
+        assert db.execute("select count(*) from radar_coverage_gap").fetchone()[0] == 0

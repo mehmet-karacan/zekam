@@ -317,6 +317,13 @@ veya campaign uretmez. Analyse-plan eksik store'u needs-discovery diye bildirir.
 Bu sinir kampanya sonucunu verified veya adayi AUTO_SAFE yapmaz. Regresyon
 kaynaklari `tests/unit/test_radar_read_only.py` icinde hazir, CALISTIRILMADI.
 
+Repository islemleri transaction commit/rollback sonrasinda SQLite connection'i
+acikca kapatir; garbage collection'a veya context manager'in yalniz transaction
+kapatmasina guvenmez. Basarili read/write ve exception yollarinda dosya handle'i
+birakilir. Bu ozellikle Windows backup/replace/islem cikisi akisinda gereklidir.
+Retained gercek connection referanslariyla regresyon kaynaklari eklendi,
+CALISTIRILMADI; schema ve migration version degismedi.
+
 ## Claim ve replay siniri - 16 Ekim 2026, test bekliyor
 
 Campaign schema kurulumu/migration ve ilk campaign yazmasi mevcut operational

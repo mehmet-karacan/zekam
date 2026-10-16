@@ -11,6 +11,8 @@ import datetime as dt
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -531,6 +533,16 @@ class RadarCampaignRepository:
         connection.execute("pragma busy_timeout = 5000")
         return connection
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Preserve commit/rollback semantics and always release the file handle."""
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def create_campaign(
         self,
         *,
@@ -546,7 +558,7 @@ class RadarCampaignRepository:
         row_id = str(new_uuid7())
         now = _now()
         plan_json = _canonical_json(plan)
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 existing = connection.execute(
@@ -607,7 +619,7 @@ class RadarCampaignRepository:
         )
 
     def get_campaign(self, campaign_id: str) -> CampaignRow:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_campaign where campaign_id = ?", (campaign_id,)
             ).fetchone()
@@ -620,7 +632,7 @@ class RadarCampaignRepository:
         return self._row_to_campaign(row)
 
     def get_campaign_by_idempotency_key(self, idempotency_key: str) -> CampaignRow | None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_campaign where idempotency_key = ?", (idempotency_key,)
             ).fetchone()
@@ -645,7 +657,7 @@ class RadarCampaignRepository:
         }:
             raise ValidationFailed("Campaign state gecersiz")
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 if effect_claim_id is not None:
@@ -689,7 +701,7 @@ class RadarCampaignRepository:
         now = _now()
         terminal_states = {"completed", "failed", "blocked", "recovery-required"}
         finished_at = now if state in terminal_states else None
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -723,7 +735,7 @@ class RadarCampaignRepository:
         inventory_json = _canonical_json(inventory)
         inventory_id = str(new_uuid7())
         observed_at = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 existing = connection.execute(
@@ -765,7 +777,7 @@ class RadarCampaignRepository:
 
     def get_inventory_by_digest(self, inventory_digest: str) -> InventoryRow | None:
         _validate_digest_value(inventory_digest, "Inventory digest")
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_inventory where inventory_digest = ?", (inventory_digest,)
             ).fetchone()
@@ -775,7 +787,7 @@ class RadarCampaignRepository:
 
     def list_inventories(self, campaign_id: str) -> tuple[InventoryRow, ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_inventory where campaign_id = ? order by observed_at",
                 (campaign.id,),
@@ -787,7 +799,7 @@ class RadarCampaignRepository:
     ) -> tuple[str, ...]:
         now = _now()
         ids: list[str] = []
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 for pin in pins:
@@ -815,7 +827,7 @@ class RadarCampaignRepository:
 
     def list_pinned_commits(self, campaign_id: str) -> tuple[dict[str, Any], ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_pinned_commit where campaign_id = ? order by pinned_at",
                 (campaign.id,),
@@ -840,7 +852,7 @@ class RadarCampaignRepository:
         entries: tuple[dict[str, Any], ...],
     ) -> None:
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 for entry in entries:
@@ -868,7 +880,7 @@ class RadarCampaignRepository:
 
     def list_source_manifest(self, campaign_id: str) -> tuple[dict[str, Any], ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_source_manifest where campaign_id = ? order by fetched_at",
                 (campaign.id,),
@@ -902,7 +914,7 @@ class RadarCampaignRepository:
             raise ValidationFailed("Budget limit pozitif integer olmali")
         reservation_id = str(new_uuid7())
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 row = connection.execute(
@@ -939,7 +951,7 @@ class RadarCampaignRepository:
         if not isinstance(amount, int) or amount < 0:
             raise ValidationFailed("Budget consume amount negatif olamaz")
         # Consume from oldest reservation first.
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 rows = connection.execute(
@@ -973,7 +985,7 @@ class RadarCampaignRepository:
 
     def get_budget(self, campaign_id: str) -> dict[str, dict[str, int]]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select category, coalesce(sum(reserved), 0) as reserved,"
                 " coalesce(sum(consumed), 0) as consumed from radar_budget_reservation"
@@ -989,7 +1001,7 @@ class RadarCampaignRepository:
         return result
 
     def _latest_budget_row(self, campaign_id: str, category: str) -> BudgetReservationRow | None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_budget_reservation where campaign_id = ? and category = ?"
                 " order by created_at desc limit 1",
@@ -1015,7 +1027,7 @@ class RadarCampaignRepository:
         now = _now()
         result_json = None if result is None else _canonical_json(result)
         result_digest = None if result is None else digest(result)
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1062,7 +1074,7 @@ class RadarCampaignRepository:
         result_json = None if result is None else _canonical_json(result)
         result_digest = None if result is None else digest(result)
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1085,7 +1097,7 @@ class RadarCampaignRepository:
         return self.get_sub_research_run(run_id)
 
     def get_sub_research_run(self, run_id: str) -> SubResearchRunRow:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_sub_research_run where id = ?", (run_id,)
             ).fetchone()
@@ -1095,7 +1107,7 @@ class RadarCampaignRepository:
 
     def list_sub_research_runs(self, campaign_id: str) -> tuple[SubResearchRunRow, ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_sub_research_run where campaign_id = ? order by started_at",
                 (campaign.id,),
@@ -1106,7 +1118,7 @@ class RadarCampaignRepository:
         if not isinstance(count, int) or count < 0:
             raise ValidationFailed("planned_invocations negatif olamaz")
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1125,7 +1137,7 @@ class RadarCampaignRepository:
     def record_invocation_attempt(self, campaign_row_id: str, limit: int) -> CampaignRow:
         if not isinstance(limit, int) or limit <= 0:
             raise ValidationFailed("invocation_attempts limiti pozitif integer olmali")
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 row = connection.execute(
@@ -1150,7 +1162,7 @@ class RadarCampaignRepository:
 
     def record_invocation_started(self, campaign_row_id: str) -> CampaignRow:
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1172,7 +1184,7 @@ class RadarCampaignRepository:
         if observed_provider_requests < 0:
             raise ValidationFailed("observed_provider_requests negatif olamaz")
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1194,7 +1206,7 @@ class RadarCampaignRepository:
             raise ValidationFailed("Coverage gap key/reason bos olamaz")
         gap_id = str(new_uuid7())
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1218,7 +1230,7 @@ class RadarCampaignRepository:
     def resolve_coverage_gap(self, campaign_id: str, gap_key: str) -> None:
         campaign = self.get_campaign(campaign_id)
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1240,7 +1252,7 @@ class RadarCampaignRepository:
         if unresolved_only:
             query += " and resolved_at is null"
         query += " order by created_at"
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(query, params).fetchall()
         return tuple(self._row_to_gap(row) for row in rows)
 
@@ -1251,7 +1263,7 @@ class RadarCampaignRepository:
         checkpoint_json = _canonical_json(payload)
         checkpoint_id = str(new_uuid7())
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1274,7 +1286,7 @@ class RadarCampaignRepository:
 
     def latest_checkpoint(self, campaign_id: str) -> CheckpointRow | None:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_checkpoint"
                 " where campaign_id = ? order by sequence desc limit 1",
@@ -1316,7 +1328,7 @@ class RadarCampaignRepository:
 
     def _latest_stage(self, campaign_id: str) -> dict[str, Any] | None:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_stage where campaign_id = ? order by started_at desc limit 1",
                 (campaign.id,),
@@ -1455,7 +1467,7 @@ class RadarCampaignRepository:
         campaign = self.get_campaign(campaign_id)
         row_id = str(new_uuid7())
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1505,7 +1517,7 @@ class RadarCampaignRepository:
 
     def list_pattern_cards(self, campaign_id: str) -> tuple[RadarPatternCardRow, ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_pattern_card where campaign_id = ? order by created_at",
                 (campaign.id,),
@@ -1516,7 +1528,7 @@ class RadarCampaignRepository:
         campaign = self.get_campaign(campaign_id)
         row_id = str(new_uuid7())
         now = _now()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1563,7 +1575,7 @@ class RadarCampaignRepository:
 
     def list_gap_cards(self, campaign_id: str) -> tuple[RadarGapCardRow, ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_gap_card where campaign_id = ? order by created_at",
                 (campaign.id,),
@@ -1579,7 +1591,7 @@ class RadarCampaignRepository:
         resources_json = _canonical_json(
             {"affected_logical_resources": list(selection.affected_logical_resources)}
         )
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("begin immediate")
             try:
                 connection.execute(
@@ -1642,7 +1654,7 @@ class RadarCampaignRepository:
 
     def list_candidate_decisions(self, campaign_id: str) -> tuple[RadarCandidateDecisionRow, ...]:
         campaign = self.get_campaign(campaign_id)
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "select * from radar_candidate_decision where campaign_id = ? order by created_at",
                 (campaign.id,),
@@ -1659,7 +1671,7 @@ class RadarCampaignRepository:
         """
 
         _validate_digest_value(selection_digest, "Selection digest")
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "select * from radar_candidate_decision where selection_digest = ?"
                 " order by created_at desc limit 1",
