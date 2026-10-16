@@ -116,6 +116,8 @@
 - Gorev 4 WP-05.04 source identity recovery: RAG state/pending CAS publish ve crash recovery, generation source revision/tree ile source identity digestini birlikte dogrular; query/status readback identityyi yeniden uretir. Regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 2/4 WP-07.02 research eski plan kapisi: Source identity alanlari olmayan legacy research planlari effect/claim baslamadan bounded policy hatasiyla reddedilir; KeyError veya sessiz fallback yoktur. Regresyon kaynagi hazir, CALISTIRILMADI.
 
+- Gorev 4 WP-05.04 RAG state self-consistency: Mevcut ve pending recovery state'lerinde source binding alanlari varsa `project_id + source_revision + tree_digest` ile yeniden dogrulanir; legacy state alanlari yoksa bounded uyumluluk korunur. Publish/recovery state drift'i fail-closed kalir. Regresyon kaynaklari hazir, CALISTIRILMADI.
+
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 
 - Gorev 5 WP-10.05 canonical tournament: actual paired trial -> fresh local grade -> no-progress stop veya tek native verifier-role selector reserved Work/claim/checkpoint/CAS receipt akisina baglandi. Exact source/config/model/session, typed karar, completed replay ve historical report eklendi; caller scores kabul edilmez. Unmetered token/cost/provider-request boyutlari null ve explicit opt-in; promotion false. Unit regresyon kaynaklari hazir, CALISTIRILMADI. Gercek host/full quality ve quantitative metering kabul kapilari acik; docs/TOURNAMENT_CANONICAL_SELECTION.md.

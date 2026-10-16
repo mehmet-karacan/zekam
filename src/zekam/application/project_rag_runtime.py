@@ -2087,6 +2087,22 @@ def _rag_pending_path(state_path: Path) -> Path:
     return state_path.with_name(f"{state_path.name}.pending.json")
 
 
+def _validate_rag_state_source_identity(
+    project_id: str, state: dict[str, Any], *, label: str
+) -> None:
+    """Validate a present state source identity without breaking legacy state reads."""
+
+    binding_keys = ("source_revision", "tree_digest", "source_identity_digest")
+    if not any(key in state for key in binding_keys):
+        return
+    if not all(isinstance(state.get(key), str) for key in binding_keys):
+        raise PolicyViolation(f"Project RAG {label} source identity eksik")
+    if state["source_identity_digest"] != source_identity_digest(
+        project_id, state["source_revision"], state["tree_digest"]
+    ):
+        raise PolicyViolation(f"Project RAG {label} source identity drift")
+
+
 def _publish_rag_state_pending(
     paths: dict[str, Path],
     project_id: str,
@@ -2148,6 +2164,7 @@ def _publish_rag_state_pending(
                 or current_state.get("generation_digest") != expected_current_digest
             ):
                 raise PolicyViolation("Project RAG state/pending publish drift")
+            _validate_rag_state_source_identity(project_id, current_state, label="publish state")
         elif expected_current_digest is not None:
             raise PolicyViolation("Project RAG onceki state bulunamadi")
         pending_body: dict[str, Any] = {
@@ -2322,6 +2339,7 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                     not in (expected_current_digest, staged_generation_digest)
                 ):
                     raise PolicyViolation("Project RAG pending state binding drift")
+                _validate_rag_state_source_identity(project_id, disk_state, label="pending state")
             publication = pending.get("publication")
             if "publication" in pending:
                 if not isinstance(publication, dict):
@@ -2367,6 +2385,7 @@ def _recover_rag_state_pending(paths: dict[str, Path], project_id: str) -> dict[
                     or old_state.get("generation_digest") != expected_current_digest
                 ):
                     raise PolicyViolation("Project RAG onceki state/index drift")
+                _validate_rag_state_source_identity(project_id, old_state, label="previous state")
             elif state_path.exists() or state_path.is_symlink():
                 raise PolicyViolation("Project RAG ilk yayin oncesi state drift")
             pending_path.unlink()
