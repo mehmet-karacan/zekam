@@ -12,6 +12,7 @@ from uuid import UUID
 
 from zekam.application.canonical_job_runtime import canonical_job_key
 from zekam.application.git_publication import GitPublicationEvidence, GitPublicationPlan
+from zekam.application.git_publication_wire import publication_evidence_from_body
 from zekam.application.local_attestation import ReceiptVerifier
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import AuthorizationRequired, ConfigurationError, NotFound, PolicyViolation
@@ -206,6 +207,94 @@ class SQLiteGitPublicationLedger:
                 ),
             )
             self._evidence(connection, evidence.evidence_digest, self._verify)
+            connection.commit()
+        finally:
+            connection.close()
+
+    def record_evidence_bundle(
+        self, plan: GitPublicationPlan, envelopes: tuple[dict, dict]
+    ) -> None:
+        """Admit both exact signed receipts in one transaction, or admit neither."""
+        if (
+            type(plan) is not GitPublicationPlan
+            or type(envelopes) is not tuple
+            or len(envelopes) != 2
+        ):
+            raise PolicyViolation("Publication evidence bundle exact typed pair required")
+        plan.__post_init__()
+        prepared = []
+        for envelope, kind, expected in zip(
+            envelopes,
+            ("test", "verification"),
+            (plan.test_evidence_digest, plan.verifier_evidence_digest),
+            strict=True,
+        ):
+            evidence = publication_evidence_from_body(envelope["evidence"])
+            producer = UUID(envelope["producer_id"])
+            unsigned = evidence_attestation_body(
+                evidence,
+                source_job_id=envelope["source_job_id"],
+                source_evidence_digest=envelope["source_evidence_digest"],
+                producer_id=producer,
+            )
+            parse_digest(envelope["source_evidence_digest"])
+            UUID(envelope["source_job_id"])
+            if (
+                set(envelope) != set(unsigned) | {"attestation"}
+                or canonical_json({k: v for k, v in envelope.items() if k != "attestation"})
+                != canonical_json(unsigned)
+                or evidence.kind != kind
+                or evidence.evidence_digest != expected
+                or evidence.subject_digest != plan.subject_digest
+                or evidence.passed is not True
+                or evidence.executor_id != producer
+                or evidence.recorded_at > dt.datetime.now(dt.UTC)
+            ):
+                raise PolicyViolation("Publication evidence bundle exact signed subject required")
+            self._verify(kind, str(producer), unsigned, envelope["attestation"])
+            prepared.append((evidence, envelope))
+        test, review = (item[0] for item in prepared)
+        if test.execution_id == review.execution_id or review.executor_id in {
+            test.executor_id,
+            plan.executor_id,
+        }:
+            raise PolicyViolation("Publication evidence bundle independent verifier required")
+        connection = _connect(self.database)
+        try:
+            connection.execute("begin immediate")
+            for evidence, envelope in prepared:
+                source = connection.execute(
+                    "select project_id,work_item_id,config_revision_id,config_digest,source_snapshot_id "
+                    "from local_job_binding where local_job_id=?",
+                    (envelope["source_job_id"],),
+                ).fetchone()
+                if source is None or any(
+                    source[field] != getattr(plan.binding, field)
+                    for field in (
+                        "project_id",
+                        "work_item_id",
+                        "config_revision_id",
+                        "config_digest",
+                        "source_snapshot_id",
+                    )
+                ):
+                    raise PolicyViolation(
+                        "Publication evidence bundle canonical source scope drift"
+                    )
+                self._insert_immutable(
+                    connection,
+                    "git_publication_evidence",
+                    "evidence_digest",
+                    (
+                        evidence.evidence_digest,
+                        canonical_json(evidence.body()),
+                        envelope["source_job_id"],
+                        envelope["source_evidence_digest"],
+                        envelope["producer_id"],
+                        envelope["attestation"],
+                    ),
+                )
+                self._evidence(connection, evidence.evidence_digest, self._verify)
             connection.commit()
         finally:
             connection.close()

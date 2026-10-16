@@ -25,6 +25,7 @@ RESERVED_JOB_OPERATIONS = (
     "publication.trust.rotate",
     "publication.test.attest",
     "publication.verification.attest",
+    "publication.evidence.bind",
     "publication.review",
     "git.push",
     "project.index",

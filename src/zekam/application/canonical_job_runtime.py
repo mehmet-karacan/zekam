@@ -143,6 +143,7 @@ def run_canonical_job(
         "publication.trust.rotate",
         "publication.test.attest",
         "publication.verification.attest",
+        "publication.evidence.bind",
         "publication.review",
         "project.index",
         "test.measure",
@@ -203,6 +204,7 @@ def run_canonical_job(
                 "publication.trust.rotate",
                 "publication.test.attest",
                 "publication.verification.attest",
+                "publication.evidence.bind",
             }
             else ()
         ),

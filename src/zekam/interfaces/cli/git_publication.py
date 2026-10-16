@@ -496,6 +496,57 @@ def verification_evidence_command(
         raise fail_from(exc) from exc
 
 
+@app.command("evidence-bundle")
+def evidence_bundle_command(
+    plan_file: Annotated[Path, typer.Argument()],
+    test_producer: Annotated[str, typer.Option("--test-producer")],
+    verification_producer: Annotated[str, typer.Option("--verification-producer")],
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Gercek receipt ciftinden tam plan; apply ile canonical atomik evidence kabulu."""
+    from zekam.application.git_publication_bundle import (
+        prepare_publication_evidence,
+        admit_publication_evidence,
+    )
+
+    try:
+        document = _read(plan_file)
+        publication = publication_plan_from_body(document.get("plan", document))
+        context = _context(home)
+        operation = admit_publication_evidence if apply else prepare_publication_evidence
+        result = operation(
+            context.home,
+            publication=publication,
+            test_reference=test_producer,
+            verification_reference=verification_producer,
+        )
+        console.print_json(json.dumps(result, ensure_ascii=False))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication evidence bundle okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
+@app.command("evidence-admission")
+def evidence_admission_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Gercek atomik evidence admission receipt'ini salt okunur dogrular."""
+    from zekam.application.git_publication_bundle import read_publication_admission
+
+    try:
+        context = _context(home)
+        console.print_json(
+            json.dumps(read_publication_admission(context.home, reference), ensure_ascii=False)
+        )
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication evidence admission okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
 @app.command("import-evidence")
 def evidence_command(
     input_file: Annotated[Path, typer.Argument()],
