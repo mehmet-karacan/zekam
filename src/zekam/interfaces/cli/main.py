@@ -627,6 +627,7 @@ def _ask_work_status(
                             "plan_digest": run.plan_digest,
                             "terminal_receipt_digest": run.terminal_receipt_digest,
                             "source_snapshot_id": run.source_snapshot_id,
+                            "config_revision_id": run.config_revision_id,
                             "receipt": {
                                 "status": receipt_status,
                                 "digest": run.terminal_receipt_digest,

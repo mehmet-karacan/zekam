@@ -41,8 +41,9 @@ History readback route ve scope digestleriyle deterministic kapsam kararina
 baglandi.
 
 Run ve checkpoint record'larinda, CLI/dogal dil readback'inde canonical
-`source_snapshot_id` korunuyor; kaynak baglantisi artik projection katmaninda
-dusurulmuyor. E2E/unit regresyon kaynaklari eklendi, testler CALISTIRILMADI.
+`source_snapshot_id` ve Run `config_revision_id` korunuyor; plan kaynak ve config
+baglantisi projection katmaninda dusurulmuyor. E2E/unit regresyon kaynaklari
+eklendi, testler CALISTIRILMADI.
 
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 

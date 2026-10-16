@@ -1329,8 +1329,9 @@ dil checkpoint ozetleri canonical `source_snapshot_id` alanini tasir; run ile
 kaynak snapshot baglantisi projection katmaninda dusurulmez. Regresyon kaynaklari
 hazirlandi, testler CALISTIRILMADI.
 
-**16 Ekim 2026 WP-07 run source readback:** RunRecord ve resume/status/show dogal
-dil ozetleri canonical `source_snapshot_id` alanini tasir; Run'in plan baglantisi
+**16 Ekim 2026 WP-07 run source/config readback:** RunRecord ve
+resume/status/show dogal dil ozetleri canonical `source_snapshot_id` ve
+`config_revision_id` alanlarini tasir; Run'in plan, kaynak ve config baglantisi
 SQLite readback ve projection katmanlarinda korunur. Regresyon kaynagi hazirlandi,
 testler CALISTIRILMADI.
 
