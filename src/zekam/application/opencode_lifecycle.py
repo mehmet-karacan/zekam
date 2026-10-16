@@ -760,6 +760,7 @@ def resume_projection(
             pending_tools.pop(session_id, None)
             current["active_tool"] = None
             current["last_tool"] = _safe_tool_name(event.get("tool"))
+            current["last_resource"] = event.get("resource") or current.get("last_resource")
             status = event.get("status")
             if status == "completed":
                 current["status"] = "completed"

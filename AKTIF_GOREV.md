@@ -1751,6 +1751,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   raw error/result aktarilmaz. Exact eski plugin ownership korunur. Regresyon
   kaynaklari hazir, CALISTIRILMADI. Per-call skill/revision/package bagi ve
   gercek host kabul kaniti halen aciktir.
+
+  16 Ekim 2026 native managed load bagi: plugin v5 actual V2 skill SDK/renderer
+  kaydini aktif package/revision ve exact root/policy/target terminal export
+  receipt'ine salt-okunur baglar. Call/message yalniz hash ile content-free event
+  etiketi tasir; actual event.id pending resource ayrimini korur. Test kaynaklari
+  hazir, CALISTIRILMADI. Bu SkillInvocationV2 veya verified outcome degildir;
+  per-call canonical producer, tam kalite ve gercek host kabul kapilari acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

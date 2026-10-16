@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import secrets
 import shutil
@@ -63,6 +64,19 @@ if (Bun.argv.includes("resume")) {
   console.log('ZEKAM_RESUME_PACKET_V1\\n{"schema":"zekam-resume-packet/v1","read_only":true,"grants_authority":false}')
   process.exit(0)
 }
+if (Bun.argv.includes("native-binding")) {
+  const query = JSON.parse(await Bun.stdin.text())
+  if (Bun.env.NATIVE_BINDING_MODE === "reject") process.exit(70)
+  console.log(JSON.stringify({
+    schema: "zekam-native-skill-binding/v1", client_id: "opencode",
+    skill_id: query.skill_id, relative_path: query.relative_path,
+    instruction_digest: query.instruction_digest,
+    revision_digest: "sha256:" + "1".repeat(64), package_digest: "sha256:" + "2".repeat(64),
+    export_job_id: "11111111-2222-4333-8444-555555555555",
+    grants_authority: false, quality_verified: false, invocation_observed: false, provider_calls: 0,
+  }))
+  process.exit(0)
+}
 const code = Number(Bun.env.FAKE_ZEKAM_EXIT_CODE ?? "0")
 process.exit(Number.isInteger(code) ? code : 1)
 """,
@@ -87,6 +101,7 @@ process.exit(Number.isInteger(code) ? code : 1)
     runner = root / "runner.js"
     runner.write_text(
         """import pluginV2, { ZekamLifecycle } from "./zekam-lifecycle.js"
+import { join, dirname } from "node:path"
 
 if (Bun.env.RUN_V2_SETUP === "1") {
   const pending = []
@@ -109,9 +124,12 @@ if (Bun.env.RUN_V2_SETUP === "1") {
       }
     },
   })
+  const skillPath = join(process.cwd(), ".agents", "skills", "native-example", "SKILL.md")
+  const skillBody = "Private fixture instruction sentinel."
   await pluginV2.setup({
     location: { directory: process.cwd() },
     event: { subscribe },
+    skill: { list: async () => [{ id: "native-example", name: "native-example", path: skillPath, content: skillBody }] },
     session: { hook: async (name, callback) => {
       registrations.push(`session:${name}`)
       callbacks[`session:${name}`] = callback
@@ -136,6 +154,23 @@ if (Bun.env.RUN_V2_SETUP === "1") {
   }
   if (Bun.env.TOOL_AFTER_STATUS !== "missing") after.status = Bun.env.TOOL_AFTER_STATUS ?? "completed"
   await callbacks["tool:execute.after"](after)
+  if (Bun.env.RUN_V2_NATIVE_IDS === "1") {
+    for (const [id, file] of [["call-one", "first.md"], ["call-two", "second.md"]]) {
+      await callbacks["tool:execute.before"]({sessionID: "parallel", id, tool: "read", input: {filePath: file}})
+    }
+    for (const id of ["call-one", "call-two"]) {
+      await callbacks["tool:execute.after"]({sessionID: "parallel", id, tool: "read", status: "completed"})
+    }
+  }
+  if (Bun.env.RUN_V2_SKILL === "1") {
+    const native = { sessionID: "native-skill", id: "native-call-private", messageID: "native-message-private",
+      tool: "skill", input: { id: "native-example" } }
+    await callbacks["tool:execute.before"](native)
+    const content = `<skill_content name="native-example">\\n# Skill: native-example\\n\\n${skillBody}\\n\\nBase directory for this skill: ${dirname(skillPath)}\\nRelative paths in this skill are relative to this base directory.\\n<skill_files>\\n</skill_files>\\n</skill_content>`
+    await callbacks["tool:execute.after"]({ ...native, status: "completed",
+      result: {content, output: {name: "native-example", directory: dirname(skillPath),
+        output: Bun.env.NATIVE_BINDING_MODE === "renderer-drift" ? "wrong renderer" : content}} })
+  }
   push({ type: "session.created", data: { sessionID: "v2-created" } })
   push({ type: "session.deleted", data: { sessionID: "v2-deleted" } })
   await Bun.sleep(250)
@@ -329,6 +364,80 @@ def test_v1_after_requires_observed_success_result_without_persisting_content(
     assert len(after) == 1
     assert after[0][after[0].index("--status") + 1] == expected
     assert "sentinel" not in raw
+
+
+def test_v2_actual_call_ids_keep_overlapping_resources_separate(tmp_path: Path) -> None:
+    runner, executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "native-ids.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=executable,
+        RUN_V2_SETUP="1",
+        RUN_V2_NATIVE_IDS="1",
+        ZEKAM_CAPTURE=str(capture),
+    )
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
+    observed = [
+        call[call.index("--resource") + 1]
+        for call in calls
+        if "--type" in call
+        and call[call.index("--type") + 1] == "tool.execute.after"
+        and call[call.index("--session") + 1] == "parallel"
+    ]
+    assert observed == ["first.md", "second.md"]
+
+
+@pytest.mark.parametrize("mode", ["bound", "reject", "renderer-drift"])
+def test_v2_native_skill_load_attaches_only_resolved_content_free_observation(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    runner, executable = _write_runtime_files(tmp_path)
+    capture = tmp_path / "native-skill.jsonl"
+    result = _run(
+        _bun_executable(),
+        runner,
+        home=tmp_path / "home",
+        fake_executable=executable,
+        RUN_V2_SETUP="1",
+        RUN_V2_SKILL="1",
+        NATIVE_BINDING_MODE=mode,
+        ZEKAM_CAPTURE=str(capture),
+    )
+    assert result.returncode == 0, result.stderr
+    raw = capture.read_text(encoding="utf-8")
+    calls = [json.loads(line) for line in raw.splitlines()]
+    after = [
+        call
+        for call in calls
+        if "--type" in call
+        and call[call.index("--type") + 1] == "tool.execute.after"
+        and call[call.index("--session") + 1] == "native-skill"
+    ]
+    assert len(after) == 1
+    assert after[0][after[0].index("--status") + 1] == "completed"
+    assert "Private fixture instruction" not in raw
+    assert "native-call-private" not in raw
+    assert "native-message-private" not in raw
+    if mode != "bound":
+        assert "--task-label" not in after[0]
+        return
+    assert after[0][after[0].index("--resource") + 1] == ".agents/skills/native-example/SKILL.md"
+    label = after[0][after[0].index("--task-label") + 1]
+    assert label.startswith("native-skill-load/v1:")
+    assert len(label) <= 500
+    binding = json.loads(label.removeprefix("native-skill-load/v1:"))
+    assert binding == {
+        "j": "11111111-2222-4333-8444-555555555555",
+        "r": "1" * 64,
+        "p": "2" * 64,
+        "b": hashlib.sha256(b"Private fixture instruction sentinel.").hexdigest(),
+        "c": hashlib.sha256(b"native-call-private").hexdigest(),
+        "m": hashlib.sha256(b"native-message-private").hexdigest(),
+    }
 
 
 def _native_opencode() -> Path:

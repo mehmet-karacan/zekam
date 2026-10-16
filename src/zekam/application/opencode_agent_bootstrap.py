@@ -50,7 +50,7 @@ def _require_regular_directory(path: Path, label: str) -> None:
         raise ConfigurationError(f"{label} regular directory olmali")
 
 
-_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v4
+_LIFECYCLE_PLUGIN = r"""// zekam-managed-plugin/v5
 import { tool } from "@opencode-ai/plugin"
 import { renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises"
@@ -323,6 +323,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       ["--completed", text(data.completed)],
       ["--pending", text(data.pending)],
       ["--next-action", text(data.nextAction)],
+      ["--task-label", text(data.taskLabel)],
     ]
     for (const [flag, value] of optional) if (value) args.push(flag, value)
     // OpenCode may not await terminal session event promises before process
@@ -454,7 +455,7 @@ export const ZekamLifecycle = async ({ directory }) => {
     },
     "tool.execute.after": async (input, output) => {
       const key = input.callID ?? `${input.sessionID}:${input.tool}`
-      const resource = pending.get(key)
+      const resource = input.nativeSkillResource ?? pending.get(key)
       pending.delete(key)
       // V2 reports both completed and error through the same hook. A missing
       // discriminator is not success. V1 supplies its successful output as the
@@ -473,7 +474,7 @@ export const ZekamLifecycle = async ({ directory }) => {
       // untrusted text. Only a fixed content-free category crosses the CLI.
       await emit("tool.execute.after", {
         sessionID: sessionID(input), agent: input.agent, modelID: input.modelID,
-        tool: input.tool, resource, status, errorCategory,
+        tool: input.tool, resource, status, errorCategory, taskLabel: input.nativeSkillLoadLabel,
       })
     },
   }
@@ -489,6 +490,65 @@ export default {
     if (typeof directory !== "string") return
     const hooks = await ZekamLifecycle({ directory })
     if (!hooks || Object.keys(hooks).length === 0) return
+
+    const nativeSkillLoad = async (event) => {
+      if (event.tool !== "skill" || event.status !== "completed" || !context?.skill?.list) return {}
+      const id = event.input?.id
+      const call = event.id ?? event.callID
+      const message = event.messageID
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id ?? "") || id.length > 64 ||
+          !/^[A-Za-z0-9_.:-]{1,160}$/.test(call ?? "") ||
+          !/^[A-Za-z0-9_.:-]{1,160}$/.test(message ?? "")) return {}
+      let timer
+      try {
+        const skills = await Promise.race([
+          context.skill.list(),
+          new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), 2_000) }),
+        ])
+        if (!Array.isArray(skills) || skills.length > 2048) return {}
+        const matches = skills.filter((item) => item?.id === id)
+        if (matches.length !== 1) return {}
+        const selected = matches[0]
+        if (selected.name !== id || typeof selected.path !== "string" ||
+            typeof selected.content !== "string" ||
+            new TextEncoder().encode(selected.content).length > 262_144) return {}
+        const output = event.result?.output
+        const prefix = `<skill_content name="${id}">\n# Skill: ${id}\n\n${selected.content.trim()}\n\nBase directory for this skill: ${dirname(selected.path)}\n`
+        if (!output || output.name !== id || output.directory !== dirname(selected.path) ||
+            typeof output.output !== "string" || !output.output.startsWith(prefix) ||
+            !output.output.endsWith("\n</skill_content>") || event.result.content !== output.output) return {}
+        const resource = portable(selected.path, directory)
+        if (!resource) return {}
+        const hash = (value) => new Bun.CryptoHasher("sha256").update(value).digest("hex")
+        const instruction = `sha256:${hash(selected.content.trim())}`
+        const query = { schema: "zekam-native-skill-load-query/v1", skill_id: id,
+          relative_path: resource, instruction_digest: instruction }
+        const executable = Bun.env.ZEKAM_EXECUTABLE ?? Bun.which(process.platform === "win32" ? "zekam.exe" : "zekam")
+        if (!executable) return {}
+        const child = Bun.spawnSync({ cmd: [executable, "skill", "native-binding", "--observation-stdin"],
+          cwd: directory, stdin: new TextEncoder().encode(JSON.stringify(query)),
+          stdout: "pipe", stderr: "ignore", timeout: 5_000 })
+        if (child.exitCode !== 0 || child.stdout.byteLength > 16_384) return {}
+        const binding = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(child.stdout))
+        const isDigest = (value) => typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value)
+        if (binding.schema !== "zekam-native-skill-binding/v1" || binding.client_id !== "opencode" ||
+            binding.skill_id !== id || binding.relative_path !== resource || binding.instruction_digest !== instruction ||
+            binding.grants_authority !== false || binding.quality_verified !== false ||
+            binding.invocation_observed !== false || binding.provider_calls !== 0 ||
+            ![binding.revision_digest, binding.package_digest].every(isDigest) ||
+            !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(binding.export_job_id ?? "")) return {}
+        const label = "native-skill-load/v1:" + JSON.stringify({
+          j: binding.export_job_id, r: binding.revision_digest.slice(7), p: binding.package_digest.slice(7),
+          b: instruction.slice(7), c: hash(call), m: hash(message),
+        })
+        return label.length <= 500 ? { nativeSkillResource: resource, nativeSkillLoadLabel: label } : {}
+      } catch {
+        // Optional observation must not block native skill loading or invent a binding.
+        return {}
+      } finally {
+        clearTimeout(timer)
+      }
+    }
 
     const controller = new AbortController()
     const eventStream = context?.event?.subscribe?.({ signal: controller.signal })
@@ -532,13 +592,14 @@ export default {
     if (context?.tool?.hook) {
       void context.tool.hook("execute.before", async (event) => {
         await hooks["tool.execute.before"]?.(
-          { ...event, sessionID: event.sessionID, callID: event.callID, tool: event.tool },
+          { ...event, sessionID: event.sessionID, callID: event.id ?? event.callID, tool: event.tool },
           { args: event.input ?? event.args ?? {} },
         )
       })
       void context.tool.hook("execute.after", async (event) => {
+        const observed = await nativeSkillLoad(event)
         await hooks["tool.execute.after"]?.(
-          { ...event, sessionID: event.sessionID, callID: event.callID, tool: event.tool },
+          { ...event, ...observed, sessionID: event.sessionID, callID: event.id ?? event.callID, tool: event.tool },
         )
       })
     }
@@ -854,6 +915,7 @@ LEGACY_LIFECYCLE_PLUGIN_DIGESTS = frozenset(
         "sha256:3fd4e6c4177b82f6ddb51d3534624a66c9c2775550d6a5ce4f633c6454793990",
         "sha256:9a1ab03cf2537f3dc92384eac21d990dd62bbc11bee8c842069f2b662071b37d",
         "sha256:10065faebb57d29c02c01d66f03d16dbed041378c7b514f83e66d74bcbb25078",
+        "sha256:639ed48fead05acec5628f285cf9f4c104c6241da00a23bf12155386afc136d2",
     )
 )
 

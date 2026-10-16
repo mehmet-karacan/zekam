@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -29,6 +30,7 @@ from zekam.application.skill_packages import (
     projection_receipt,
 )
 from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
+from zekam.application.native_skill_binding import resolve_native_skill_binding
 from zekam.application.skill_audits import build_skill_audit_plan, read_skill_audit, run_skill_audit
 from zekam.application.skill_measured_aggregate import (
     build_measured_aggregate_plan,
@@ -653,6 +655,45 @@ def evaluate_command(revision_digest: Annotated[str, typer.Argument()]) -> None:
         _emit(body | {"plan_digest": digest(body)})
     except ZekamError as exc:
         typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("native-binding")
+def native_binding_command(
+    observation_stdin: Annotated[bool, typer.Option("--observation-stdin")] = False,
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Resolve a content-free SDK load query; never creates invocation/Work state."""
+    try:
+        if not observation_stdin:
+            raise PolicyViolation("Native skill SDK observation stdin required")
+        raw = sys.stdin.buffer.read(4097)
+        if len(raw) > 4096:
+            raise PolicyViolation("Native skill observation query exceeds limit")
+        from zekam.application.skill_evidence import _constant, _pairs
+
+        observation = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_constant
+        )
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        root = resolve_project_source(resolved_home, scopes[0][1])
+        _emit(
+            resolve_native_skill_binding(
+                lifecycle,
+                home=resolved_home,
+                project_root=root,
+                policy=build_context(home=home).settings.cli.integrations,
+                allowed_scopes=scopes,
+                observation=observation,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Native skill binding query okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

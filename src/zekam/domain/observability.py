@@ -105,19 +105,35 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
     ),
     CommandContract(
         "skill lifecycle-apply",
-        "skill evaluation-record",
-        "skill review-record",
-        "skill trial-run",
-        "skill trial-aggregate",
-        "skill audit-run",
-        "skill audit-report",
-        "skill aggregate-record",
-        "skill aggregate-report",
-        "skill evaluation-from-audits",
-        "skill evaluation-report",
         "Skill lifecycle CAS ve receipt uygular",
         mutating=True,
         requires_apply_flag=True,
+    ),
+    *(
+        CommandContract(
+            name,
+            "Skill kanitini exact plan ve receipt ile kaydeder",
+            mutating=True,
+            requires_apply_flag=True,
+        )
+        for name in (
+            "skill evaluation-record",
+            "skill review-record",
+            "skill trial-run",
+            "skill audit-run",
+            "skill aggregate-record",
+            "skill evaluation-from-audits",
+        )
+    ),
+    *(
+        CommandContract(name, "Skill kanitini salt okunur cozer ve raporlar", mutating=False)
+        for name in (
+            "skill trial-aggregate",
+            "skill audit-report",
+            "skill aggregate-report",
+            "skill evaluation-report",
+            "skill native-binding",
+        )
     ),
     CommandContract("work create", "Is kaydi olusturur", mutating=True, requires_apply_flag=True),
     CommandContract("work list", "Isleri listeler", mutating=False),

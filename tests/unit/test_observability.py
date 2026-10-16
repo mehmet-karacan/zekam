@@ -60,6 +60,31 @@ def test_eksik_komutlar_gorunur() -> None:
     assert missing_commands(partial) == ("doctor",)
 
 
+def test_skill_commands_have_separate_exact_read_and_write_contracts() -> None:
+    contracts = {item.name: item for item in CANONICAL_COMMANDS}
+    for name in (
+        "skill lifecycle-apply",
+        "skill evaluation-record",
+        "skill review-record",
+        "skill trial-run",
+        "skill audit-run",
+        "skill aggregate-record",
+        "skill evaluation-from-audits",
+    ):
+        assert contracts[name].mutating is True
+        assert contracts[name].requires_apply_flag is True
+    for name in (
+        "skill lifecycle-plan",
+        "skill trial-aggregate",
+        "skill audit-report",
+        "skill aggregate-report",
+        "skill evaluation-report",
+        "skill native-binding",
+    ):
+        assert contracts[name].mutating is False
+        assert contracts[name].requires_apply_flag is False
+
+
 # -- T04: telemetri -----------------------------------------------------------
 
 
