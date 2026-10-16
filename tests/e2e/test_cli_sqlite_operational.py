@@ -306,7 +306,10 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
     run_id = json.loads(run.stdout)["run"]["id"]
     run_view = _invoke(runner, "work", "run-show", run_id, "--home", str(home), "--json")
     assert run_view.exit_code == 0, run_view.stdout
-    assert json.loads(run_view.stdout)["checkpoints"] == []
+    run_view_body = json.loads(run_view.stdout)
+    assert run_view_body["checkpoints"] == []
+    assert run_view_body["run"]["config_revision_id"] == config.id
+    assert run_view_body["run"]["source_snapshot_id"] is None
 
     first_step = _invoke(
         runner,
