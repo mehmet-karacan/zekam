@@ -300,7 +300,8 @@ Ayrintili kabul sartlari icin `AKTIF_GOREV.md` 15'e bakin.
   uygulayin.
 - Bir sonraki exact safe action status veya plan komutu ciktisinda
   belirtilir.
-# Salt okunur store siniri - 16 Ekim 2026, test bekliyor
+
+## Salt okunur store siniri - 16 Ekim 2026, test bekliyor
 
 `research radar status/report/candidates`, analyse-plan inventory okuma ve
 scheduler'in salt-okunur radar.propose yolu `read_only=True` repository kullanir.
@@ -315,3 +316,19 @@ Eksik campaign icin scheduler empty/unknown aday listesi gosterebilir; dosya
 veya campaign uretmez. Analyse-plan eksik store'u needs-discovery diye bildirir.
 Bu sinir kampanya sonucunu verified veya adayi AUTO_SAFE yapmaz. Regresyon
 kaynaklari `tests/unit/test_radar_read_only.py` icinde hazir, CALISTIRILMADI.
+
+## Claim ve replay siniri - 16 Ekim 2026, test bekliyor
+
+Campaign schema kurulumu/migration ve ilk campaign yazmasi mevcut operational
+effect claim'den sonra yapilir. Binding admission reddi bu store'u olusturmaz.
+Schema/campaign hazirligi claim sonrasi kesilirse claim korunur, runtime
+recovery-required olur; silent redispatch yapilmaz.
+
+Completed/failed replay salt okunur store acar; eksik dosyayi yeniden kurmaz.
+Project/campaign/stage/plan ve tek gercek claim/receipt/terminal evidence bagi
+tekrar okunur. Tek deneme ve exact effect/control bagi olmadan completed sonucu
+donmez. Halen running veya recovery gereken job'un campaign satirindaki
+completed ifadesi tek basina basari sayilmaz. Replay receipt bilgisi gercek
+operational kayittan gelir; provider veya schema cagrisi tekrarlanmaz.
+Regresyon kaynaklari `tests/unit/test_radar_claim_replay.py` icinde hazir,
+CALISTIRILMADI. Bu kaynak dilimi campaign/WP kabulu degildir.

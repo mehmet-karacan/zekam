@@ -18,7 +18,7 @@ from typing import Any, Protocol
 
 from zekam.application.local_runtime import LocalJobBinding, validate_dispatch_binding
 from zekam.application.operational_store import OperationalStore
-from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed
 from zekam.domain.radar_candidate import (
     EvidenceLevel,
@@ -412,7 +412,6 @@ def run_radar_campaign(
 
     db_path = home / "state" / "operational.db"
     radar_db_path = home / "state" / "radar-campaigns.db"
-    repo = RadarCampaignRepository(radar_db_path)
     runtime = SQLiteLocalRuntimeStore(db_path, existing_only=True)
 
     validate_dispatch_binding(runtime, work_binding, idempotency_key=plan.idempotency_key)
@@ -428,12 +427,71 @@ def run_radar_campaign(
     # between enqueue and claim. All other states take the existing replay /
     # recovery path; a prior effect is never retried by this branch.
     if not created and (job.state != "ready" or job.attempt_count != 0):
+        try:
+            repo = RadarCampaignRepository(radar_db_path, read_only=True)
+        except NotFound:
+            raise PolicyViolation("Radar replay campaign store eksik; recovery gerekli") from None
         campaign = repo.get_campaign_by_idempotency_key(plan.idempotency_key)
         if campaign is None:
             raise PolicyViolation("Radar replay campaign kaydi bulunamadi")
+        snapshot = runtime.job_snapshot(job.id)
+        effects = None if snapshot is None else snapshot.get("effects")
+        expected_effect = digest(
+            {
+                "operation": "research.radar",
+                "plan_digest": plan.plan_digest,
+                "project_id": plan.project_id,
+                "stage": plan.stage,
+                "authorized_public_source_read": authorize_public_source_read,
+                "authorized_agent_run": authorize_agent_run,
+            }
+        )
+        if (
+            snapshot is None
+            or snapshot.get("state") not in {"completed", "failed"}
+            or snapshot.get("attempt_count") != 1
+            or not isinstance(effects, list)
+            or len(effects) != 1
+            or not isinstance(effects[0], dict)
+            or effects[0].get("operation") != "research.radar"
+            or effects[0].get("effect_digest") != expected_effect
+            or effects[0].get("claim_id") != campaign.effect_claim_id
+            or not effects[0].get("receipt_id")
+            or effects[0].get("receipt_status") != snapshot.get("state")
+            or effects[0].get("evidence_digest") != snapshot.get("terminal_evidence_digest")
+            or campaign.project_id != plan.project_id
+            or campaign.campaign_id != plan.campaign_id
+            or campaign.stage != plan.stage
+            or campaign.plan_digest != plan.plan_digest
+            or campaign.plan_json != canonical_json(plan.body)
+            or (
+                snapshot.get("state") == "completed"
+                and campaign.state not in {"completed", "blocked"}
+            )
+            or (snapshot.get("state") == "failed" and campaign.state != "failed")
+        ):
+            raise PolicyViolation(
+                "Radar replay canonical claim/terminal/campaign drift; recovery gerekli"
+            )
+        terminal_digest = snapshot.get("terminal_evidence_digest")
+        if not isinstance(terminal_digest, str):
+            raise PolicyViolation("Radar replay terminal evidence eksik")
+        parse_digest(terminal_digest)
+        if campaign.state == "completed" and terminal_digest != digest(
+            {"campaign_id": campaign.campaign_id, "state": "completed"}
+        ):
+            raise PolicyViolation("Radar replay completed terminal evidence drift")
         status_doc = repo.campaign_status_document(campaign.campaign_id)
+        if repo.get_campaign(campaign.campaign_id) != campaign:
+            raise PolicyViolation("Radar replay campaign readback degisti")
         status_doc["replayed"] = True
         status_doc["job_id"] = job.id
+        status_doc["receipt"] = {
+            "claim_id": effects[0]["claim_id"],
+            "receipt_id": effects[0]["receipt_id"],
+            "status": effects[0]["receipt_status"],
+            "evidence_digest": effects[0]["evidence_digest"],
+        }
         return status_doc
 
     owner_token = os.urandom(32).hex()
@@ -467,17 +525,24 @@ def run_radar_campaign(
         runtime.finish(work, state="recovery-required")
         raise PolicyViolation("Radar effect claim replay; silent redispatch yasak")
 
-    campaign = repo.create_campaign(
-        project_id=plan.project_id,
-        campaign_id=plan.campaign_id,
-        stage=plan.stage,
-        state="running",
-        plan_digest=plan.plan_digest,
-        plan=plan.body,
-        idempotency_key=plan.idempotency_key,
-    )
-    repo.update_campaign_state(campaign.campaign_id, "running", effect_claim_id=claim.id)
-    repo.record_stage(campaign.id, plan.stage, "running", next_safe_action="execute")
+    try:
+        repo = RadarCampaignRepository(radar_db_path)
+        campaign = repo.create_campaign(
+            project_id=plan.project_id,
+            campaign_id=plan.campaign_id,
+            stage=plan.stage,
+            state="running",
+            plan_digest=plan.plan_digest,
+            plan=plan.body,
+            idempotency_key=plan.idempotency_key,
+        )
+        repo.update_campaign_state(campaign.campaign_id, "running", effect_claim_id=claim.id)
+        repo.record_stage(campaign.id, plan.stage, "running", next_safe_action="execute")
+    except Exception:
+        # A schema/campaign write may already have happened. Keep the durable
+        # claim and require reconciliation; do not silently re-run it.
+        runtime.finish(work, state="recovery-required")
+        raise
 
     checkpoint_sequence = 0
     try:

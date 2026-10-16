@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5/6 WP-10.05 radar claim/replay: schema/campaign writer claim sonrasina tasindi; admission reddi store olusturmaz, claim sonrasi init kesintisi recovery-required kalir. Replay missing store'u yeniden kurmaz; exact project/stage/plan/tek claim/receipt/terminal ve campaign readback'i zorunlu. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek campaign/tournament ve genel WP kapilari acik; docs/RADAR_RUNBOOK.md.
+
 - Gorev 5/6 WP-10.05 radar read siniri: status/report/candidates, analyse-plan ve scheduler read-only handler mevcut DB'yi mode=ro/query_only ile acar; constructor schema install/migration etkisi bu yollardan kaldirildi. Version/digest/path drift reddi ve missing store needs-discovery/unknown ayrimi eklendi. Yetkili run writer yolu korunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek campaign/tournament ve genel WP kabul kapilari acik; docs/RADAR_RUNBOOK.md.
 
 - Gorev 6 WP-11 native scheduler kabul bagi: raw bootstrap lookup oncesi full control-chain dogrulamasi, exact settlement/admission/grant/supervisor plan/status eslemesi ve son head readback eklendi. Job/receipt/finish/OS zaman sirasi ve iki farkli event record ID zorunlu; accepted evidence exact bootstrap/head digest'lerini tasir. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek native Windows kabul veya WP kapanisi uretilmedi; docs/OTONOM_EVOLUTION_RUNBOOK.md.

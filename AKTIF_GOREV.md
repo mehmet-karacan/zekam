@@ -1817,6 +1817,12 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   kullanir. Eksik store olusturulmaz; version/digest/path drift gorunur hata verir.
   Yetkili run writer yolu korunur. Regresyon kaynaklari hazir, CALISTIRILMADI.
   Gercek campaign/tournament ve genel WP kabul kapilari aciktir.
+
+  16 Ekim 2026 radar claim/replay: schema/campaign yazmasi operational effect
+  claim'den sonraya alindi; hazirlik kesintisi recovery-required, replay missing
+  store'u yeniden kurmaz. Exact project/stage/plan/tek claim/receipt/terminal
+  readback'i olmadan completed sonucu verilmez. Regresyon kaynaklari hazir,
+  CALISTIRILMADI. Gercek campaign/tournament ve genel WP kabulu aciktir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.
