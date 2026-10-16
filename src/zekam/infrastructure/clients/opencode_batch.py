@@ -40,6 +40,7 @@ from zekam.domain.sandbox import ProcessSpec
 from zekam.domain.skill_package import SkillPackage
 from zekam.infrastructure.clients.adapters import SubprocessClientAdapter
 from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
+from zekam.infrastructure.clients.opencode_usage import attach_native_usage, capture_step
 from zekam.infrastructure.local_file_security import (
     path_or_parent_is_link_or_reparse,
     restrict_private_tree,
@@ -127,6 +128,7 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
     finished = False
     text: str | None = None
     text_id: str | None = None
+    usage_steps: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
             continue
@@ -167,11 +169,12 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
         elif kind == "step_finish":
             if part.get("reason") != "stop" or text is None:
                 raise ValidationFailed("OpenCode batch completed stop eksik")
+            usage_steps.append(capture_step(part))
             finished = True
         # reasoning is deliberately neither collected nor persisted.
     if not finished or session is None or message is None or text is None:
         raise ValidationFailed("OpenCode batch incomplete event stream")
-    return _final_document(text, session, message)
+    return attach_native_usage(_final_document(text, session, message), usage_steps)
 
 
 def _final_document(text: str, session: str, message: str) -> dict[str, Any]:

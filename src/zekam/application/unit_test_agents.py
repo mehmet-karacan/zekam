@@ -225,7 +225,16 @@ class CanonicalUnitTestAgentGateway:
         yuzden tam envelope degil ``result`` ozeti tasinir ve envelope burada kurulur.
         """
 
-        if set(payload) != {"result", "body"} or not isinstance(payload["body"], dict):
+        from zekam.infrastructure.clients.opencode_usage import validate_native_usage
+
+        try:
+            validate_native_usage(payload)
+        except ValidationFailed as exc:
+            raise AgentDispatchFailure("invalid-native-usage") from exc
+        expected_keys = {"result", "body"} | (
+            {"native_usage"} if "native_usage" in payload else set()
+        )
+        if set(payload) != expected_keys or not isinstance(payload["body"], dict):
             raise AgentDispatchFailure("invalid-agent-payload")
         result = payload["result"]
         allowed = {"agent_id", "status", "summary", "evidence", "findings", "blockers"}

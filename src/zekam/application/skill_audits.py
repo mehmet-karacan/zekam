@@ -70,6 +70,9 @@ def _decision(objects, envelope: dict, aggregate_digest: str) -> tuple[str | Non
     artifact = _object(
         objects, envelope["payload"]["artifact_digest"], maximum=32_768, public_safe=True
     )
+    from zekam.infrastructure.clients.opencode_usage import validate_native_usage
+
+    validate_native_usage(artifact)
     meta, body = artifact.get("result"), artifact.get("body")
     if not isinstance(meta, dict) or not isinstance(body, dict):
         raise PolicyViolation("Skill audit native artifact invalid")
@@ -78,7 +81,8 @@ def _decision(objects, envelope: dict, aggregate_digest: str) -> tuple[str | Non
         raise PolicyViolation("Skill audit observed native identity required")
     value = body.get("decision")
     valid = (
-        set(artifact) == {"result", "body"}
+        set(artifact)
+        == {"result", "body"} | ({"native_usage"} if "native_usage" in artifact else set())
         and set(meta) == {"agent_id"}
         and set(body) == {"decision"}
         and isinstance(value, dict)

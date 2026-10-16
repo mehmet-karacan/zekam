@@ -1822,6 +1822,14 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 
+  16 Ekim 2026 native usage: exact desteklenen OpenCode v2.0.29 step_finish
+  token component ve host USD estimate schema'si arastirildi. Optional usage
+  host parser'da CAS artifact/receipt'e baglandi; model JSON'u uretici olamaz.
+  Partial/legacy null, native skill iki-step coverage ve totals/identity readback
+  eklendi. Tournament historical kaynak/yeni selector olcumleri ayridir. Billed
+  cost/provider requests bilinmez; hard-cap ve gercek host kabulu aciktir.
+  Regresyonlar CALISTIRILMADI; `docs/OPENCODE_NATIVE_USAGE.md`.
+
   16 Ekim 2026 canonical tournament: mevcut actual paired trial producer'inin
   2..4 terminal source'u exact case/Work/config/source ve receipt/CAS ile yeniden
   gradelenir. Ilerleme yoksa yeni model cagrisi yapilmaz; aksi durumda tek native

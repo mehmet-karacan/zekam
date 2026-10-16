@@ -33,8 +33,11 @@ context ve 64.000 byte native artifact sinirini gosterir. Tek round'dur; automat
 retry, ikinci round veya no-progress sonrasinda yeni candidate cagrisi yapmaz.
 Caller baska round isterse yeni exact plan/Work admission gerekir.
 
-Native provider request, token ve maliyet olcumu mevcut adapter'de bulunmadigi
-icin null kalir. Bunlar sifir veya gercek token/cost hard-cap diye sunulmaz.
+Optional native step token ve host cost estimate olcumu sonradan
+`native_measurements` alanina baglandi; historical paired sources ve yeni selector
+ayridir. Ayrinti: `docs/OPENCODE_NATIVE_USAGE.md`. Gercek provider request ve billed
+cost bilinmez; eski actual token/cost alanlari null kalir. Bunlar sifir veya gercek
+token/cost hard-cap diye sunulmaz.
 Selector cagrisi icin bu unmetered boyutlara ayri explicit authorization
 (`--authorize-unmetered-selector`) gerekir. Remote disclosure da ayrica
 `--authorize-remote` ister. Bu iki CLI flag model benchmark kampanyasi izni

@@ -28,6 +28,7 @@ from zekam.domain.agents import AssignmentRole
 from zekam.domain.canonical import canonical_bytes, canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation
 from zekam.infrastructure.clients.opencode_batch import opencode_batch_adapter
+from zekam.infrastructure.clients.opencode_usage import validate_native_usage
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
@@ -381,6 +382,37 @@ def _measurements(context):
     ]
 
 
+def _native_measurements(objects, sources, observation):
+    def usage(item):
+        if item is None or item["outcome"] != "success":
+            return None
+        artifact = _object(objects, item["artifact_digest"], maximum=64_000, public_safe=True)
+        return validate_native_usage(artifact)
+
+    historical = [
+        {
+            "job_id": source["job_id"],
+            "baseline": usage(source["observations"]["baseline"]),
+            "candidate": usage(source["observations"]["candidate"]),
+        }
+        for source in sources
+    ]
+    selector = usage(observation)
+    if selector is None and all(
+        item["baseline"] is None and item["candidate"] is None for item in historical
+    ):
+        return None
+    return {
+        "schema": "zekam-tournament-native-measurements/v1",
+        "historical_sources": historical,
+        "new_selector": selector,
+        "new_selector_dispatched": observation is not None,
+        "billing_verified": False,
+        "provider_requests": None,
+        "grants_authority": False,
+    }
+
+
 def _validate_result(home, result, binding, input_digest):
     plan, case = result["plan"], result["case"]
     _owner(plan, binding)
@@ -485,6 +517,8 @@ def _validate_result(home, result, binding, input_digest):
         or result["provider_calls"] is not None
         or result["actual_tokens"] is not None
         or result["actual_cost_micros"] is not None
+        or canonical_json(result.get("native_measurements"))
+        != canonical_json(_native_measurements(objects, sources, observation))
     ):
         raise PolicyViolation("Tournament result selection/usage drift")
 
@@ -548,13 +582,10 @@ def run_tournament(
         validate()
         if cancel.is_set():
             raise PolicyViolation("Tournament cancelled before execution")
-        context = _context(
-            objects,
-            _sources(
-                home, tuple(pin["job_id"] for pin in plan["sources"]), case, binding.project_id
-            ),
-            case,
+        sources = _sources(
+            home, tuple(pin["job_id"] for pin in plan["sources"]), case, binding.project_id
         )
+        context = _context(objects, sources, case)
         observation = None
         if plan["max_agent_calls"]:
             if cancel.is_set():
@@ -605,6 +636,9 @@ def run_tournament(
             "activatable": False,
             "grants_authority": False,
         }
+        native_measurements = _native_measurements(objects, sources, observation)
+        if native_measurements is not None:
+            result["native_measurements"] = native_measurements
         if len(canonical_bytes(result)) > MAX_RESULT_BYTES:
             raise PolicyViolation("Tournament result snapshot exceeds budget")
         _validate_result(home, result, binding, input_digest)

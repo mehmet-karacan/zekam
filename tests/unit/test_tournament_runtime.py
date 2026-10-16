@@ -81,6 +81,11 @@ def tournament(world, tmp_path, monkeypatch):
             elif mode["decision"] == "process-failure":
                 return _output(spec, b"", exit_code=1)
         events = _events({"result": {}, "body": {"output": answer}})
+        if mode.get("metered"):
+            events[-1]["part"].update(
+                cost=0.1,
+                tokens={"input": 10, "output": 2, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            )
         identity = (
             "ses_tournament_1"
             if mode["decision"] == "reused-session"
@@ -187,6 +192,26 @@ def test_native_selector_claim_receipt_and_historical_read_reopen_actual_sources
     )
     assert read["selected_job_id"] == result["selected_job_id"] and len(f.calls) == before
     assert read["receipt_evidence_digest"] == snapshot["terminal_evidence_digest"]
+
+
+def test_native_usage_separates_historical_sources_and_new_selector(tournament):
+    f = tournament
+    f.mode["metered"] = True
+    refs = f.trials()
+    result = f.run(f.prepare(refs))
+    usage = result["native_measurements"]
+    assert len(usage["historical_sources"]) == 2
+    assert all(
+        item["baseline"]["native_reported_tokens"] == 12 for item in usage["historical_sources"]
+    )
+    assert usage["new_selector"]["native_reported_tokens"] == 12
+    assert usage["new_selector"]["estimated_cost_micros"] == 100_000
+    assert usage["billing_verified"] is False and usage["provider_requests"] is None
+    assert result["actual_cost_micros"] is None and result["actual_tokens"] is None
+    reopened = subject.read_tournament(
+        f.world.home, result["canonical_job_id"], project_id=f.world.binding.project_id
+    )
+    assert reopened["native_measurements"] == usage
 
 
 @pytest.mark.parametrize(

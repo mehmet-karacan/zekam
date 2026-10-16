@@ -7,8 +7,11 @@ Asagidaki 07:40 duraklama bolumu tarihsel snapshot'tir. Yeni canonical tournamen
 selection dilimi actual paired sources -> local regrade/no-progress -> tek
 native selector -> canonical receipt/report yolunu ekledi. Ayrinti:
 `docs/TOURNAMENT_CANONICAL_SELECTION.md`. Testler CALISTIRILMADI.
-Siradaki denetim: quantitative token/cost/provider-request metering ve gercek
-native kabul kapilari, ardindan plandaki diger acik WP gelistirmeleri.
+Native usage dilimi host step_finish token component/estimated USD olcumunu
+optional CAS artifact'e bagladi; tournament historical/new selector ayridir.
+Ayrinti: `docs/OPENCODE_NATIVE_USAGE.md`. Testler CALISTIRILMADI. Billed cost,
+provider request/hard-cap ve gercek native kabul kapilari halen aciktir.
+Siradaki denetim: plandaki diger acik WP gelistirmeleri ve native kabul baglari.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu
 uretilmedi. Hedef araci paused gorunuyor; API resume desteklemiyor, yeni hedef
 olusturulmadi. Kullanici devam talimati kaynak gelistirmesi icin gecerlidir.

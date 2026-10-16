@@ -242,10 +242,14 @@ def _observation(
         ):
             raise PolicyViolation("Skill aggregate successful process/artifact binding invalid")
         artifact = _object(objects, body["artifact_digest"], maximum=64_000, public_safe=True)
+        from zekam.infrastructure.clients.opencode_usage import validate_native_usage
+
+        validate_native_usage(artifact)
         meta, output = artifact.get("result"), artifact.get("body")
         if set(artifact) != (
             {"result", "body"}
             | ({"native_skill_invocation"} if native_expected is not None else set())
+            | ({"native_usage"} if "native_usage" in artifact else set())
         ) or not isinstance(meta, dict):
             raise PolicyViolation("Skill aggregate native artifact shape invalid")
         native_identity = meta.get("agent_id")

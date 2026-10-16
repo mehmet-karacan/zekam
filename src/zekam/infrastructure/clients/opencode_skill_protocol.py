@@ -8,6 +8,7 @@ from typing import Any
 from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.skill_package import SkillPackage
+from zekam.infrastructure.clients.opencode_usage import attach_native_usage, capture_step
 
 
 def native_skill_render(package: SkillPackage, directory: Path) -> str:
@@ -62,6 +63,7 @@ def parse_native_skill_events(
     tool = None
     text = text_id = None
     finished = False
+    usage_steps: list[dict[str, Any]] = []
     expected = native_skill_render(package, skill_directory)
     for line in lines:
         if not line.strip():
@@ -133,10 +135,11 @@ def parse_native_skill_events(
                 raise ValidationFailed("Native skill final answer incomplete")
             else:
                 finished = True
+            usage_steps.append(capture_step(part))
             active = False
             previous_message = message
         # Reasoning/pre-tool text is not retained in the returned artifact.
     if not finished or tool is None or session is None or message is None or text is None:
         raise ValidationFailed("Native skill incomplete tool/answer execution")
     document = _final_document(text, session, message)
-    return document | {"native_skill_invocation": tool}
+    return attach_native_usage(document | {"native_skill_invocation": tool}, usage_steps)
