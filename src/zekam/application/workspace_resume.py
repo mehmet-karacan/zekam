@@ -20,6 +20,7 @@ RESUME_PACKET_SCHEMA = "zekam-resume-packet/v1"
 _OPEN_WORK_LIMIT = 20
 _COMPLETED_WORK_LIMIT = 10
 _BOUND_JOB_LIMIT = 20
+_RECENT_RUN_LIMIT = 3
 _PROJECT_LIMIT = 50
 _RAG_STATE_LIMIT = 64 * 1024
 _PROMPT_LIMIT = 16 * 1024
@@ -36,8 +37,25 @@ def _bounded(value: object, *, limit: int = 500) -> str:
     return text[:limit]
 
 
+def _run_document(run: Any) -> dict[str, Any]:
+    """Kanonik Run baglarini bounded resume belgesine tasir."""
+
+    return {
+        "id": run.id,
+        "status": run.status,
+        "plan_digest": run.plan_digest,
+        "terminal_receipt_digest": run.terminal_receipt_digest,
+        "source_snapshot_id": run.source_snapshot_id,
+        "config_revision_id": run.config_revision_id,
+    }
+
+
 def _work_document(
-    item: Any, projects: dict[str, str], dependencies: dict[str, Any]
+    item: Any,
+    projects: dict[str, str],
+    dependencies: dict[str, Any],
+    recent_runs: tuple[Any, ...] = (),
+    recent_runs_truncated: bool = False,
 ) -> dict[str, Any]:
     return {
         "id": item.id,
@@ -50,6 +68,9 @@ def _work_document(
         "acceptance_criteria": [_bounded(value) for value in item.acceptance_criteria[:20]],
         "evidence_recorded": item.evidence_digest is not None,
         "dependencies": dependencies,
+        "recent_runs": [_run_document(run) for run in recent_runs],
+        "recent_runs_truncated": recent_runs_truncated,
+        "recent_runs_limit": _RECENT_RUN_LIMIT,
     }
 
 
@@ -234,6 +255,8 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
     open_work: tuple[Any, ...] = ()
     completed_work: tuple[Any, ...] = ()
     bound_jobs: tuple[dict[str, Any], ...] = ()
+    recent_runs: dict[str, tuple[Any, ...]] = {}
+    recent_runs_truncated: dict[str, bool] = {}
     project_aliases: dict[str, list[str]] = {}
     dependencies: dict[str, dict[str, Any]] = {}
     if database.is_file():
@@ -249,6 +272,11 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             dependencies = uow.work_dependency_summaries(
                 tuple(item.id for item in (*open_work[:_OPEN_WORK_LIMIT], *completed_work))
             )
+            returned_work = (*open_work[:_OPEN_WORK_LIMIT], *completed_work)
+            for item in returned_work:
+                runs = uow.list_runs(item.id, limit=_RECENT_RUN_LIMIT + 1)
+                recent_runs[item.id] = tuple(runs[:_RECENT_RUN_LIMIT])
+                recent_runs_truncated[item.id] = len(runs) > _RECENT_RUN_LIMIT
             bound_jobs = uow.list_bound_jobs_limited(
                 work_item_ids=tuple(item.id for item in open_work[:_OPEN_WORK_LIMIT]),
                 limit=_BOUND_JOB_LIMIT + 1,
@@ -302,7 +330,13 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         "latest_semantic_checkpoint": latest_checkpoint,
         "work": {
             "open": [
-                _work_document(item, project_names, dependencies[item.id])
+                _work_document(
+                    item,
+                    project_names,
+                    dependencies[item.id],
+                    recent_runs.get(item.id, ()),
+                    recent_runs_truncated.get(item.id, False),
+                )
                 for item in open_work[:_OPEN_WORK_LIMIT]
             ],
             "blocked_count": len(blocked_work),
@@ -312,7 +346,13 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
             "bound_jobs_truncated": len(bound_jobs) > _BOUND_JOB_LIMIT,
             "bound_jobs_scope": "returned-open-work-window",
             "recently_completed": [
-                _work_document(item, project_names, dependencies[item.id])
+                _work_document(
+                    item,
+                    project_names,
+                    dependencies[item.id],
+                    recent_runs.get(item.id, ()),
+                    recent_runs_truncated.get(item.id, False),
+                )
                 for item in completed_work[:_COMPLETED_WORK_LIMIT]
             ],
         },

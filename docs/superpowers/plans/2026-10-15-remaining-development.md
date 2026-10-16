@@ -218,6 +218,7 @@
 - Gorev 2 WP-07 direct show dependency readback: `work show --json` exact Work scope'unda canonical dependency ozetini de verir; E2E regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 2 WP-07 read lock: Salt-okunur Work/Run CLI ve dogal dil okumalari SQLite read-only transaction ile write lock almadan calisir; mutasyon transactionlari ayni kalir. Unit regresyon kaynagi hazir, CALISTIRILMADI.
 - Gorev 2 WP-07 resume read lock: `workspace_resume` ve bounded knowledge ref okumasi desteklenen operational store'da read-only UoW kullanir; test store fallback'i korunur. Regresyon kaynagi hazir, CALISTIRILMADI.
+- Gorev 2 WP-07 resume Run baglari: `workspace_resume` acik ve yeni tamamlanan Work kayitlarinda bounded canonical Run ozetlerini plan, source snapshot ve config revision baglariyla birlikte tasir; limit/truncation alanlari korunur. Regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul matrisi acik.
 - Eski test sonuclari yeni degisiklikler icin kanit sayilmaz. Hicbir WP bu planla kapatilmaz.
 - Gorev 1 gelistirmesi 747c6ea: lease/process marker ayrimi ve native root-drift reddi. Regresyonlar hazir; CALISTIRILMADI.
 - Gorev 3 native admission parcasi: start/checkpoint/close LOCAL_EFFECT ve work-item hint baglantisi eklendi. Regresyonlar hazir; CALISTIRILMADI. Shell/publication ve diger istemci baglari acik.
