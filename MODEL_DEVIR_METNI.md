@@ -10,6 +10,10 @@ referanslarini SQLite authority'den okur. Payload, owner token ve grant alanlari
 disarida tutulur; cikti read-only/grants_authority=false olarak kalir. Regresyon
 kaynagi eklendi, testler CALISTIRILMADI. Ayrinti docs/WORK_RESUME_CANONICAL_READBACK.md.
 
+Aktif devam HEAD `9616317` ve `origin/main` ile eslesiyor. Sonraki model ayni
+gercek kaynak kokunde devam etmeli; korunan untracked dosyalara dokunmamali ve
+testleri tum gelistirmeler bitmeden calistirmamali.
+
 WP-07 checkpoint kabul siniri eklendi: operational SQLite checkpoint payload'i
 canonical JSON olarak en fazla 16 KiB ve bounded derinlik/alan sayisinda tutulur;
 secret, credential, token, prompt, response, transcript, raw content ve private key
