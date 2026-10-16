@@ -46,7 +46,8 @@ baglantisi projection katmaninda dusurulmuyor. E2E/unit regresyon kaynaklari
 eklendi, testler CALISTIRILMADI.
 
 `work show --json` exact Work icin bounded Run ozetlerini ve truncation bilgisini
-aynı canonical SQLite readback'ine ekliyor; salt-okunur kapsam korunuyor.
+aynı canonical SQLite readback'ine ekliyor; dependency ozeti de exact scope'ta
+okunuyor ve salt-okunur kapsam korunuyor.
 
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 

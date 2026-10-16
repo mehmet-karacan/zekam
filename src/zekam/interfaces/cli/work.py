@@ -311,6 +311,7 @@ def show_command(
             )
             runs = uow.list_runs(work.id, limit=_RESUME_RUN_LIMIT + 1)
             document = _work_document(work) | {
+                "dependencies": uow.work_dependency_summaries((work.id,))[work.id],
                 "bound_jobs": list(bound_jobs[:_RESUME_BOUND_JOB_LIMIT]),
                 "bound_jobs_truncated": len(bound_jobs) > _RESUME_BOUND_JOB_LIMIT,
                 "bound_jobs_scope": "exact-work",

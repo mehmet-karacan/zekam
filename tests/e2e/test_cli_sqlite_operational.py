@@ -388,6 +388,7 @@ def test_cli_work_external_number_scope_history_and_transition(tmp_path: Path) -
     assert shown.exit_code == 0, shown.stdout
     shown_body = json.loads(shown.stdout)
     assert shown_body["id"] == first.id
+    assert shown_body["dependencies"]["supported"] is False
     assert shown_body["bound_jobs"] == []
     assert shown_body["bound_jobs_truncated"] is False
     assert shown_body["bound_jobs_scope"] == "exact-work"
