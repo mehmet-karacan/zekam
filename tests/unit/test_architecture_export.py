@@ -97,6 +97,8 @@ def test_all_views_and_deterministic_zip_share_one_catalog_and_hashes(checkout):
     assert b"WP_02 --> CAP_01" in files["architecture.mmd"]
     assert catalog["catalog_digest"].encode() in files["architecture.md"]
     assert catalog["catalog_digest"].encode() in files["architecture.html"]
+    assert b"miro-plan.json" in files["architecture.md"]
+    assert b"gitbook-plan.json" in files["architecture.html"]
     miro = json.loads(files["miro-plan.json"])
     gitbook = json.loads(files["gitbook-plan.json"])
     assert miro["schema"] == "zekam-miro-local-export-plan/v1"

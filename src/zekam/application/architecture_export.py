@@ -329,7 +329,7 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
         "",
         "Source declarations only. Tests NOT RUN; acceptance unverified.",
         "",
-        "[Canonical input](catalog.json) | [Diagram](architecture.mmd) | [Source traceability](traceability.json)",
+        "[Canonical input](catalog.json) | [Diagram](architecture.mmd) | [Source traceability](traceability.json) | [Miro plan](miro-plan.json) | [GitBook plan](gitbook-plan.json)",
         "",
     ]
     sections = []
@@ -366,7 +366,7 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
     )
     page = (
         '<!doctype html><html lang="en"><meta charset="utf-8"><title>Zekam source architecture</title><body><h1>Zekam source architecture</h1><p>Source declarations only. Tests NOT RUN; acceptance unverified.</p>'
-        + f'<p>{catalog["catalog_digest"]}</p><a href="catalog.json">Canonical input</a> | <a href="architecture.mmd">Diagram</a> | <a href="traceability.json">Source traceability</a>'
+        + f'<p>{catalog["catalog_digest"]}</p><a href="catalog.json">Canonical input</a> | <a href="architecture.mmd">Diagram</a> | <a href="traceability.json">Source traceability</a> | <a href="miro-plan.json">Miro plan</a> | <a href="gitbook-plan.json">GitBook plan</a>'
         + "".join(sections + source_rows)
         + "</body></html>"
     )
