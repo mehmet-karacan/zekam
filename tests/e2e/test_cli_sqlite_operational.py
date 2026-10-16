@@ -502,6 +502,61 @@ def test_work_resume_reads_a_bounded_recent_window(tmp_path: Path) -> None:
     assert len(document["open_items"]) == 100
 
 
+def test_work_resume_reads_canonical_activity_and_runs(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    database = home / "state" / "operational.db"
+    database.parent.mkdir(parents=True)
+    bootstrap(database)
+    store = SQLiteOperationalStore(database)
+    with store.unit_of_work() as uow:
+        project = uow.create_project(slug="resume-evidence", display_name="Resume Evidence")
+        work = uow.create_work(
+            project_id=project.id,
+            kind="task",
+            title="Canonical resume evidence",
+            state="ready",
+            payload_digest=digest("resume-work"),
+        )
+        work = uow.transition_work(
+            work_item_id=work.id,
+            expected_revision=work.revision,
+            to_state="active",
+            payload_digest=digest("resume-work"),
+            event_digest=digest("resume-transition"),
+        )
+        config = uow.activate_config(
+            config_digest=digest("resume-config"),
+            task_digest=digest("resume-task"),
+            sanitized_config={"profile": "test"},
+        )
+        run = uow.create_run(
+            work_item_id=work.id,
+            config_revision_id=config.id,
+            plan_digest=digest("resume-plan"),
+            budget={"calls": 1},
+        )
+        uow.commit()
+
+    result = _invoke(CliRunner(), "work", "resume", "--home", str(home), "--json")
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    item = document["open_items"][0]
+    assert item["recent_events"][-1]["event_kind"] == "transitioned"
+    assert item["recent_events"][-1]["to_state"] == "active"
+    assert item["runs"] == [
+        {
+            "id": run.id,
+            "status": "planned",
+            "plan_digest": digest("resume-plan"),
+            "terminal_receipt_digest": None,
+        }
+    ]
+    assert document["recent_activity"][0]["work_item_id"] == work.id
+    assert document["bound_jobs"] == []
+    assert document["read_only"] is True
+    assert document["grants_authority"] is False
+
+
 def test_work_resume_filters_project_before_bounded_window(tmp_path: Path) -> None:
     home = tmp_path / "home"
     database = home / "state" / "operational.db"

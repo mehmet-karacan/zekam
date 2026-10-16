@@ -1278,6 +1278,13 @@ kabulu acik; `docs/CANONICAL_REFERENCE_INDEX.md`.
 
 **16 Ekim 2026 ODI secret fingerprint siniri:** ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
+**16 Ekim 2026 WP-07 canonical resume readback gelistirmesi:** `work resume`
+acik Work penceresi icin canonical SQLite eventlerini, en son Run ozetlerini ve
+bounded bound job referanslarini okur. Recent activity event zamanina gore
+sinirlidir; payload, owner token ve grant alanlari cikmaz. CLI regresyon kaynagi
+hazirlandi, testler CALISTIRILMADI. Lease/grant yeniden edinimi ve Work kabul
+matrisi halen aciktir. Ayrinti `docs/WORK_RESUME_CANONICAL_READBACK.md`.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

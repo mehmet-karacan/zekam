@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 2 WP-07.01..04: `work resume` canonical SQLite Work eventlerini, son Run ozetlerini ve bounded bound job referanslarini acik Work penceresine baglar. Recent activity zaman sirali ve bounded; payload/owner token/grant disarida kalir. CLI regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve WP kabul kapilari acik.
+
 - Gorev 4 WP-04/WP-06.01: ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 - Gorev 4 WP-04/WP-06.01: ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

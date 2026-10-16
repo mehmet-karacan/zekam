@@ -1,0 +1,26 @@
+# Work Resume Canonical Readback
+
+## Kapsam
+
+`work resume --json` artik yalniz acik Work basliklarini listelemez. Secilen
+bounded acik Work penceresi icin SQLite operational authority'den son Work
+eventlerini, son Run ozetlerini ve bound job referanslarini okur.
+
+## Sinirlar
+
+- En fazla 100 acik Work okunur.
+- Work basina en fazla 3 event ve 3 Run ozetlenir.
+- Bound job penceresi en fazla 50 kayittir; `bound_jobs_truncated` sonucu bildirir.
+- `recent_activity` event zamanina gore en fazla 300 kayittir.
+- Job payload'i, owner token'i, grant'i ve ham provider/model icerigi ciktiya alinmaz.
+- Tum cikti salt okunur ve `grants_authority=false` olarak kalir.
+
+## Devam baglantisi
+
+`recent_events` ve `runs` alanlari Work'in canonical event/run zincirini; `bound_jobs`
+alanlari ise project, Work revision, Run, step, source snapshot, config ve plan
+digest bagini gosterir. Bu gorunum yeni lease veya grant uretmez. Efekt baslatmadan
+once mevcut lease, grant, source ve binding kosullari yeniden dogrulanmalidir.
+
+Regresyon kaynagi `tests/e2e/test_cli_sqlite_operational.py` icindedir. Kullanici
+talimati geregi testler tum gelistirmeler bitene kadar calistirilmadi.

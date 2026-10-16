@@ -24,6 +24,9 @@ console = Console()
 _MAX_ACTIVE_SPEC_BYTES = 1_048_576
 _MAX_JSON_ARGUMENT_BYTES = 262_144
 _RESUME_WORK_LIMIT = 100
+_RESUME_EVENT_LIMIT = 3
+_RESUME_RUN_LIMIT = 3
+_RESUME_BOUND_JOB_LIMIT = 50
 
 
 @app.command("resume")
@@ -48,6 +51,36 @@ def resume_command(
             dependencies = uow.work_dependency_summaries(
                 tuple(item.id for item in items[:_RESUME_WORK_LIMIT])
             )
+            recent_events: dict[str, tuple[dict[str, Any], ...]] = {}
+            recent_runs: dict[str, tuple[dict[str, Any], ...]] = {}
+            returned_work_ids = tuple(item.id for item in items[:_RESUME_WORK_LIMIT])
+            for work_id in returned_work_ids:
+                events = uow.list_work_events(work_id, limit=_RESUME_EVENT_LIMIT)
+                recent_events[work_id] = tuple(
+                    {
+                        "revision": int(event["revision"]),
+                        "event_kind": str(event["event_kind"]),
+                        "from_state": event["from_state"],
+                        "to_state": event["to_state"],
+                        "event_digest": str(event["event_digest"]),
+                        "created_at": str(event["created_at"]),
+                    }
+                    for event in events
+                )
+                runs = uow.list_runs(work_id, limit=_RESUME_RUN_LIMIT)
+                recent_runs[work_id] = tuple(
+                    {
+                        "id": run.id,
+                        "status": run.status,
+                        "plan_digest": run.plan_digest,
+                        "terminal_receipt_digest": run.terminal_receipt_digest,
+                    }
+                    for run in runs
+                )
+            bound_jobs = uow.list_bound_jobs_limited(
+                work_item_ids=returned_work_ids,
+                limit=_RESUME_BOUND_JOB_LIMIT + 1,
+            )
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc
@@ -60,9 +93,20 @@ def resume_command(
             "title": item.title,
             "revision": item.revision,
             "dependencies": dependencies[item.id],
+            "recent_events": list(recent_events[item.id]),
+            "runs": list(recent_runs[item.id]),
         }
         for item in items[:_RESUME_WORK_LIMIT]
     ]
+    activity = sorted(
+        (
+            {"work_item_id": work_id} | event
+            for work_id, events in recent_events.items()
+            for event in events
+        ),
+        key=lambda event: (str(event["created_at"]), str(event["work_item_id"])),
+        reverse=True,
+    )[: _RESUME_EVENT_LIMIT * _RESUME_WORK_LIMIT]
     document = {
         "source": "sqlite-work-graph",
         "project_id": project_id,
@@ -72,7 +116,11 @@ def resume_command(
             for item in open_items
             if item["state"] == "blocked" or item["dependencies"]["blocked"]
         ],
-        "recent_activity": [],
+        "recent_activity": activity,
+        "recent_activity_limit": _RESUME_EVENT_LIMIT * _RESUME_WORK_LIMIT,
+        "bound_jobs": list(bound_jobs[:_RESUME_BOUND_JOB_LIMIT]),
+        "bound_jobs_truncated": len(bound_jobs) > _RESUME_BOUND_JOB_LIMIT,
+        "bound_jobs_scope": "returned-open-work-window",
         "next_safe_action": (
             "ready work item sec; guncel yetki ve lease kosullarini dogrula"
             if any(
