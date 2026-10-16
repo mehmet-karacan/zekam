@@ -2523,11 +2523,24 @@ def project_rag_status(home: Path, project_slug: str) -> dict[str, Any]:
             "provider_calls": 0,
         }
     state = json.loads(_read_rag_runtime_text(paths["state"], label="status state"))
+    if not isinstance(state, dict) or state.get("project_id") != str(project_id):
+        raise PolicyViolation("Project RAG status state project binding drift")
     with SQLiteKnowledgeIndex(paths["index"], read_only=True) as index:
         generation = index.generation(str(project_id))
         integrity = index.readiness(str(project_id))
     if state.get("generation_digest") != generation.generation_digest:
         raise PolicyViolation("Project RAG state/generation drift")
+    _validate_rag_state_source_identity(str(project_id), state, label="status state")
+    for key, expected in (
+        ("source_revision", generation.source_revision),
+        ("tree_digest", generation.tree_digest),
+        (
+            "source_identity_digest",
+            source_identity_digest(project_id, generation.source_revision, generation.tree_digest),
+        ),
+    ):
+        if key in state and state.get(key) != expected:
+            raise PolicyViolation("Project RAG status source/generation drift")
     index_readable = integrity.get("status") == "passed"
     current_knowledge = load_settings(home=paths["home"]).knowledge
     try:
@@ -3369,14 +3382,9 @@ def _query(
     if not _rag_scope_is_private(paths):
         raise PolicyViolation("Project RAG scoped ACL/identity drift")
     state = json.loads(_read_rag_runtime_text(paths["state"], label="query state"))
-    if state.get("project_id") != str(project_id):
+    if not isinstance(state, dict) or state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
-    recorded_source_identity = state.get("source_identity_digest")
-    if recorded_source_identity is not None:
-        if recorded_source_identity != source_identity_digest(
-            project_id, str(state.get("source_revision", "")), str(state.get("tree_digest", ""))
-        ):
-            raise PolicyViolation("Project RAG state source identity drift")
+    _validate_rag_state_source_identity(str(project_id), state, label="query state")
     stale_reasons: list[str] = []
     references = collect_reference_corpus(home, str(project_id), project_slug)
     if state.get("reference_snapshot_digest") != references.snapshot_digest and (
