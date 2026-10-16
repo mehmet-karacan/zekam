@@ -1781,6 +1781,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   iceriksiz hash ile baglanir; skill effect verified degildir. Regresyonlar
   CALISTIRILMADI. Canonical execute producer/CLI, outcome verifier ve host
   effect-oncesi tool-denial kabul kapilari halen acik.
+
+  16 Ekim 2026 canonical native execute: aktif skill package/case/model/runtime
+  exact plani reserved Work job/claim/checkpoint/receipt ve actual native
+  assignment/invocation/output CAS zincirine baglandi. execution-report local
+  oracle grade'ini gercek artifact'ten tekrar hesaplar; failure/mismatch korunur.
+  Regresyon kaynaklari hazir, CALISTIRILMADI. Execution receipt -> invocation
+  ledger, ayri native verifier -> outcome ve gercek host/kalite kabulu aciktir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

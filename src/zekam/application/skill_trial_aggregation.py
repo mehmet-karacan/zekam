@@ -109,6 +109,10 @@ def _observation(
     case: dict[str, Any],
     binding: Any,
     input_digest: str,
+    instruction: str = _INSTRUCTION,
+    execution_namespace: str = "skill-trial",
+    expected_context: dict[str, Any] | None = None,
+    native_expected: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if (
         not isinstance(body, dict)
@@ -147,23 +151,27 @@ def _observation(
     context = _object(
         objects, assignment["context_manifest_digest"], maximum=64_000, public_safe=True
     )
-    if (
-        set(context) != {"schema", "input", "skill_instructions"}
-        or context["schema"] != "zekam-skill-trial-context/v1"
-        or canonical_json(context["input"]) != canonical_json(case["input"])
-        or type(context["skill_instructions"]) is not str
-        or (condition == "baseline" and context["skill_instructions"] != "")
-        or (
-            condition == "candidate"
-            and digest_of_bytes(context["skill_instructions"].encode("utf-8"))
-            != plan["candidate_instruction_digest"]
+    if expected_context is not None:
+        context_valid = canonical_json(context) == canonical_json(expected_context)
+    else:
+        context_valid = (
+            set(context) == {"schema", "input", "skill_instructions"}
+            and context["schema"] == "zekam-skill-trial-context/v1"
+            and canonical_json(context["input"]) == canonical_json(case["input"])
+            and type(context["skill_instructions"]) is str
+            and (condition != "baseline" or context["skill_instructions"] == "")
+            and (
+                condition != "candidate"
+                or digest_of_bytes(context["skill_instructions"].encode("utf-8"))
+                == plan["candidate_instruction_digest"]
+            )
         )
-    ):
+    if not context_valid:
         raise PolicyViolation("Skill aggregate actual prompt/oracle isolation drift")
     instruction_info = objects.stat(assignment["instruction_digest"])
-    if instruction_info.size_bytes != len(_INSTRUCTION.encode("utf-8")) or objects.get(
+    if instruction_info.size_bytes != len(instruction.encode("utf-8")) or objects.get(
         assignment["instruction_digest"]
-    ) != _INSTRUCTION.encode("utf-8"):
+    ) != instruction.encode("utf-8"):
         raise PolicyViolation("Skill aggregate frozen instruction missing")
     invocation = _record(index, KIND_INVOCATION, body["invocation_id"])
     invocation_identity = {
@@ -176,12 +184,12 @@ def _observation(
         or invocation.get("realm_id") != assignment.get("realm_id")
         or invocation.get("client_id") != "opencode"
         or invocation.get("execution_identity")
-        != f"skill-trial:{plan['execution_binding_digest']}:{condition}"
+        != f"{execution_namespace}:{plan['execution_binding_digest']}:{condition}"
     ):
         raise PolicyViolation("Skill aggregate invocation binding drift")
     assignment_id = uuid5(
         UUID(binding.run_id),
-        f"skill-trial:{plan['plan_digest']}:{condition}:{assignment['realm_id']}:{assignment['parent_assignment_id']}",
+        f"{execution_namespace}:{plan['plan_digest']}:{condition}:{assignment['realm_id']}:{assignment['parent_assignment_id']}",
     )
     if (
         str(assignment_id) != body["assignment_id"]
@@ -232,11 +240,48 @@ def _observation(
             raise PolicyViolation("Skill aggregate successful process/artifact binding invalid")
         artifact = _object(objects, body["artifact_digest"], maximum=64_000, public_safe=True)
         meta, output = artifact.get("result"), artifact.get("body")
-        if set(artifact) != {"result", "body"} or not isinstance(meta, dict):
+        if set(artifact) != (
+            {"result", "body"}
+            | ({"native_skill_invocation"} if native_expected is not None else set())
+        ) or not isinstance(meta, dict):
             raise PolicyViolation("Skill aggregate native artifact shape invalid")
         native_identity = meta.get("agent_id")
         if not isinstance(native_identity, str) or _NATIVE_ID.fullmatch(native_identity) is None:
             raise PolicyViolation("Skill aggregate observed native identity missing")
+        if native_expected is not None:
+            native = artifact["native_skill_invocation"]
+            expected_keys = set(native_expected) | {
+                "schema",
+                "native_session_digest",
+                "native_message_digest",
+                "native_call_digest",
+                "native_render_digest",
+                "status",
+                "skill_effect_verified",
+                "grants_authority",
+            }
+            if (
+                not isinstance(native, dict)
+                or set(native) != expected_keys
+                or any(native[k] != v for k, v in native_expected.items())
+                or native["schema"] != "zekam-observed-native-skill-call/v1"
+                or native["status"] != "completed"
+                or native["skill_effect_verified"] is not False
+                or native["grants_authority"] is not False
+            ):
+                raise PolicyViolation("Native skill observed tool subject drift")
+            for key in (
+                "native_session_digest",
+                "native_message_digest",
+                "native_call_digest",
+                "native_render_digest",
+            ):
+                parse_digest(native[key])
+            _, session_id, final_message = native_identity.split(":")
+            if native["native_session_digest"] != digest_of_bytes(
+                session_id.encode("utf-8")
+            ) or native["native_message_digest"] == digest_of_bytes(final_message.encode("utf-8")):
+                raise PolicyViolation("Native skill tool/final message binding drift")
         valid = set(meta) == {"agent_id"} and isinstance(output, dict) and set(output) == {"output"}
         if valid:
             output_digest = digest(output["output"])

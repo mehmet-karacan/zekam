@@ -36,6 +36,11 @@ from zekam.application.skill_native_invocation import (
     read_native_invocation,
     run_native_invocation,
 )
+from zekam.application.skill_native_execution import (
+    build_native_execution_plan,
+    read_native_execution,
+    run_native_execution,
+)
 from zekam.application.skill_audits import build_skill_audit_plan, read_skill_audit, run_skill_audit
 from zekam.application.skill_measured_aggregate import (
     build_measured_aggregate_plan,
@@ -788,6 +793,138 @@ def invocation_report_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Native invocation kayit kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("execute-native")
+def execute_native_command(
+    package_root: Annotated[Path, typer.Option("--package-root")],
+    case_file: Annotated[Path, typer.Option("--case-file")],
+    model: Annotated[str, typer.Option("--model")],
+    runtime_root: Annotated[Path, typer.Option("--runtime-root")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    provider_profile: Annotated[Path | None, typer.Option("--provider-profile")] = None,
+    executable: Annotated[str, typer.Option("--opencode")] = "opencode",
+    timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=10, max=600)] = 180,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    authorize_remote: Annotated[bool, typer.Option("--authorize-remote")] = False,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    realm_id: Annotated[str | None, typer.Option("--realm-id")] = None,
+    coordinator_id: Annotated[str | None, typer.Option("--coordinator-assignment-id")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan or execute one actual native skill tool task; oracle stays local."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        root = resolve_project_source(resolved_home, scopes[0][1])
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        package = SkillPackage.read_directory(package_root.resolve(strict=True))
+        case = load_trial_case(case_file)
+        profile = load_batch_provider_profile(provider_profile)
+        binary = resolve_opencode_executable(executable)
+        runtime = runtime_root.resolve(strict=True)
+        plan = build_native_execution_plan(
+            resolved_home,
+            lifecycle=lifecycle,
+            package=package,
+            case=case,
+            project_id=registered.id,
+            model_id=model,
+            executable=binary,
+            root=root,
+            runtime_root=runtime,
+            allowed_scopes=scopes,
+            provider_profile=profile,
+            timeout_seconds=timeout_seconds,
+        )
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if binding is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Native execution exact Work/plan binding required")
+
+        def validate_inputs():
+            if (
+                SkillPackage.read_directory(package_root.resolve(strict=True)).package_digest
+                != package.package_digest
+                or digest(load_trial_case(case_file)) != digest(case)
+                or load_batch_provider_profile(provider_profile) != profile
+                or resolve_project_source(resolved_home, scopes[0][1]) != root
+            ):
+                raise PolicyViolation("Native execution package/case/profile/source input drift")
+
+        _emit(
+            run_native_execution(
+                resolved_home,
+                lifecycle=lifecycle,
+                binding=binding,
+                package=package,
+                case=case,
+                plan=plan,
+                root=root,
+                runtime_root=runtime,
+                executable=binary,
+                allowed_scopes=scopes,
+                realm_id=UUID(realm_id or ""),
+                coordinator_id=UUID(coordinator_id or ""),
+                validate_inputs=validate_inputs,
+                authorize_remote=authorize_remote,
+                provider_profile=profile,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Native skill execution girdisi okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("execution-report")
+def execution_report_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Regrade actual native tool/final artifact from its canonical receipt chain."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        _emit(
+            read_native_execution(
+                resolved_home,
+                reference,
+                lifecycle=lifecycle,
+                project_id=registered.id,
+                allowed_scopes=scopes,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Native skill execution kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

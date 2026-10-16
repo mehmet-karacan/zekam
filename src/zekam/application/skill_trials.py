@@ -155,14 +155,17 @@ def _invoke_trial(
     condition: str,
     context: dict[str, Any],
     root: Path,
+    instruction: str = _INSTRUCTION,
+    agent_ref: str = "skill-trial-builder",
+    execution_namespace: str = "skill-trial",
 ) -> dict[str, Any]:
     context_raw = canonical_bytes(context)
     assert_public_safe_projection(context_raw, relative_path="skill-trial-input.json")
-    instruction_digest = objects.put(_INSTRUCTION.encode("utf-8"), media_type="text/plain").digest
+    instruction_digest = objects.put(instruction.encode("utf-8"), media_type="text/plain").digest
     context_digest = objects.put(context_raw, media_type="application/json").digest
     assignment_id = uuid5(
         UUID(binding.run_id),
-        f"skill-trial:{plan['plan_digest']}:{condition}:{realm_id}:{coordinator_id}",
+        f"{execution_namespace}:{plan['plan_digest']}:{condition}:{realm_id}:{coordinator_id}",
     )
     draft = AgentAssignment(
         id=assignment_id,
@@ -170,7 +173,7 @@ def _invoke_trial(
         project_id=UUID(binding.project_id),
         work_item_id=UUID(binding.work_item_id),
         role=AssignmentRole.BUILDER,
-        agent_ref="skill-trial-builder",
+        agent_ref=agent_ref,
         instruction_digest=instruction_digest,
         context_manifest_digest=context_digest,
         assignment_digest=digest("draft"),
@@ -181,7 +184,7 @@ def _invoke_trial(
     )
     assignment = replace(draft, assignment_digest=digest(draft.identity_body()))
     invocation_id = uuid5(assignment_id, adapter.execution_binding_digest)
-    identity = f"skill-trial:{adapter.execution_binding_digest}:{condition}"
+    identity = f"{execution_namespace}:{adapter.execution_binding_digest}:{condition}"
     invocation = AgentInvocation(
         id=invocation_id,
         realm_id=realm_id,

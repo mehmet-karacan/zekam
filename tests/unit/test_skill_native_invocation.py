@@ -143,7 +143,13 @@ def native_load(world, tmp_path, monkeypatch):
         allowed_scopes=scopes,
     )
     return SimpleNamespace(
-        lifecycle=lifecycle, root=root, scopes=scopes, event=event, emit=emit, plan=plan
+        lifecycle=lifecycle,
+        root=root,
+        scopes=scopes,
+        event=event,
+        emit=emit,
+        plan=plan,
+        package=package,
     )
 
 

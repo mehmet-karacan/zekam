@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 5 WP-10.03 canonical native execute: aktif package/case/model/provider/runtime/source plan'i execute-native CLI ve reserved skill.native.execute Work job/claim/checkpoint/terminal receipt'ine baglandi. Actual native tool/final output artifact'i local oracle ile gradelenir; execution-report assignment/context/invocation/envelope/CAS zincirini tekrar okuyup yeniden gradeler. Varsayilan paired trial kontrolleri korunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Execution receipt -> SkillInvocationV2 ve ayri native verifier -> outcome producer halen acik; docs/SKILL_CANONICAL_NATIVE_EXECUTION.md.
+
 - Gorev 5 WP-10.03 gercek execution kaynagi: text-only batch'ten ayri explicit native skill profili ve iki-step skill tool/final JSON parser'i eklendi. Canonical paket private neutral runtime'da safe projection ile yuklenir; exact skill action/integration policy allow, diger tool deny korunur. Exact renderer/call/session/message/result bagi content-free CAS projection uretir; skill effect verified sayilmaz. Regresyon kaynaklari hazir, CALISTIRILMADI. Canonical single-case execution producer/CLI ve bagimsiz outcome verifier halen acik; docs/OPENCODE_NATIVE_SKILL_EXECUTION.md.
 
 - Gorev 5 WP-10.03 verifier model on kosulu: gercek V2 tool callback'i model tasimadigi icin exact session.step.started assistant-message/agent/model bagi generated plugin v6'ya eklendi. Bounded content-free map, ambiguous/missing/farkli session reddi ve v2 load model hash'i invocation planina baglandi; v1 unbound metadata unavailable kalir. Regresyon kaynaklari hazir, CALISTIRILMADI. Bu model bagimsizligi veya verified outcome kaniti degildir; gercek artifact/task evidence ve ayri verifier receipt producer acik; docs/OPENCODE_NATIVE_STEP_MODEL.md.

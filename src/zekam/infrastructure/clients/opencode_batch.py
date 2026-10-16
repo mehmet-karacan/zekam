@@ -288,32 +288,34 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             )
 
     @property
+    def execution_binding_body(self) -> dict[str, Any]:
+        return {
+            "schema": "zekam-opencode-batch-execution/v1",
+            "descriptor": self.descriptor.descriptor_digest,
+            "model": self.model_id,
+            "profile": batch_config(
+                self.provider_profile, model_id=self.model_id, native_skill=self.native_skill
+            ),
+            **(
+                {"native_skill_package_digest": self.native_skill.package_digest}
+                if self.native_skill is not None
+                else {}
+            ),
+            **(
+                {
+                    "native_runtime_root_digest": digest(
+                        os.path.normcase(str(self.native_runtime_root))
+                    )
+                }
+                if self.native_skill is not None
+                else {}
+            ),
+            "network_authorized": self.network_authorized,
+        }
+
+    @property
     def execution_binding_digest(self) -> str:
-        return digest(
-            {
-                "schema": "zekam-opencode-batch-execution/v1",
-                "descriptor": self.descriptor.descriptor_digest,
-                "model": self.model_id,
-                "profile": batch_config(
-                    self.provider_profile, model_id=self.model_id, native_skill=self.native_skill
-                ),
-                **(
-                    {"native_skill_package_digest": self.native_skill.package_digest}
-                    if self.native_skill is not None
-                    else {}
-                ),
-                **(
-                    {
-                        "native_runtime_root_digest": digest(
-                            os.path.normcase(str(self.native_runtime_root))
-                        )
-                    }
-                    if self.native_skill is not None
-                    else {}
-                ),
-                "network_authorized": self.network_authorized,
-            }
-        )
+        return digest(self.execution_binding_body)
 
     def _object(self, key: str, limit: int) -> bytes:
         parse_digest(key)

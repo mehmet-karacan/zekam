@@ -71,6 +71,7 @@ def test_skill_commands_have_separate_exact_read_and_write_contracts() -> None:
         "skill aggregate-record",
         "skill evaluation-from-audits",
         "skill invocation-record",
+        "skill execute-native",
     ):
         assert contracts[name].mutating is True
         assert contracts[name].requires_apply_flag is True
@@ -82,6 +83,7 @@ def test_skill_commands_have_separate_exact_read_and_write_contracts() -> None:
         "skill evaluation-report",
         "skill native-binding",
         "skill invocation-report",
+        "skill execution-report",
     ):
         assert contracts[name].mutating is False
         assert contracts[name].requires_apply_flag is False
