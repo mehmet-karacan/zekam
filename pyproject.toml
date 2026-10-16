@@ -22,6 +22,10 @@ dependencies = [
     "cryptography>=44,<51",
     # WP-01 ADR: embedded, rebuildable hybrid knowledge index vector extension.
     "sqlite-vec==0.1.9",
+    # Local-first multilingual E5 embedding runtime; CPU provider only at runtime.
+    "numpy>=1.26,<3",
+    "onnxruntime>=1.20,<2",
+    "tokenizers>=0.20,<1",
     # WP-13 ADR: embedded, rebuildable local analytics projection engine.
     "duckdb==1.5.5",
 ]
