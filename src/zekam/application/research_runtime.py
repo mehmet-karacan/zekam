@@ -886,6 +886,9 @@ def run_research(
         assert_no_swallowed_results(dispatch, report)
         report_document = report.as_dict()
         report_document.pop("report_digest")
+        report_document["source_revision"] = plan.body["source_revision"]
+        report_document["tree_digest"] = plan.body["tree_digest"]
+        report_document["source_identity_digest"] = plan.body["source_identity_digest"]
         report_document["evidence_coverage"] = evidence_coverage
         if evidence_coverage["state"] != "complete" and report_document["status"] == "answered":
             report_document["status"] = "partial"
@@ -977,6 +980,23 @@ def research_status(runtime: SQLiteLocalRuntimeStore, reference: str) -> dict[st
     }
     if "work_binding" in snapshot:
         body["work_binding"] = snapshot["work_binding"]
+    if all(
+        key in payload
+        for key in (
+            "source_revision",
+            "tree_digest",
+            "source_identity_digest",
+            "generation_digest",
+        )
+    ):
+        body.update(
+            {
+                "source_revision": payload["source_revision"],
+                "tree_digest": payload["tree_digest"],
+                "source_identity_digest": payload["source_identity_digest"],
+                "generation_digest": payload["generation_digest"],
+            }
+        )
     return body | {"result_digest": digest(body)}
 
 
@@ -1040,4 +1060,21 @@ def research_report(
         "read_only": True,
         "grants_authority": False,
     }
+    if all(
+        key in status
+        for key in (
+            "source_revision",
+            "tree_digest",
+            "source_identity_digest",
+            "generation_digest",
+        )
+    ):
+        body.update(
+            {
+                "source_revision": status["source_revision"],
+                "tree_digest": status["tree_digest"],
+                "source_identity_digest": status["source_identity_digest"],
+                "generation_digest": status["generation_digest"],
+            }
+        )
     return body | {"result_digest": digest(body)}
