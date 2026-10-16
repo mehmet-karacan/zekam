@@ -240,15 +240,33 @@ def read_native_measurement_source(home: Path, reference: str) -> dict:
         if count > MAX_OBSERVATIONS:
             raise PolicyViolation("Measurement source observation budget exceeded")
         observations = ledger.list_observations(attempt.attempt_id)
+        envelope = _object(objects, receipt.evidence_digest)
         record, measurement_binding = _linked_measurement(
             result,
-            _object(objects, receipt.evidence_digest),
+            envelope,
             _object(objects, attempt.candidate_digest),
             request=request,
             attempt=attempt,
             receipt=receipt,
             observations=observations,
         )
+        facts_digest = envelope["evidence"].get("report_facts_digest")
+        facts_state = envelope["evidence"].get("report_facts_state", "not-captured")
+        if facts_state not in {"not-captured", "capture-rejected", "captured-parser-projection"}:
+            raise PolicyViolation("Measurement source report facts state invalid")
+        report_facts = {"state": facts_state, "projection_digest": None}
+        if facts_digest is not None:
+            from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
+
+            if facts_state != "captured-parser-projection":
+                raise PolicyViolation("Measurement source report facts state drift")
+            report_facts = validate_report_facts(
+                _object(objects, facts_digest), record=record, binding=measurement_binding
+            )
+            if report_facts["projection_digest"] != facts_digest:
+                raise PolicyViolation("Measurement source report facts CAS identity drift")
+        elif facts_state == "captured-parser-projection":
+            raise PolicyViolation("Measurement source captured report facts missing")
     finally:
         connection.close()
     body = {
@@ -274,6 +292,7 @@ def read_native_measurement_source(home: Path, reference: str) -> dict:
         "recorded_drift": result["drift"],
         "canonical_receipt_verified": True,
         "attempt_receipt_verified": True,
+        "parser_report_facts": report_facts,
         "current_source_verified": False,
         "raw_reports_verified": False,
         "independent_quality_verified": False,

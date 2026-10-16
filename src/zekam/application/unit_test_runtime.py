@@ -812,6 +812,14 @@ def measure_native(
         if not observations:
             outcome = NativeOutcome.INCOMPLETE
     evaluation = record.evaluation
+    report_facts_digest = None
+    if run.report_facts is not None:
+        from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
+
+        validate_report_facts(
+            run.report_facts, record=record.to_payload(), binding=record.binding.to_payload()
+        )
+        report_facts_digest = _put(ports, run.report_facts)
     evidence_digest = _close_attempt(
         ports,
         attempt,
@@ -830,6 +838,8 @@ def measure_native(
             "output_bytes": run.output_bytes,
             "quality_verification": "ratio-observed-only",
             "authority": "observation-only",
+            "report_facts_digest": report_facts_digest,
+            "report_facts_state": run.report_facts_state,
         },
         observations,
     )

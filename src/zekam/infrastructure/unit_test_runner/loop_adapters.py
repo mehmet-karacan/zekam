@@ -103,6 +103,8 @@ class MavenUnitTestMeasurer:
             diagnostics.failed_cases,
             diagnostics.output_tail,
             diagnostics.output_bytes,
+            diagnostics.report_facts,
+            diagnostics.report_facts_state,
         )
 
 

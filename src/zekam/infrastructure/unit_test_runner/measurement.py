@@ -25,7 +25,7 @@ from zekam.application.unit_test_measurement import (
     assemble_measurement,
 )
 from zekam.domain.canonical import digest_of_bytes
-from zekam.domain.errors import ValidationFailed
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.unit_test_engineering import (
     CoverageObservation,
     CoverageState,
@@ -83,6 +83,8 @@ class MeasurementDiagnostics:
     output_tail: str = ""
     output_bytes: int = 0
     failed_cases: tuple[str, ...] = ()
+    report_facts: dict | None = None
+    report_facts_state: str = "not-captured"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,9 +119,10 @@ def _worst(kinds: list[TestRunKind]) -> TestRunKind:
 
 def _summarize_targets(
     outputs: CollectedOutputs, target_modules: tuple[str, ...]
-) -> tuple[TestRunKind, TestRunSummary | None]:
+) -> tuple[TestRunKind, TestRunSummary | None, dict[str, TestRunSummary]]:
     kinds: list[TestRunKind] = []
     summaries: list[TestRunSummary] = []
+    by_module: dict[str, TestRunSummary] = {}
     for module in target_modules:
         files = outputs.surefire.get(module, ())
         try:
@@ -128,13 +131,19 @@ def _summarize_targets(
             kinds.append(TestRunKind.INCONSISTENT_REPORT)
             continue
         summaries.append(summary)
+        by_module[module] = summary
         kinds.append(_kind(summary.status))
     combined: TestRunSummary | None = None
     if summaries:
-        combined = summarize(
-            item.data for m in target_modules for item in outputs.surefire.get(m, ())
-        )
-    return _worst(kinds), combined
+        try:
+            combined = summarize(
+                item.data for m in target_modules for item in outputs.surefire.get(m, ())
+            )
+        except ValidationFailed:
+            # A malformed target module cannot be omitted from an otherwise
+            # passing aggregate, or escape as a process interruption.
+            kinds.append(TestRunKind.INCONSISTENT_REPORT)
+    return _worst(kinds), combined, by_module
 
 
 def _parse_reports(
@@ -236,7 +245,7 @@ def measure_unit_tests(
         return assemble_measurement(request, None, empty)
 
     outputs = collect_outputs(root, plan.modules, run.start_ns)
-    kind, summary = _summarize_targets(outputs, plan.target_modules)
+    kind, summary, module_summaries = _summarize_targets(outputs, plan.target_modules)
     if diagnostics is not None and summary is not None:
         diagnostics.failed_cases = tuple(
             f"{case.classname}#{case.name}"
@@ -331,7 +340,27 @@ def measure_unit_tests(
         missing_expected_plugins=tuple(missing),
         stale_report_paths=(*outputs.stale, *unbound_xml),
     )
-    return assemble_measurement(request, binding, evidence, freshness=FreshnessVerdict.FRESH)
+    record = assemble_measurement(request, binding, evidence, freshness=FreshnessVerdict.FRESH)
+    if diagnostics is not None:
+        from zekam.infrastructure.unit_test_runner.report_facts import (
+            ParsedReportInputs,
+            capture_report_facts,
+        )
+
+        try:
+            diagnostics.report_facts = capture_report_facts(
+                outputs,
+                plan.target_modules,
+                record,
+                parsed=ParsedReportInputs(module_summaries, summary, reports),
+            )
+            diagnostics.report_facts_state = "captured-parser-projection"
+        except (PolicyViolation, ValidationFailed):
+            # Keep the real measurement failure. A missing projection cannot
+            # manufacture a passed result, nor expose report contents in errors.
+            diagnostics.report_facts = None
+            diagnostics.report_facts_state = "capture-rejected"
+    return record
 
 
 def digest_files(root: Path, relatives: tuple[str, ...]) -> dict[str, str]:

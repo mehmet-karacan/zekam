@@ -18,7 +18,9 @@ from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 
 
-def _native_source_fixture(world, *, failed=False, execution_key="nondefault-measurement"):
+def _native_source_fixture(
+    world, *, failed=False, execution_key="nondefault-measurement", with_report_facts=False
+):
     """Synthetic measurer; real native ledger, canonical checkpoint and CAS writes."""
     from zekam.application.unit_test_loop_state import EnvironmentObservation, MeasuredRun
     from zekam.application.unit_test_measurement import (
@@ -54,6 +56,14 @@ def _native_source_fixture(world, *, failed=False, execution_key="nondefault-mea
     )
 
     def measure(request, *, attempt_id, run_id, candidate_digest, **_kwargs):
+        from zekam.domain.canonical import digest_of_bytes
+
+        report = (
+            '<testsuite tests="1" failures="' + str(int(failed)) + '" errors="0" skipped="0">'
+            '<testcase classname="p.ATest" name="fixture">'
+            + ("<failure/>" if failed else "")
+            + "</testcase></testsuite>"
+        ).encode()
         bound = MeasurementBinding(
             request.request_digest,
             attempt_id,
@@ -66,21 +76,48 @@ def _native_source_fixture(world, *, failed=False, execution_key="nondefault-mea
             observed.build_config_digest,
             world.binding.plan_digest,
             ToolchainIdentity("mvn", observed.launcher_digest, "3.9", "21", "21", ()),
-            (("surefire:TEST-A.xml", digest("synthetic-report")),),
+            (("surefire:TEST-A.xml", digest_of_bytes(report)),),
         )
         evidence = MeasurementEvidence(
             RunStatus.COMPLETED,
             1 if failed else 0,
             TestRunKind.FAILED if failed else TestRunKind.PASSED,
-            (("executed", 1), ("passed", 0 if failed else 1), ("failed", int(failed))),
+            (
+                ("discovered", 1),
+                ("executed", 1),
+                ("passed", 0 if failed else 1),
+                ("failed", int(failed)),
+                ("errors", 0),
+                ("skipped", 0),
+                ("aborted", 0),
+            ),
             (
                 CoverageObservation.measured(
                     "src/main/A.java", CoverageMetric.LINE, covered=9, missed=1
                 ),
             ),
         )
+        record = assemble_measurement(request, bound, evidence, freshness=FreshnessVerdict.FRESH)
+        facts = None
+        if with_report_facts:
+            from zekam.infrastructure.unit_test_runner.report_facts import capture_report_facts
+
+            outputs = SimpleNamespace(
+                surefire={
+                    "": (
+                        SimpleNamespace(
+                            relative="TEST-A.xml", digest=digest_of_bytes(report), data=report
+                        ),
+                    )
+                },
+                jacoco_xml={},
+                exec_digests={},
+            )
+            facts = capture_report_facts(outputs, ("",), record)
         return MeasuredRun(
-            record=assemble_measurement(request, bound, evidence, freshness=FreshnessVerdict.FRESH)
+            record=record,
+            report_facts=facts,
+            report_facts_state="captured-parser-projection" if facts else "not-captured",
         )
 
     objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
@@ -129,6 +166,34 @@ def test_native_source_reader_rejects_unrelated_completed_job(world):
 
     result = run(world, lambda _cancel: {"passed": True})
     with pytest.raises(PolicyViolation, match="test.measure"):
+        read_native_measurement_source(world.home, result["canonical_job_id"])
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_native_source_reader_loads_receipt_bound_report_facts(world, failed):
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    result = _native_source_fixture(world, failed=failed, with_report_facts=True)
+    report = read_native_measurement_source(world.home, result["canonical_job_id"])
+    facts = report["parser_report_facts"]
+    assert facts["state"] == "verified-parser-projection"
+    assert facts["combined"]["status"] == ("failed" if failed else "passed")
+    assert facts["combined"]["counts"]["executed"] == 1
+    assert facts["report_count"] == 1
+    assert report["raw_reports_verified"] is False
+    assert report["independent_quality_verified"] is False
+
+
+def test_native_source_reader_missing_report_projection_is_not_silently_legacy(world):
+    import json
+    from zekam.application.unit_test_source_evidence import read_native_measurement_source
+
+    result = _native_source_fixture(world, with_report_facts=True)
+    objects = LocalContentAddressedStore(world.home / "artifacts/sha256")
+    envelope = json.loads(objects.get(result["evidence_digest"]))
+    key = envelope["evidence"]["report_facts_digest"]
+    objects._paths(key)[0].unlink()
+    with pytest.raises((OSError, NotFound)):
         read_native_measurement_source(world.home, result["canonical_job_id"])
 
 

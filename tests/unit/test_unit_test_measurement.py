@@ -51,6 +51,7 @@ from zekam.infrastructure.unit_test_runner.maven_plan import (
     build_unit_test_plan,
 )
 from zekam.infrastructure.unit_test_runner.measurement import (
+    MeasurementDiagnostics,
     PlanBlocked,
     digest_files,
     measure_unit_tests,
@@ -96,6 +97,7 @@ class Env:
         timeout: float = 30,
         cancel: threading.Event | None = None,
         plan_result: PlanResult | None = None,
+        diagnostics: MeasurementDiagnostics | None = None,
     ) -> MeasurementRecord | PlanBlocked:
         return measure_unit_tests(
             req or request(),
@@ -109,6 +111,7 @@ class Env:
             timeout_seconds=timeout,
             cancel=cancel,
             maven_version="3.9.9",
+            diagnostics=diagnostics,
         )
 
 
@@ -151,6 +154,170 @@ def test_replay_threshold_not_met_is_a_verdict_not_a_pass(env: Env) -> None:
     assert isinstance(record, MeasurementRecord)
     assert record.status is MeasurementStatus.ACCEPTED
     assert record.evaluation is not None and record.evaluation.verdict is EvaluationVerdict.NOT_MET
+
+
+def test_report_facts_capture_keeps_counters_without_raw_properties_or_test_output(
+    env: Env,
+) -> None:
+    from zekam.domain.canonical import canonical_bytes
+    from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
+
+    scenario = good_scenario()
+    report_path = "target/surefire-reports/TEST-p.ATest.xml"
+    raw = (
+        scenario["write"][report_path]
+        .replace(
+            "</properties>",
+            '<property name="db.password" value="synthetic-private-value"/></properties>'
+            "<system-out>synthetic-person@example.invalid</system-out>",
+        )
+        .replace('name="a"', 'name="synthetic-test-parameter"')
+    )
+    scenario["write"][report_path] = raw
+    env.fake.set(**scenario)
+    diagnostics = MeasurementDiagnostics()
+    record = env.measure(diagnostics=diagnostics)
+    assert isinstance(record, MeasurementRecord)
+    assert diagnostics.report_facts_state == "captured-parser-projection"
+    facts = diagnostics.report_facts
+    assert facts is not None
+    payload = canonical_bytes(facts)
+    for forbidden in (
+        b"synthetic-private-value",
+        b"synthetic-person",
+        b"synthetic-test-parameter",
+        b"db.password",
+        b"system-out",
+    ):
+        assert forbidden not in payload
+    assert dict(record.binding.report_digests)[f"surefire:{report_path}"] == digest_of_bytes(
+        raw.encode()
+    )
+    verified = validate_report_facts(
+        facts, record=record.to_payload(), binding=record.binding.to_payload()
+    )
+    assert verified["combined"]["counts"]["executed"] == 2
+    assert verified["jacoco_report_count"] == 1
+    assert (
+        facts["jacoco"][0]["report_digest"] == dict(record.binding.report_digests)["jacoco-xml:."]
+    )
+    assert verified["raw_reports_retained"] is False
+    assert verified["raw_reports_reparsed"] is False
+
+
+@pytest.mark.parametrize(
+    "child,classname",
+    [
+        ('<failure message="synthetic failure"/>', "p.ATest"),
+        ("<flakyFailure/>", "p.ATest"),
+        ("<skipped/>", "p.ATest"),
+        ("", "p.ExampleIT"),
+    ],
+)
+def test_report_facts_capture_preserves_nonpassing_parser_verdicts(
+    env: Env, child, classname
+) -> None:
+    scenario = good_scenario()
+    scenario["write"]["target/surefire-reports/TEST-p.ATest.xml"] = surefire_xml(
+        [(classname, "a", child)]
+    )
+    env.fake.set(**scenario)
+    diagnostics = MeasurementDiagnostics()
+    record = env.measure(diagnostics=diagnostics)
+    assert isinstance(record, MeasurementRecord)
+    facts = diagnostics.report_facts
+    assert facts is not None
+    assert facts["combined"]["status"] != "passed"
+    assert facts["combined"]["status"] == record.evidence.test_kind.value
+
+
+def test_report_facts_rejects_counter_tampering_and_extra_content(env: Env) -> None:
+    from copy import deepcopy
+    from zekam.domain.errors import PolicyViolation
+    from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
+
+    env.fake.set(**good_scenario())
+    diagnostics = MeasurementDiagnostics()
+    record = env.measure(diagnostics=diagnostics)
+    for field in ("passed", "flaky", "integration_like"):
+        facts = deepcopy(diagnostics.report_facts)
+        facts["combined"]["counts"][field] += 1
+        with pytest.raises(PolicyViolation):
+            validate_report_facts(
+                facts, record=record.to_payload(), binding=record.binding.to_payload()
+            )
+    facts = deepcopy(diagnostics.report_facts)
+    facts["raw_xml"] = "must never be retained"
+    with pytest.raises(PolicyViolation):
+        validate_report_facts(
+            facts, record=record.to_payload(), binding=record.binding.to_payload()
+        )
+
+
+def test_report_facts_target_module_without_tests_cannot_hide_behind_combined_pass(
+    env: Env,
+) -> None:
+    from types import SimpleNamespace
+    from zekam.domain.errors import PolicyViolation
+    from zekam.infrastructure.unit_test_runner.report_facts import capture_report_facts
+
+    record = accepted(env)
+    path = "target/surefire-reports/TEST-p.ATest.xml"
+    data = (env.root / path).read_bytes()
+    outputs = SimpleNamespace(
+        surefire={
+            "": (SimpleNamespace(relative=path, digest=digest_of_bytes(data), data=data),),
+            "empty": (),
+        },
+        jacoco_xml={},
+        exec_digests={},
+    )
+    with pytest.raises(PolicyViolation, match="test kind"):
+        capture_report_facts(outputs, ("", "empty"), record)
+
+
+def test_report_facts_reuses_measurement_parsers_without_reparsing(env: Env, monkeypatch) -> None:
+    from zekam.infrastructure.unit_test_runner import report_facts
+
+    def unexpected_reparse(*_args, **_kwargs):
+        pytest.fail("Measurement already parsed these exact XML inputs")
+
+    monkeypatch.setattr(report_facts, "summarize", unexpected_reparse)
+    monkeypatch.setattr(report_facts, "parse_jacoco_report", unexpected_reparse)
+    env.fake.set(**good_scenario())
+    diagnostics = MeasurementDiagnostics()
+    record = env.measure(diagnostics=diagnostics)
+    assert record.status is MeasurementStatus.ACCEPTED
+    assert diagnostics.report_facts_state == "captured-parser-projection"
+
+
+def test_report_facts_budget_rejection_preserves_actual_measurement(env: Env, monkeypatch) -> None:
+    from zekam.infrastructure.unit_test_runner import report_facts
+
+    monkeypatch.setattr(report_facts, "MAX_INPUT_BYTES", 1)
+    env.fake.set(**good_scenario())
+    diagnostics = MeasurementDiagnostics()
+    record = env.measure(diagnostics=diagnostics)
+    assert record.status is MeasurementStatus.ACCEPTED
+    assert diagnostics.report_facts is None
+    assert diagnostics.report_facts_state == "capture-rejected"
+
+
+def test_malformed_module_cannot_escape_or_hide_behind_valid_module_summary() -> None:
+    from types import SimpleNamespace
+    from zekam.infrastructure.unit_test_runner.measurement import _summarize_targets
+
+    good = surefire_xml([("p.ATest", "a", "")]).encode()
+    outputs = SimpleNamespace(
+        surefire={
+            "good": (SimpleNamespace(data=good),),
+            "broken": (SimpleNamespace(data=b"<testsuite>"),),
+        }
+    )
+    kind, combined, modules = _summarize_targets(outputs, ("good", "broken"))
+    assert kind is TestRunKind.INCONSISTENT_REPORT
+    assert combined is None
+    assert set(modules) == {"good"}
 
 
 def test_replay_old_exec_and_reports_cannot_leak_into_new_run_m07(env: Env) -> None:

@@ -105,6 +105,8 @@ class MeasuredRun:
     failed_cases: tuple[str, ...] = ()
     output_tail: str = ""
     output_bytes: int = 0
+    report_facts: dict | None = None
+    report_facts_state: str = "not-captured"
 
 
 class UnitTestMeasurer(Protocol):

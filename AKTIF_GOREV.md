@@ -561,6 +561,8 @@ ve host indirect shell enforcement kabulu acik; kullanici home'una yazilmadi.
 
 **16 Ekim 2026 native test kanit kaynagi gelistirmesi:** Native test source-evidence okuyucusu canonical job/checkpoint/CAS -> request/attempt/receipt -> measurement/binding/candidate tree baglarini salt okunur dogrular. Nondefault execution key, failed sonuc, bounded strict JSON ve kolon/body drift regresyon kaynaklari eklendi; CALISTIRILMADI. Tarihsel freshness guncel kaynak veya ham rapor/quality kaniti degildir; signing/publication authority false kalir. Ayrinti docs/NATIVE_TEST_KANIT_KAYNAGI.md. Immutable raw report, exact publication subject, independent verifier ve signer ownership baglari acik.
 
+**16 Ekim 2026 kalici parser rapor kaniti:** Native Maven rapor projection gelistirmesi: mevcut Surefire/JaCoCo parser sonuclari tekrar parse edilmeden sayisal ve secret/PII kontrollu report-facts CAS artifactine baglandi. Ham properties/testcase/output/session metni saklanmaz. Native attempt receipt projection digestini tasir; source-evidence module/toplam sayac, measurement/binding ve JaCoCo XML/exec bagini yeniden dogrular; legacy not-captured, red capture-rejected, missing captured CAS ise ret olur. Gercek SQLite/CAS ve parser fixture regresyon kaynaklari hazir, CALISTIRILMADI. Bu semantic projection ham rapor arsivi, bagimsiz quality veya publication authority degildir; exact current source/HEAD, trusted signing ve verifier producer baglari acik. Ayrinti docs/NATIVE_TEST_KANIT_KAYNAGI.md.
+
 ### WP-03 — Doğal Dil Ve Kesin Proje Çözümleme
 
 **Bağımlılık/onay:** WP-02; WP-07'nin iş bağlarıyla daha sonra bütünleşir.  
