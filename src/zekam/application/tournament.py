@@ -27,12 +27,26 @@ class CandidateSubmission:
     visible_candidate_output_digests: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if type(self.assignment_id) is not UUID:
+            raise ValidationFailed("Candidate submission assignment UUID olmali")
         parse_digest(self.result_digest)
-        if min(self.used_tokens, self.used_cost_micros) < 0:
-            raise ValidationFailed("Candidate kullanim degerleri negatif olamaz")
-        if self.completed_at.tzinfo is None or self.completed_at.utcoffset() is None:
+        if any(
+            type(value) is not int or not 0 <= value <= (1 << 63) - 1
+            for value in (self.used_tokens, self.used_cost_micros)
+        ):
+            raise ValidationFailed(
+                "Candidate kullanim degerleri bounded nonnegative integer olmali"
+            )
+        if (
+            type(self.completed_at) is not dt.datetime
+            or self.completed_at.tzinfo is None
+            or self.completed_at.utcoffset() is None
+        ):
             raise ValidationFailed("Candidate completed_at timezone-aware olmali")
-        if self.visible_candidate_output_digests:
+        if (
+            type(self.visible_candidate_output_digests) is not tuple
+            or self.visible_candidate_output_digests
+        ):
             raise PolicyViolation("Candidate baska candidate output'unu goremez")
 
 
@@ -43,7 +57,13 @@ class SelectorScore:
     evidence_digest: str
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.score):
+        if type(self.candidate_assignment_id) is not UUID:
+            raise ValidationFailed("Selector candidate assignment UUID olmali")
+        try:
+            finite = type(self.score) in {int, float} and math.isfinite(self.score)
+        except OverflowError:
+            finite = False
+        if not finite:
             raise ValidationFailed("Selector score sonlu olmali")
         parse_digest(self.evidence_digest)
 
@@ -62,7 +82,7 @@ class TournamentResult:
     grants_promotion: bool = False
 
     def __post_init__(self) -> None:
-        if self.grants_promotion:
+        if self.grants_promotion is not False:
             raise PolicyViolation("Tournament result otomatik promotion yetkisi veremez")
         if self.status not in {"selected-candidate", "awaiting-human-review"}:
             raise ValidationFailed("Tournament result status gecersiz")
@@ -151,8 +171,17 @@ class IndependentTournamentSelector:
     ) -> TournamentResult:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValidationFailed("Tournament selection zamani timezone-aware olmali")
+        if type(plan) is not TournamentPlan or plan.plan_digest != plan.computed_digest:
+            raise PolicyViolation("Tournament selection exact digest-bound plan ister")
         if now > plan.budget.deadline:
             raise PolicyViolation("Tournament deadline asildi")
+        if (
+            type(submissions) is not tuple
+            or type(scores) is not tuple
+            or any(type(item) is not CandidateSubmission for item in submissions)
+            or any(type(item) is not SelectorScore for item in scores)
+        ):
+            raise ValidationFailed("Tournament exact typed submission/score ister")
         if (
             selector_assignment_id != plan.selector_assignment_id
             or selector_model_id != plan.selector_model_id
@@ -179,6 +208,8 @@ class IndependentTournamentSelector:
                 raise PolicyViolation("Candidate cost budget'i asildi")
             if submission.completed_at > plan.budget.deadline:
                 raise PolicyViolation("Candidate deadline'i asti")
+            if submission.completed_at > now:
+                raise PolicyViolation("Candidate selection zamaninda henuz tamamlanmamis")
         if sum(item.used_tokens for item in submissions) > plan.budget.max_tokens:
             raise PolicyViolation("Tournament total token budget'i asildi")
         if sum(item.used_cost_micros for item in submissions) > plan.budget.max_cost_micros:

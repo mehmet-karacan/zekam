@@ -407,9 +407,14 @@ class TournamentBudget:
     deadline: dt.datetime
 
     def __post_init__(self) -> None:
+        if type(self.deadline) is not dt.datetime:
+            raise ValidationFailed("Tournament deadline datetime olmali")
         _aware(self.deadline, "Tournament deadline")
-        if min(self.max_candidates, self.max_tokens, self.max_cost_micros) <= 0:
-            raise ValidationFailed("Tournament budget degerleri pozitif olmali")
+        if any(
+            type(value) is not int or not 0 < value <= (1 << 63) - 1
+            for value in (self.max_candidates, self.max_tokens, self.max_cost_micros)
+        ):
+            raise ValidationFailed("Tournament budget degerleri pozitif bounded integer olmali")
 
     def body(self) -> dict[str, Any]:
         return {
@@ -429,10 +434,20 @@ class TournamentCandidateAssignment:
     cost_budget_micros: int
 
     def __post_init__(self) -> None:
+        if any(
+            type(value) is not str or value != value.strip() or len(value) > 256
+            for value in (self.model_id, self.execution_identity)
+        ):
+            raise ValidationFailed("Candidate model/execution bounded canonical text olmali")
         _nonblank(self.model_id, "Candidate model")
         _nonblank(self.execution_identity, "Candidate execution identity")
-        if min(self.token_budget, self.cost_budget_micros) <= 0:
-            raise ValidationFailed("Candidate token/cost budget pozitif olmali")
+        if type(self.assignment_id) is not UUID:
+            raise ValidationFailed("Candidate assignment UUID olmali")
+        if any(
+            type(value) is not int or not 0 < value <= (1 << 63) - 1
+            for value in (self.token_budget, self.cost_budget_micros)
+        ):
+            raise ValidationFailed("Candidate token/cost budget pozitif bounded integer olmali")
 
     def body(self) -> dict[str, Any]:
         return {
@@ -460,15 +475,31 @@ class TournamentPlan:
     grants_authority: bool = False
 
     def __post_init__(self) -> None:
-        if self.grants_authority:
+        if self.grants_authority is not False:
             raise PolicyViolation("Tournament plan authority uretemez")
-        if not self.candidate_isolation:
+        if self.candidate_isolation is not True:
             raise PolicyViolation("Tournament candidate isolation zorunlu")
+        if type(self.human_final_gate) is not bool or type(self.selector_assignment_id) is not UUID:
+            raise ValidationFailed("Tournament gate/selector UUID tipi gecersiz")
+        if (
+            type(self.candidate_assignments) is not tuple
+            or any(
+                type(item) is not TournamentCandidateAssignment
+                for item in self.candidate_assignments
+            )
+            or type(self.budget) is not TournamentBudget
+        ):
+            raise ValidationFailed("Tournament exact candidate/budget contract ister")
         if len(self.candidate_assignments) < 2:
             raise ValidationFailed("Tournament en az iki candidate ister")
         parse_digest(self.shared_objective_digest)
         parse_digest(self.candidate_context_digest)
         parse_digest(self.selector_spec_digest)
+        if any(
+            type(value) is not str or value != value.strip() or len(value) > 256
+            for value in (self.selector_model_id, self.selector_execution_identity)
+        ):
+            raise ValidationFailed("Selector model/execution bounded canonical text olmali")
         _nonblank(self.selector_model_id, "Selector model")
         _nonblank(self.selector_execution_identity, "Selector execution identity")
         ids = tuple(item.assignment_id for item in self.candidate_assignments)
@@ -479,7 +510,9 @@ class TournamentPlan:
             raise PolicyViolation("Selector candidate assignment olamaz")
         if self.selector_execution_identity in executions:
             raise PolicyViolation("Selector candidate execution identity olamaz")
-        if self.selector_model_id in {item.model_id for item in self.candidate_assignments}:
+        if self.selector_model_id.strip().casefold().split("#", 1)[0] in {
+            item.model_id.strip().casefold().split("#", 1)[0] for item in self.candidate_assignments
+        }:
             raise PolicyViolation("Selector candidate model ile ayni olamaz")
         if len(ids) > self.budget.max_candidates:
             raise PolicyViolation("Tournament candidate count budget'i asiyor")

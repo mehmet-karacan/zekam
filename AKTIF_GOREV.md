@@ -1823,6 +1823,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   store'u yeniden kurmaz. Exact project/stage/plan/tek claim/receipt/terminal
   readback'i olmadan completed sonucu verilmez. Regresyon kaynaklari hazir,
   CALISTIRILMADI. Gercek campaign/tournament ve genel WP kabulu aciktir.
+
+  16 Ekim 2026 tournament contract: budget/usage exact bounded integer,
+  score finite/nonbool, gate/isolation exact bool, UUID ve digest-bound plan
+  kontrolleri eklendi. Future completion ve same declared model case/#variant
+  selector reddedilir. Regresyon kaynaklari hazir, CALISTIRILMADI. Actual
+  dispatch/receipt/model bagimsizligi, fixture/baseline/no-progress runner ve
+  WP kabul kapilari halen aciktir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.

@@ -332,3 +332,17 @@ completed ifadesi tek basina basari sayilmaz. Replay receipt bilgisi gercek
 operational kayittan gelir; provider veya schema cagrisi tekrarlanmaz.
 Regresyon kaynaklari `tests/unit/test_radar_claim_replay.py` icinde hazir,
 CALISTIRILMADI. Bu kaynak dilimi campaign/WP kabulu degildir.
+
+## Tournament sozlesmesi - 16 Ekim 2026, test bekliyor
+
+Candidate ve toplam token/cost/candidate butceleri bool/float/string yerine
+bounded pozitif integer ister; gercek kullanim nonnegative integer olur.
+Selector puani bool veya nonfinite sayi olamaz. Selector, completed_at henuz
+gelmemis bir submission'i secemez; exact digest-bound plan zorunludur. Gate ve
+isolation/authority bayraklari exact bool, assignment kimlikleri UUID olur.
+Ayni declared modelin case veya #variant farki bagimsiz selector sayilmaz.
+
+Bu katman declared contract kontroludur; actual upstream model bagimsizligi,
+fixture/baseline olcumu, no-progress runner ve canonical dispatch/receipt kabulunu
+tek basina kanitlamaz. Tournament sonucu promotion yetkisi vermez. Ilgili negatif
+regresyon kaynaklari `tests/unit/test_tournament.py` icinde, CALISTIRILMADI.

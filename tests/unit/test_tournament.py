@@ -13,7 +13,7 @@ from zekam.application.tournament import (
     TournamentPlanner,
 )
 from zekam.domain.canonical import digest
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.execution_topology import (
     TournamentBudget,
     TournamentCandidateAssignment,
@@ -152,3 +152,55 @@ def test_candidate_actual_usage_cannot_exceed_assignment_budget() -> None:
             selector_execution_identity=plan.selector_execution_identity,
             now=NOW + dt.timedelta(minutes=2),
         )
+
+
+@pytest.mark.parametrize("value", [True, 1.5, "10", -1, (1 << 63)])
+def test_budget_and_usage_types_cannot_bypass_numeric_limits(value):
+    with pytest.raises(ValidationFailed):
+        TournamentBudget(2, value, 100, NOW + dt.timedelta(minutes=5))
+    with pytest.raises(ValidationFailed):
+        TournamentCandidateAssignment(uuid4(), "builder", "exec", value, 50)
+    with pytest.raises(ValidationFailed):
+        CandidateSubmission(uuid4(), digest("result"), value, 20, NOW)
+
+
+@pytest.mark.parametrize("value", [True, "0.9", float("nan"), float("inf"), 10**1000])
+def test_selector_score_is_a_real_finite_number(value):
+    with pytest.raises(ValidationFailed):
+        SelectorScore(uuid4(), value, digest("score"))
+
+
+def test_future_submission_cannot_be_selected_before_completion():
+    plan = _plan()
+    first, second = plan.candidate_assignments
+    with pytest.raises(PolicyViolation, match="henuz tamamlanmamis"):
+        IndependentTournamentSelector().select(
+            plan=plan,
+            submissions=(
+                _submission(first.assignment_id, "a"),
+                _submission(second.assignment_id, "b"),
+            ),
+            scores=(
+                SelectorScore(first.assignment_id, 0.4, digest("a")),
+                SelectorScore(second.assignment_id, 0.9, digest("b")),
+            ),
+            selector_assignment_id=plan.selector_assignment_id,
+            selector_model_id=plan.selector_model_id,
+            selector_execution_identity=plan.selector_execution_identity,
+            now=NOW,
+        )
+
+
+def test_same_declared_model_case_or_variant_is_not_an_independent_selector():
+    plan = _plan()
+    same_model = plan.candidate_assignments[0].model_id.upper() + "#high"
+    with pytest.raises(PolicyViolation, match="Selector candidate model"):
+        replace(plan, selector_model_id=same_model, plan_digest="")
+
+
+@pytest.mark.parametrize(
+    "field,value", [("human_final_gate", 0), ("candidate_isolation", 1), ("grants_authority", 0)]
+)
+def test_nonboolean_control_flags_are_not_normalized_into_authority_contract(field, value):
+    with pytest.raises((ValidationFailed, PolicyViolation)):
+        replace(_plan(), **{field: value, "plan_digest": ""})
