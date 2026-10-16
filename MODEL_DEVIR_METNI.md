@@ -10,7 +10,7 @@ referanslarini SQLite authority'den okur. Payload, owner token ve grant alanlari
 disarida tutulur; cikti read-only/grants_authority=false olarak kalir. Regresyon
 kaynagi eklendi, testler CALISTIRILMADI. Ayrinti docs/WORK_RESUME_CANONICAL_READBACK.md.
 
-Aktif devam HEAD `9616317` ve `origin/main` ile eslesiyor. Sonraki model ayni
+Aktif devam HEAD `ed41dc4` ve `origin/main` ile eslesiyor. Sonraki model ayni
 gercek kaynak kokunde devam etmeli; korunan untracked dosyalara dokunmamali ve
 testleri tum gelistirmeler bitmeden calistirmamali.
 
