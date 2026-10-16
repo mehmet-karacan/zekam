@@ -20,6 +20,10 @@ Yerel Markdown/HTML/Mermaid/manifest/ZIP yalniz repo-disi yeni hedefe uretilebil
 runtime/kabul authority degildir. Ayrinti docs/KANONIK_MIMARI_EXPORT.md.
 Mimari writer disk readback ve --verify current source/file/hash/ZIP dogrulamasi
 eklendi; imported manifest authority olmaz, stale/tampered/incomplete paket ret.
+WP-12.06 explicit task REQ/CAP->WP->test source traceability eklendi; exact satir,
+tracked hash ve AST declaration bagli, missing/unmapped kayitlar gorunur. Ayri
+traceability.json canonical catalog/manifest/ZIP/readback kapsamindadir. Gercek
+run/evidence/execution commit null, release chain incomplete kalir.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

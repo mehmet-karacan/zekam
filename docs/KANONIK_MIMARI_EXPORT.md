@@ -37,8 +37,9 @@ Repo icinde gecici/generate rapor birakmaz. Dosyalar:
 | architecture.md | Ayni katalogdan REQ/CAP/WP/karar ve source envanteri |
 | architecture.html | Escaped, script ve remote resource icermeyen yerel belge |
 | architecture.mmd | Canonical WP -> CAP iliski diyagram kaynagi |
+| traceability.json | Explicit task scope -> WP -> test source bagi ve eksikler |
 | manifest.json | Catalog digest ve diger dosyalarin exact byte hash'leri |
-| architecture.zip | Sabit tarih/sira/izinlerle ayni bes dosyanin yerel paketi |
+| architecture.zip | Sabit tarih/sira/izinlerle ayni alti dosyanin yerel paketi |
 
 HTML/Mermaid render motoru veya yeni arac kurulumu gerekmez. Mermaid kaynak
 olarak teslim edilir. GitBook/Miro login, yayin veya uzak API cagrisi yapilmaz;
@@ -49,7 +50,7 @@ bundle yerel export girdisidir, provider'in kabul ettigi import formati iddiasi 
 `python scripts/export_source_architecture.py --verify <mevcut-repo-disi-mutlak-klasor>`
 
 Bu salt okunur yol guncel tracked kaynak katalogunu yeniden kurar ve beklenen
-alti dosyanin exact bytes'ini bounded olarak diskten okur. Paket manifest'i path,
+yedi dosyanin exact bytes'ini bounded olarak diskten okur. Paket manifest'i path,
 dosya listesi veya allocation yetkisi vermez. Fazla/eksik dosya, dizin, link/reparse,
 source/HEAD drift veya degisen herhangi bir belge basari sayilmaz. Degistirilen
 dosya icin manifest hash'ini tekrar yazmak paketi gecerli yapmaz. ZIP unzip
@@ -67,6 +68,27 @@ writer readback failure regresyon kaynaklari eklendi. Kullanici talimatiyla test
 ve gercek generator/verify kosusu CALISTIRILMADI; final asamada yapilacak.
 
 ## Kabul siniri ve sonraki kapilar
+
+### Kaynak izlenebilirligi
+
+`architecture_traceability.py` guncel WP bolumlerindeki explicit Girdi/kapsam
+REQ/CAP kimliklerini ve test path referanslarini ayri kaynak grafina baglar.
+REQ-001/004 ve CAP-01/21 gibi slash kisaltmalari acilir; serbest metinden,
+benzer dosya adindan veya eski passed iddiasindan semantik esleme yapilmaz.
+Genel "tum gereksinimler" ifadesi bir tekil REQ eslemesi olarak tahmin edilmez.
+
+Her edge exact task satirini; test link'i declared path/satirini ve tracked
+kaynak varsa source ID/hash + AST test ad/satirlarini tasir. Dosya eksikse
+missing kalir; untracked dosya veya baska test ile doldurulmaz. Explicit scope'u
+olmayan REQ, test referansi olmayan WP ve eksik test dosyalari ayri listelenir.
+WP-parent source bagi, her alt gorevin kabul testini tek basina kanitlamaz.
+
+Bu grafik canonical input, ayri digest-bound traceability.json, manifest ve ZIP
+icindedir. Disk readback bu yeni dosyayi da mevcut kaynakla karsilastirir.
+Run/evidence/execution_commit null; execution_evidence_attached,
+release_chain_complete ve acceptance_verified false kalir. Gercek final test
+sonuclari ve canonical receipt/independent review baglantisi sonraki kabul
+kapisidir; bu source declaration producer'i bunlari uydurmaz.
 
 Markdown checkbox'i `document_checked`, kaynak declaration olarak kaydedilir;
 Work state veya acceptance'a donusmez. Tum acceptance_verified/grants_authority

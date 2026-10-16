@@ -29,6 +29,9 @@ def checkout(tmp_path):
         + (
             "\n### ZKM-REQ-001 — Fixture requirement\n"
             "| CAP-01 | Fixture capability | `partial` | WP-02 | Native acceptance |\n"
+            "### WP-02 — Fixture package\n"
+            "**Girdi/kapsam:** REQ-001; CAP-01.\n"
+            "**Test source:** `tests/test_example.py`, `tests/test_missing.py`.\n"
             "- [ ] **WP-02.01** — Fixture source work\n"
         ),
         "pyproject.toml": '[project]\nname="fixture"\n',
@@ -74,6 +77,9 @@ def test_catalog_reads_source_declarations_without_import_or_test_execution(chec
     assert test["name"] == "test_example" and test["run"] is None and test["evidence"] is None
     assert catalog["acceptance_verified"] is False and catalog["grants_authority"] is False
     assert catalog["task"]["capabilities"][0]["work_packages"] == ["WP-02"]
+    trace = catalog["source_traceability"]
+    assert trace["missing_test_paths"] == ["tests/test_missing.py"]
+    assert trace["release_chain_complete"] is False
     assert subject.build_architecture_catalog(checkout) == catalog
 
 
@@ -187,6 +193,7 @@ def test_persisted_readback_is_source_bound_and_never_runtime_acceptance(checkou
         "architecture.html",
         "architecture.mmd",
         "architecture.zip",
+        "traceability.json",
     ],
 )
 def test_persisted_readback_rejects_every_changed_or_rehashed_bundle_member(

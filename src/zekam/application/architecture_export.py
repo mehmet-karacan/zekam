@@ -19,6 +19,10 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 from zekam.application.active_task_contract import ActiveTaskContract
+from zekam.application.architecture_traceability import (
+    build_source_traceability,
+    task_package_scopes,
+)
 from zekam.application.bounded_file import read_bounded_bytes
 from zekam.domain.canonical import canonical_bytes, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -117,6 +121,9 @@ def _task_records(raw: bytes) -> dict:
         not item["work_packages"] or set(item["work_packages"]) - parents for item in capabilities
     ):
         raise ValidationFailed("Architecture CAP references unknown Work Package")
+    scopes = task_package_scopes(text)
+    if {scope["id"] for scope in scopes} - parents:
+        raise ValidationFailed("Architecture package scope has no task work items")
     return {
         "task_id": task.task_id,
         "source_digest": digest_of_bytes(raw),
@@ -124,6 +131,7 @@ def _task_records(raw: bytes) -> dict:
         "capabilities": capabilities,
         "work_packages": packages,
         "decision_gates": decisions,
+        "package_scopes": scopes,
     }
 
 
@@ -290,6 +298,7 @@ def build_architecture_catalog(root: Path) -> dict:
         ],
         "task": task,
         "sources": sources,
+        "source_traceability": build_source_traceability(task, sources),
         "limitations": [
             "source-declarations-only",
             "not-runtime-schema-or-interface-discovery",
@@ -320,7 +329,7 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
         "",
         "Source declarations only. Tests NOT RUN; acceptance unverified.",
         "",
-        "[Canonical input](catalog.json) | [Diagram](architecture.mmd)",
+        "[Canonical input](catalog.json) | [Diagram](architecture.mmd) | [Source traceability](traceability.json)",
         "",
     ]
     sections = []
@@ -357,7 +366,7 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
     )
     page = (
         '<!doctype html><html lang="en"><meta charset="utf-8"><title>Zekam source architecture</title><body><h1>Zekam source architecture</h1><p>Source declarations only. Tests NOT RUN; acceptance unverified.</p>'
-        + f'<p>{catalog["catalog_digest"]}</p><a href="catalog.json">Canonical input</a> | <a href="architecture.mmd">Diagram</a>'
+        + f'<p>{catalog["catalog_digest"]}</p><a href="catalog.json">Canonical input</a> | <a href="architecture.mmd">Diagram</a> | <a href="traceability.json">Source traceability</a>'
         + "".join(sections + source_rows)
         + "</body></html>"
     )
@@ -366,6 +375,7 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
         "architecture.md": ("\n".join(lines) + "\n").encode("utf-8"),
         "architecture.html": page.encode("utf-8"),
         "architecture.mmd": diagram.encode("utf-8"),
+        "traceability.json": canonical_bytes(catalog["source_traceability"]) + b"\n",
     }
     manifest = {
         "schema": "zekam-architecture-export-manifest/v1",

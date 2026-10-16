@@ -2024,6 +2024,15 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
 - [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
 - [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
 
+  16 Ekim 2026 kaynak traceability: current WP Girdi/kapsam REQ/CAP kimlikleri
+  ve explicit test path referanslari task satirina, tracked source hash'ine ve
+  AST test declarations'a baglandi. Missing path/unmapped REQ/test-ref olmayan
+  WP gorunur kalir; benzer ad veya historical passed metni esleme/kanit olmaz.
+  Canonical catalog/traceability.json/manifest/ZIP ve disk readback ayni kaynagi
+  kullanir. Run/evidence/execution commit null, release_chain_complete false.
+  Regresyon kaynaklari hazir; test/generator/verify CALISTIRILMADI. Final suite,
+  native kabul ve bagimsiz review/gercek receipt baglari aciktir.
+
 **Üretilen sözleşme/çıktı:** `completion-report.md/json`, güncel mimari referans ve aynı `AKTIF_GOREV.md`, test raw results ve scoped commit listesi; gerçek push yok.
 
 **Kabul ve negatif testler:** Testler: clean package, full regression, supported native entry/E2E, fixture/live ayrımı, restore + resume + doc/graph consistency; mandatory unresolved gap varsa incomplete/blocked final.

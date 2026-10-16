@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-12.06 source traceability: explicit current WP input scope REQ/CAP -> WP ve declared test path -> tracked hash/AST declaration bagi eklendi. Exact authority satiri, missing/unmapped kaynaklar ve null run/evidence/execution commit korunur; free prose/historical passed kabul olmaz. Canonical catalog + traceability.json + manifest/ZIP/readback ayni graph'i tasir. Regresyon kaynaklari hazir, test/generator/verify CALISTIRILMADI; gercek release chain/receipt/native/independent review kapilari acik.
+
 - Gorev 6 WP-12.04 disk readback: export writer captured canonical bytes'e karsi persisted dosyalari yeniden okur; --verify guncel source catalog'dan exact dosya/hash/ZIP eslestirir. Imported manifest path yetkisi vermez; bounded missing/extra/link/tamper ve stale source reddi eklendi, unzip yoktur. Readback runtime/acceptance authority degildir. Regresyon kaynaklari hazir, test/generator/verify CALISTIRILMADI; genel WP kabul acik.
 
 - Gorev 6 WP-12.04/05 kaynak mimarisi: bounded tracked source catalog, current REQ/CAP/WP/D kayitlari, AST interface/literal table/test declarations, wheel exclusion ve source hashes tek girdiye baglandi. Historical appendix authority olmaz; source/HEAD readback, no-import ve new external target siniri korunur. Yerel Markdown/escaped HTML/Mermaid/manifest/deterministic ZIP ureticisi ve regresyon kaynaklari eklendi. Test/generator CALISTIRILMADI; runtime/full/native/release kabul acik. docs/KANONIK_MIMARI_EXPORT.md.
