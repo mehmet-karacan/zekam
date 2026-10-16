@@ -51,6 +51,7 @@ from zekam.application.knowledge_index import KnowledgeIndexRecord
 from zekam.application.reference_corpus import (
     REFERENCE_PATH_PREFIX,
     REFERENCE_PARSER,
+    ReferenceCorpus,
     collect_reference_corpus,
 )
 from zekam.application.local_embedding_composition import (
@@ -2240,17 +2241,39 @@ def _rag_pending_path(state_path: Path) -> Path:
     return state_path.with_name(f"{state_path.name}.pending.json")
 
 
+def _query_reference_corpus(home: Path, project_id: str, project_slug: str) -> ReferenceCorpus:
+    """Read the optional canonical reference corpus without breaking legacy homes.
+
+    Older local RAG homes can have a valid repository index before the
+    operational reference store exists.  Such a home has no imported
+    references to expose; keep the query repository-only until the canonical
+    store is initialized.  If a state pins a non-empty snapshot, callers still
+    surface the missing store as stale rather than inventing citations.
+    """
+
+    database = home / "state" / "operational.db"
+    if not database.exists():
+        return ReferenceCorpus(project_id, ())
+    return collect_reference_corpus(home, project_id, project_slug)
+
+
 def _validate_rag_state_source_identity(
     project_id: str, state: dict[str, Any], *, label: str
 ) -> None:
     """Validate a present state source identity without breaking legacy state reads."""
 
-    binding_keys = ("source_revision", "tree_digest", "source_identity_digest")
-    if not any(key in state for key in binding_keys):
+    binding_keys = ("source_revision", "tree_digest")
+    if not any(key in state for key in (*binding_keys, "source_identity_digest")):
         return
     if not all(isinstance(state.get(key), str) for key in binding_keys):
         raise PolicyViolation(f"Project RAG {label} source identity eksik")
-    if state["source_identity_digest"] != source_identity_digest(
+    identity = state.get("source_identity_digest")
+    # Older state files carried the two source fingerprints but not their
+    # derived binding digest.  They remain readable; new publications still
+    # require and persist the explicit identity in the pending contract.
+    if identity is None:
+        return
+    if not isinstance(identity, str) or identity != source_identity_digest(
         project_id, state["source_revision"], state["tree_digest"]
     ):
         raise PolicyViolation(f"Project RAG {label} source identity drift")
@@ -3583,7 +3606,7 @@ def _query(
         raise PolicyViolation("Project RAG state project binding drift")
     _validate_rag_state_source_identity(str(project_id), state, label="query state")
     stale_reasons: list[str] = []
-    references = collect_reference_corpus(home, str(project_id), project_slug)
+    references = _query_reference_corpus(home, str(project_id), project_slug)
     if state.get("reference_snapshot_digest") != references.snapshot_digest and (
         references.notes or state.get("reference_snapshot_digest") is not None
     ):
@@ -3685,7 +3708,7 @@ def _query(
             dense_disabled_reason=dense_disabled_reason,
         )
     stale_reasons = list(dict.fromkeys([*result.get("stale_reasons", ()), *stale_reasons]))
-    current_references = collect_reference_corpus(home, str(project_id), project_slug)
+    current_references = _query_reference_corpus(home, str(project_id), project_slug)
     if current_references.snapshot_digest != references.snapshot_digest:
         stale_reasons.append("reference-corpus-changed-during-query")
     for citation in result.get("citations", ()):

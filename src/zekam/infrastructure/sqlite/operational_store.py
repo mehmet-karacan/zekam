@@ -988,15 +988,10 @@ class SQLiteOperationalUnitOfWork:
             )
         except sqlite3.IntegrityError as exc:
             raise ValidationFailed("Run constraint ihlali") from exc
-        return RunRecord(
-            run_id,
-            work_item_id,
-            "planned",
-            plan_digest,
-            None,
-            source_snapshot_id,
-            config_revision_id,
-        )
+        # Read the joined source/config fingerprints through the same
+        # projection used after a restart.  A freshly created Run must be
+        # equal to its durable readback, including its canonical bindings.
+        return self.get_run(run_id)
 
     def transition_run(
         self,

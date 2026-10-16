@@ -136,6 +136,9 @@ def test_pending_state_recovers_after_db_cas_before_file_write(
         "generation_digest": new_digest,
         "source_revision": source_revision,
         "tree_digest": tree_digest,
+        "source_identity_digest": runtime.source_identity_digest(
+            project_id, source_revision, tree_digest
+        ),
     }
     with pytest.raises(OSError, match="simulated crash"):
         runtime._publish_rag_state_pending(
@@ -1526,11 +1529,17 @@ def test_project_status_does_not_require_private_home_when_scope_is_private(
     state.write_text(
         json.dumps(
             {
+                "project_id": "project-1",
                 "generation_digest": "sha256:generation",
-                "embedding_profile_id": "bge-m3-dense-v1",
-                "embedding_route": "remote",
+                "embedding_profile_id": "multilingual-e5-small-dense-v1",
+                "embedding_route": EmbeddingRoute.LOCAL.value,
                 "knowledge_binding_digest": runtime._knowledge_binding_digest(
-                    KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+                    KnowledgeSettings(
+                        embedding_profile_id="multilingual-e5-small-dense-v1",
+                        embedding_route=EmbeddingRoute.LOCAL,
+                        embedding_model_ref="intfloat/multilingual-e5-small",
+                        embedding_dimension=384,
+                    )
                 ),
             }
         ),
@@ -1579,7 +1588,10 @@ def test_legacy_index_without_canonical_route_requires_rebuild(
     state.parent.mkdir(parents=True)
     index.parent.mkdir()
     manifest_root.mkdir()
-    state.write_text(json.dumps({"generation_digest": "sha256:generation"}), encoding="utf-8")
+    state.write_text(
+        json.dumps({"project_id": "project-1", "generation_digest": "sha256:generation"}),
+        encoding="utf-8",
+    )
     index.write_bytes(b"")
     paths = {
         "home": tmp_path,
@@ -1707,7 +1719,7 @@ def test_runtime_paths_skips_rehardening_when_acl_already_private(
     assert restricted == []
     assert paths["project_root"] == project_root
     assert paths["index_root"] == (
-        tmp_path / "knowledge-index" / "vector" / "opencode-bge-m3" / "slug"
+        tmp_path / "knowledge-index" / "vector" / "multilingual-e5-small-onnx-int8" / "slug"
     )
     assert paths["manifest_root"] == tmp_path / "knowledge-index" / "manifests" / "slug"
 
