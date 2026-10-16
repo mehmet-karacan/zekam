@@ -11,6 +11,9 @@ Native usage dilimi host step_finish token component/estimated USD olcumunu
 optional CAS artifact'e bagladi; tournament historical/new selector ayridir.
 Ayrinti: `docs/OPENCODE_NATIVE_USAGE.md`. Testler CALISTIRILMADI. Billed cost,
 provider request/hard-cap ve gercek native kabul kapilari halen aciktir.
+Salt okunur trial-aggregate --native-usage raporu exact receipt/source zincirinden
+model/baseline/candidate coverage ve complete totals uretir; frozen aggregate
+digest'i degismez, partial/legacy total null kalir. Testler CALISTIRILMADI.
 Siradaki denetim: plandaki diger acik WP gelistirmeleri ve native kabul baglari.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu
 uretilmedi. Hedef araci paused gorunuyor; API resume desteklemiyor, yeni hedef

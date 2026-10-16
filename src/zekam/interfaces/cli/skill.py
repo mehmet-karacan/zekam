@@ -68,6 +68,7 @@ from zekam.application.skill_native_projection import (
 )
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
 from zekam.application.skill_trial_aggregation import aggregate_skill_trials
+from zekam.application.skill_trial_usage import read_skill_trial_usage
 from zekam.application.tournament_runtime import (
     build_tournament_plan,
     read_tournament,
@@ -1441,6 +1442,7 @@ def trial_aggregate_command(
     case_file: Annotated[list[Path], typer.Option("--case-file")],
     project: Annotated[str, typer.Option("--project")] = "zekam",
     home: Annotated[str | None, typer.Option("--home")] = None,
+    native_usage: Annotated[bool, typer.Option("--native-usage")] = False,
 ) -> None:
     """Read actual scoped terminal trials and regrade their output artifacts."""
     try:
@@ -1451,8 +1453,9 @@ def trial_aggregate_command(
             registered = uow.resolve_project(scopes[0][1])
         if not 1 <= len(trial) <= 100 or not 1 <= len(case_file) <= 100:
             raise PolicyViolation("Skill aggregate bounded trial/case list required")
+        reader = read_skill_trial_usage if native_usage else aggregate_skill_trials
         _emit(
-            aggregate_skill_trials(
+            reader(
                 resolved_home,
                 references=tuple(trial),
                 cases=tuple(load_trial_case(path) for path in case_file),

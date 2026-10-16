@@ -23,6 +23,7 @@ def batch(world, tmp_path, monkeypatch):
     root, package, base_case, _plan = _inputs(tmp_path, world.binding.project_id)
     calls = []
     reuse_sessions = [False]
+    metering = {"enabled": False, "partial": False}
     monkeypatch.setattr(native, "resolve_opencode_executable", lambda value: Path(value))
 
     def transport(spec, *, cwd, stdin=None, cancel=None):
@@ -35,6 +36,13 @@ def batch(world, tmp_path, monkeypatch):
         if answer == "process-failure":
             return _output(spec, b"", exit_code=1)
         events = _events({"result": {}, "body": {"output": answer}})
+        if metering["enabled"]:
+            events[-1]["part"].update(
+                cost=0.1,
+                tokens={"input": 10, "output": 2, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            )
+            if metering["partial"]:
+                events[-1]["part"]["tokens"].pop("reasoning")
         for event in events:
             number = (len(calls) - 1) % 2 + 1 if reuse_sessions[0] else len(calls)
             event["sessionID"] = event["part"]["sessionID"] = f"ses_unique_{number}"
@@ -73,6 +81,7 @@ def batch(world, tmp_path, monkeypatch):
         )
 
     execute.package_digest = package.package_digest
+    execute.metering = metering
 
     def aggregate(results, cases=None, project_id=None):
         return subject.aggregate_skill_trials(

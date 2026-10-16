@@ -42,6 +42,23 @@ Bu olcum token/cost hard-cap veya tum session/account maliyeti degildir. Title,
 compaction, failed/timeout process ve provider billing kapsami dogrulanmamistir.
 Unmetered authorization ve gercek native/quality kabul kapilari devam eder.
 
+## Salt okunur trial kullanim raporu
+
+`skill trial-aggregate --native-usage` mevcut bounded trial/case/project/revision
+secimini kullanir. Once tum canonical receipts/assignments/artifacts ve local
+grade yeniden dogrulanir; serbest aggregate JSON veya artifact digest listesi
+kaynak kabul edilmez. Yeni provider/model cagrisi veya ledger yazmasi yapmaz.
+
+Sonuc `aggregate` ve ayri digest-bound `native_usage_report` tasir. Mevcut frozen
+aggregate'nin icerigi/digest'i degismez; eski audit/tournament pin'leri korunur.
+Her baseline/candidate icin dispatch sayisi, olculen artifact/complete token/cost
+sayisi ve eksik sayilar vardir. Toplam yalniz secilen trial dispatch'lerine aittir;
+tum hesap/ledger toplami diye sunulmaz. Tek eksik/partial gozlem varsa ilgili total
+null'dir; bilinen alt kumeyi tam total gibi gostermez. Cost micros sum, her native
+estimate icin konservatif yuvarlanan micros degerlerinin toplamidir, fatura degildir.
+Report'taki new_provider_calls=0 yalniz salt okunur rapor isleminin yeni cagrilaridir;
+historical provider request sayisi unknown kalir.
+
 ## Regresyon kaynaklari
 
 Legacy, partial, zero, iki step coverage, conservative decimal rounding, invalid

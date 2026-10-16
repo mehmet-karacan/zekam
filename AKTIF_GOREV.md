@@ -1927,6 +1927,14 @@ toplamlari ayni snapshot'ta eslesir. Son 100 evaluation ornegi tum ledger toplam
 karistirilmaz; coverage ve bilinmeyen metrikler gorunur, strict JSON/hash korunur.
 Regresyon kaynaklari hazir, CALISTIRILMADI. Native kabul ve WP kapanisi aciktir.
 
+**16 Ekim 2026 - receipt-backed trial native kullanim raporu, test bekliyor:**
+Trial aggregate'nin optional native-usage raporu exact canonical source zincirini
+yeniden okur; eski aggregate/digest degismez. Model ve baseline/candidate bazinda
+selected sample, olculen/eksik coverage ve complete token/host estimate total
+gosterilir. Eksik tek gozlem ilgili total'i null yapar; tum hesap/ledger veya
+billed cost iddiasi yoktur. Yeni cagri/yazma yapmaz. Regresyon kaynaklari hazir,
+CALISTIRILMADI; gercek host ve genel WP kabulleri aciktir.
+
 **16 Ekim 2026 - evolution control butunlugu, test bekliyor:** Status ve writer
 ayni bounded retained-chain okuyucusunu kullanir; strict JSON/body/hash/kolon,
 ordinal ve predecessor bagi dogrulanir. Historical resume/enable evidence
