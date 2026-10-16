@@ -410,8 +410,13 @@ def _validate_bundle_sqlite(relative: str, path: Path) -> None:
         raise PolicyViolation("Backup SQLite path contract invalid")
     if _regular(path).st_size > MAX_DATABASE_BYTES:
         raise PolicyViolation("Backup project SQLite exceeds bound")
-    with sqlite3.connect(
-        f"{path.resolve(strict=True).as_uri()}?mode=ro&immutable=1", uri=True, timeout=5
+    # ``sqlite3.Connection`` as a context manager commits or rolls back but
+    # does not close the handle.  On Windows an open read handle prevents the
+    # staging directory from being atomically renamed at publication time.
+    with closing(
+        sqlite3.connect(
+            f"{path.resolve(strict=True).as_uri()}?mode=ro&immutable=1", uri=True, timeout=5
+        )
     ) as db:
         db.execute("pragma query_only=on")
         _load_backup_sqlite_extension(relative, db)
