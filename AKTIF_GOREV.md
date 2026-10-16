@@ -2109,6 +2109,14 @@ toplamlari ayni snapshot'ta eslesir. Son 100 evaluation ornegi tum ledger toplam
 karistirilmaz; coverage ve bilinmeyen metrikler gorunur, strict JSON/hash korunur.
 Regresyon kaynaklari hazir, CALISTIRILMADI. Native kabul ve WP kapanisi aciktir.
 
+**17 Ekim 2026 - Work/Run kullanim projection'i kaynak uygulamasi:** Immutable
+analytics segmentlerinden exact Work veya Run referansina gore bounded provider,
+model, token, sure ve maliyet olcumleri salt okunur rapora baglandi. Olcum yoksa
+metrikler `null` ve durum `unknown`, eksik alanli gercek olaylar `partial`, tum
+alanlari bulunan taze pencere `observed` kalir; butce veya gecen duvar saati
+olcum yerine gecmez. Project ve all-projects toplamlari ayni kullanim semasi ile
+birlesir; source digest/event sinirlari korunur. Testler final asamasina ertelendi.
+
 **16 Ekim 2026 - receipt-backed trial native kullanim raporu, test bekliyor:**
 Trial aggregate'nin optional native-usage raporu exact canonical source zincirini
 yeniden okur; eski aggregate/digest degismez. Model ve baseline/candidate bazinda
