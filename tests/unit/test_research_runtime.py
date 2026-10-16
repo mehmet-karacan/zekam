@@ -117,6 +117,7 @@ def _runtime(tmp_path: Path, monkeypatch):  # type: ignore[no-untyped-def]
             "query_ready": False,
             "generation_digest": generation,
             "source_revision": revision,
+            "tree_digest": digest("tree"),
         },
     )
     monkeypatch.setattr(
@@ -913,10 +914,11 @@ def test_research_run_rejects_live_source_revision_drift(
             "state": "ready",
             "generation_digest": digest("generation"),
             "source_revision": digest("live-drift"),
+            "tree_digest": digest("tree"),
         },
     )
 
-    with pytest.raises(PolicyViolation, match="stale arastirma sorusu"):
+    with pytest.raises(PolicyViolation, match="source identity drift"):
         run_research(
             store,
             home,

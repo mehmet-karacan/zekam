@@ -40,7 +40,7 @@ def test_windows_separator_and_secondary_alias(tmp_path, monkeypatch):
     [
         "arbitrary script",
         "node_modules/opencode-ai/bin/opencode node_modules/@opencode/cli/bin/opencode",
-        "x" * 65537,
+        pytest.param("x" * 65537, id="oversized-wrapper"),
     ],
 )
 def test_unknown_ambiguous_or_large_wrapper_rejected(tmp_path, monkeypatch, text):

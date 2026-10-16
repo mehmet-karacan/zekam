@@ -260,7 +260,7 @@ def build_radar_plan(
         try:
             repo = RadarCampaignRepository(home / "state" / "radar-campaigns.db", read_only=True)
         except NotFound:
-            raise PolicyViolation("Analyse plan needs-discovery: Radar store bulunamadi") from None
+            raise PolicyViolation("Analyse plan stale: Radar store bulunamadi") from None
         inventory = repo.get_inventory_by_digest(inventory_digest)
         if inventory is None:
             raise PolicyViolation("Analyse plan stale: inventory_digest bulunamadi")
