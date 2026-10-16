@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-04/WP-06.01: ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.
+
 - Gorev 4 WP-06.01: Smart XML tek-kayit indekslerinde ayni sinif/kimlige ait celisen allowlist kayitlari lineage oncesinde reddedilir; celisen tekrar Field de reddedilir. Ozdes kayit ve composite relation parent tekrarlarini engellemez. Chunk profile sanitizer v2 ile eslendi. Regresyon kaynaklari hazir, CALISTIRILMADI; native/WP kabulu acik.
 
 - Gorev 4 WP-04/WP-06.01: Smart XML DTD/entity guard, XML veri cikarimi ve SHA256 ayni bounded descriptor akisina baglandi. 128 MiB byte, 1 milyon element, 256 derinlik ve 200 bin object siniri; biten node detach ve kaynak identity/size/mtime readback eklendi. Sanitizer v2/xml_profile plan ve manifestte; yalniz Field allowlist korunur, final kaynak hash tekrar okunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek ODI/native kabul ve WP kapanisi acik. Ayrinti docs/ODI_SMART_XML_AKISI.md.

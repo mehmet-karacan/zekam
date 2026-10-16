@@ -95,10 +95,14 @@ def _regular_directory(path: Path) -> Path:
 def _bundle_files(root: Path) -> list[Path]:
     pending = [root]
     files: list[Path] = []
+    discovered = 0
     while pending:
         parent = pending.pop()
         with os.scandir(parent) as entries:
             for entry in entries:
+                discovered += 1
+                if discovered > _MAX_FILES:
+                    raise ValidationFailed("ODI export dosya/dizin sinirini asiyor")
                 info = entry.stat(follow_symlinks=False)
                 attributes = int(getattr(info, "st_file_attributes", 0))
                 if (
@@ -114,8 +118,6 @@ def _bundle_files(root: Path) -> list[Path]:
                     files.append(path)
                 else:
                     raise PolicyViolation("ODI export yalniz regular file/directory tasiyabilir")
-                if len(files) + len(pending) > _MAX_FILES:
-                    raise ValidationFailed("ODI export dosya/dizin sinirini asiyor")
     return sorted(files, key=lambda item: item.relative_to(root).as_posix().casefold())
 
 
