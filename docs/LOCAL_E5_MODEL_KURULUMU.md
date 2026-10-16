@@ -52,7 +52,8 @@ E5 icin batch limiti akista 4'e indirilir. Eski BGE production indeksi yeni E5
 akisina otomatik tasinmaz veya okunmaz. Varsa yalniz exact plan ile
 `zekam project purge-legacy-index --json` komutundan alinan digest ve `--uygula`
 ile `knowledge-index/vector/opencode-bge-m3/<proje>/` altindan silinir; E5
-dizinine dokunulmaz.
+dizinine dokunulmaz. Proje RAG ve continuity yollari eski BGE ayarini veya
+indeksini artik okumaz; yerel E5 profili disinda bir ayar fail-closed reddedilir.
 
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
 aktif production index bulunmadi. Bu nedenle ilgisiz SQLite veritabanlarina

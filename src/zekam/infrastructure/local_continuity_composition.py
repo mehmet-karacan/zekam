@@ -80,16 +80,23 @@ class LocalContinuityArguments:
 
 
 def _index_dimension(home: Path, index_path: Path) -> int:
-    """Resolve the vector width from the canonical index path or home config."""
+    """Resolve the local E5 vector width and reject retired BGE indexes."""
 
-    model_dirs = {
-        "opencode-bge-m3": 1024,
-        "multilingual-e5-small-onnx-int8": 384,
-    }
+    model_dirs = {"multilingual-e5-small-onnx-int8": 384}
     for part in reversed(index_path.parts):
         if part in model_dirs:
             return model_dirs[part]
-    return load_settings(home=home).knowledge.embedding_dimension
+        if part == "opencode-bge-m3":
+            raise PolicyViolation("Legacy BGE continuity index is retired")
+    knowledge = load_settings(home=home).knowledge
+    if (
+        knowledge.embedding_profile_id != "multilingual-e5-small-dense-v1"
+        or knowledge.embedding_model_ref != "intfloat/multilingual-e5-small"
+        or knowledge.embedding_dimension != 384
+        or knowledge.embedding_distance != "cosine"
+    ):
+        raise PolicyViolation("Local continuity requires the local E5 embedding profile")
+    return knowledge.embedding_dimension
 
 
 def _report(operation: str, **body: Any) -> dict[str, Any]:

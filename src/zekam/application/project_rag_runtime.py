@@ -3,9 +3,10 @@
 The source project is never mutated. Discovery excludes ignored, binary, oversized,
 unsafe and secret-bearing files. Remote disclosure requires an explicit CLI flag;
 vectors are cached durably under ``ZEKAM_HOME`` so an interrupted indexing run
-resumes by exact chunk, content and provider-profile identity. The default route is
-the pinned local multilingual-e5-small ONNX CPU provider; the legacy BGE route
-remains available only when explicitly configured. Connection secrets remain
+resumes by exact chunk, content and provider-profile identity. The route is pinned
+to the local multilingual-e5-small ONNX CPU provider. Legacy BGE indexes and
+configuration are rejected by the project RAG path and must be removed through
+the exact cleanup plan before indexing. Connection secrets remain
 process-memory-only and are never persisted or embedded.
 """
 
@@ -1221,12 +1222,21 @@ def _existing_runtime_paths(home: Path, project_slug: str) -> dict[str, Path]:
 
 
 def _index_model_dir(home: Path) -> str:
-    """Keep legacy BGE indexes addressable while isolating the local E5 index."""
+    """Resolve the sole production RAG index directory: local E5."""
 
     knowledge = load_settings(home=home).knowledge
-    if knowledge.embedding_model_ref == LOCAL_MODEL_ID:
-        return "multilingual-e5-small-onnx-int8"
-    return "opencode-bge-m3"
+    if (
+        knowledge.embedding_profile_id != "multilingual-e5-small-dense-v1"
+        or knowledge.embedding_route is not EmbeddingRoute.LOCAL
+        or knowledge.embedding_model_ref != LOCAL_MODEL_ID
+        or knowledge.embedding_dimension != LOCAL_VECTOR_DIMENSION
+        or knowledge.embedding_distance != "cosine"
+    ):
+        raise ConfigurationError(
+            "Project RAG yalniz yerel multilingual-e5-small profiliyle calisir; "
+            "legacy BGE ayari reddedildi"
+        )
+    return "multilingual-e5-small-onnx-int8"
 
 
 def _index_dimension(home: Path) -> int:
