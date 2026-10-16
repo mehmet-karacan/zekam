@@ -27,7 +27,7 @@ import json
 import math
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from zekam.application.object_store import ObjectStore
@@ -143,6 +143,7 @@ class UnitTestLoopService:
     plateau_policy: PlateauPolicy = field(default_factory=PlateauPolicy)
     clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC)
     monotonic: Callable[[], float] = time.monotonic
+    artifact_registrar: Callable[[str, int, str], None] | None = None
 
     def run(
         self,
@@ -215,7 +216,13 @@ class _Session:
         return len(self.s.ledger.list_attempts(self.rd))
 
     def _put(self, payload: Mapping[str, Any], media_type: str = "application/json") -> str:
-        return self.s.objects.put(canonical_bytes(payload), media_type=media_type).digest
+        return self._put_bytes(canonical_bytes(payload), media_type=media_type)
+
+    def _put_bytes(self, payload: bytes, *, media_type: str) -> str:
+        info = self.s.objects.put(payload, media_type=media_type)
+        if self.s.artifact_registrar is not None:
+            self.s.artifact_registrar(info.digest, info.size_bytes, media_type)
+        return info.digest
 
     def _outcome(self, terminal: UnitTestTerminal, detail: tuple[str, ...]) -> LoopOutcome:
         state = self.state
@@ -473,6 +480,7 @@ class _Session:
             state.board = state.board.reset_verified(state.plan)
         state.accepted_observations = {}
         state.accepted_measurement_digest = None
+        state.accepted_measurement_evidence_digest = None
         state.needs_rebaseline = True
 
     def _plateau_step(self) -> None:
@@ -596,6 +604,38 @@ class _Session:
         self.state.meter.process_runs += 1
         self.state.meter.output_bytes += run.output_bytes
         self._tick()
+        if run.record is not None:
+            record = run.record
+            if self._put(record.to_payload()) != record.record_digest:
+                raise PolicyViolation("Measurement record CAS identity drift")
+            binding_digest = None
+            if record.binding is not None:
+                binding_digest = self._put(record.binding.to_payload())
+                if binding_digest != record.binding.binding_digest:
+                    raise PolicyViolation("Measurement binding CAS identity drift")
+            facts_digest = None
+            if run.report_facts is not None:
+                from zekam.infrastructure.unit_test_runner.report_facts import validate_report_facts
+
+                validate_report_facts(
+                    run.report_facts,
+                    record=record.to_payload(),
+                    binding=record.binding.to_payload(),
+                )
+                facts_digest = self._put(run.report_facts)
+            evidence_digest = self._put(
+                {
+                    "contract": "zekam-unit-test-loop-measurement-evidence/v1",
+                    "request_digest": self.rd,
+                    "attempt_id": attempt.attempt_id,
+                    "measurement_record_digest": record.record_digest,
+                    "measurement_binding_digest": binding_digest,
+                    "report_facts_digest": facts_digest,
+                    "report_facts_state": run.report_facts_state,
+                    "grants_authority": False,
+                }
+            )
+            run = replace(run, measurement_evidence_digest=evidence_digest)
         return run
 
     def _current_for(
@@ -644,7 +684,11 @@ class _Session:
                 run.blocked_details,
             )
         record = run.record
-        base_evidence = {"kind": kind, "measurement_digest": record.record_digest}
+        base_evidence = {
+            "kind": kind,
+            "measurement_digest": record.record_digest,
+            "measurement_evidence_digest": run.measurement_evidence_digest,
+        }
         if record.status in {MeasurementStatus.ACCEPTED, MeasurementStatus.NO_TESTS_BASELINE}:
             if record.binding is not None:
                 verdict = self._current_for(observation, record, manifest.candidate_digest)
@@ -667,6 +711,7 @@ class _Session:
                 if o.covered is not None and o.total is not None
             }
             state.accepted_measurement_digest = record.record_digest
+            state.accepted_measurement_evidence_digest = run.measurement_evidence_digest
             state.accepted_candidate_digest = manifest.candidate_digest
             state.accepted_plan_digest = state.plan.plan_digest if state.plan else None
             evaluation = record.evaluation
@@ -979,8 +1024,8 @@ class _Session:
                 data = existing.get(change.path)
                 if data is None or digest_of_bytes(data) != change.preimage_digest:
                     raise PreimageMismatch(change.path)
-                self.s.objects.put(data, media_type="text/plain")
-            self.s.objects.put(change.content_bytes, media_type="text/plain")
+                self._put_bytes(data, media_type="text/plain")
+            self._put_bytes(change.content_bytes, media_type="text/plain")
         stored = self._put(manifest.to_payload())
         if stored != manifest.candidate_digest:
             raise ValidationFailed("Aday manifest digest'i nesne deposuyla uyusmuyor")
@@ -1144,6 +1189,7 @@ class _Session:
                 run.blocked_reason or UnitTestStopReason.ENVIRONMENT_MISSING, run.blocked_details
             )
         base["measurement_digest"] = record.record_digest
+        base["measurement_evidence_digest"] = run.measurement_evidence_digest
         if (
             record.status is MeasurementStatus.RUN_INCOMPLETE
             or record.status is MeasurementStatus.TOOL_MISSING
@@ -1672,6 +1718,7 @@ class _Session:
         state.accepted_observations = new_obs
         state.accepted_measurement_digest = record.record_digest
         state.accepted_candidate_digest = manifest.candidate_digest
+        state.accepted_measurement_evidence_digest = base.get("measurement_evidence_digest")
         if state.last_builder_execution_digest is None:
             state.builder_provenance_complete = False
         elif state.last_builder_execution_digest not in state.accepted_builder_execution_digests:
@@ -1811,5 +1858,6 @@ class _Session:
                 "builder_provenance_complete": state.builder_provenance_complete,
                 "measurement_digest": record.record_digest,
                 "freshness": "re-verified-from-disk-before-terminal",
+                "measurement_evidence_digest": state.accepted_measurement_evidence_digest,
             },
         )

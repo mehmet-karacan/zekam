@@ -1128,6 +1128,23 @@ def _evidence_summary(
     return summary
 
 
+@app.command("verifier-source")
+def verifier_source_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Completed test.run terminal/attempt/measurement/verifier baglarini okur."""
+    from zekam.application.unit_test_verifier_source import read_verifier_source
+
+    try:
+        context = build_context(home=home)
+        document = read_verifier_source(context.home, reference)
+    except (OSError, TypeError, ValueError, KeyError, AttributeError, ZekamError) as exc:
+        _finish(gate_document("environment-missing", reasons=(str(exc),)), EXIT_RUNTIME)
+        return
+    _emit(document)
+
+
 @app.command("source-evidence")
 def source_evidence_command(
     reference: Annotated[str, typer.Argument()],

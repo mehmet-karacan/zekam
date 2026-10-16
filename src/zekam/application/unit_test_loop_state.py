@@ -107,6 +107,7 @@ class MeasuredRun:
     output_bytes: int = 0
     report_facts: dict | None = None
     report_facts_state: str = "not-captured"
+    measurement_evidence_digest: str | None = None
 
 
 class UnitTestMeasurer(Protocol):
@@ -183,6 +184,7 @@ class LoopState:
     baseline_obs: EnvironmentObservation | None = None
     accepted_observations: dict[str, tuple[int, int]] = field(default_factory=dict)
     accepted_measurement_digest: str | None = None
+    accepted_measurement_evidence_digest: str | None = None
     needs_rebaseline: bool = False
     needs_replan: bool = False
     repair_counts: dict[str, int] = field(default_factory=dict)
@@ -219,6 +221,7 @@ class LoopState:
                 [f, c, t] for f, (c, t) in self.accepted_observations.items()
             ),
             "accepted_measurement_digest": self.accepted_measurement_digest,
+            "accepted_measurement_evidence_digest": self.accepted_measurement_evidence_digest,
             "needs_rebaseline": self.needs_rebaseline,
             "needs_replan": self.needs_replan,
             "repair_counts": sorted(self.repair_counts.items()),
@@ -270,6 +273,7 @@ class LoopState:
                 str(f): (int(c), int(t)) for f, c, t in p["accepted_observations"]
             },
             accepted_measurement_digest=p["accepted_measurement_digest"],
+            accepted_measurement_evidence_digest=p.get("accepted_measurement_evidence_digest"),
             needs_rebaseline=bool(p["needs_rebaseline"]),
             needs_replan=bool(p["needs_replan"]),
             repair_counts={str(k): int(v) for k, v in p["repair_counts"]},

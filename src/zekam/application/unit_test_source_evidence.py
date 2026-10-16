@@ -158,6 +158,9 @@ def _read_native_measurement_source(home: Path, reference: str) -> tuple:
     Maven report reparse, independent quality review, signing or writes occur.
     """
     database = home / "state/operational.db"
+    settings = load_settings(home=home)
+    if settings.database.sqlite_path(home).resolve() != database.resolve():
+        raise PolicyViolation("Measurement source exact canonical operational database required")
     runtime = SQLiteLocalRuntimeStore(database, existing_only=True)
     snapshot = runtime.job_snapshot(reference)
     if snapshot is None or snapshot["state"] != "completed":
@@ -166,7 +169,7 @@ def _read_native_measurement_source(home: Path, reference: str) -> tuple:
     payload = snapshot["payload"]
     if binding is None or payload.get("operation") != "test.measure":
         raise PolicyViolation("Measurement source canonical test.measure required")
-    objects = LocalContentAddressedStore(home / load_settings(home=home).object_store_relative)
+    objects = LocalContentAddressedStore(home / settings.object_store_relative)
     terminal = _object(objects, snapshot["terminal_evidence_digest"])
     result = _completed_result(
         runtime, objects, snapshot, binding, "test.measure", payload["input_digest"]

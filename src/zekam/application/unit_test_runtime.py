@@ -332,6 +332,7 @@ def compose_unit_test_runtime(
         workspace=parts.workspace,
         environment=parts.environment,
         control=control,
+        artifact_registrar=artifact_registrar,
     )
     return UnitTestRuntime(loop=loop, objects=parts.objects, gateway=gateway)
 
@@ -1043,25 +1044,32 @@ def unit_test_job_input_digest(
     """Pin the batch model/assignment/approval contract without persisting secrets."""
 
     return digest(
-        {
-            "schema": "zekam-canonical-test-run-input/v1",
-            "allow_resume": allow_resume,
-            "request_digest": request.request_digest,
-            "maven_plan_digest": binding.approved_maven_plan_digest,
-            "realm_id": str(binding.realm_id),
-            "assignment_id": str(binding.coordinator_assignment_id),
-            "model_id": binding.model_id,
-            "verifier_model_id": binding.verifier_model_id,
-            "provider_profile_digest": None
-            if binding.provider_profile is None
-            else binding.provider_profile.profile_digest,
-            "remote_model": binding.remote_model,
-            "plan_id": str(binding.plan_id) if binding.plan_id else None,
-            "step_id": binding.step_id,
-            "approvals": asdict(approvals),
-            "limits": asdict(limits),
-        }
+        unit_test_job_input_body(request, binding, approvals, limits, allow_resume=allow_resume)
     )
+
+
+def unit_test_job_input_body(
+    request, binding, approvals, limits, *, allow_resume: bool = False
+) -> dict:
+    """Persist the same non-secret input whose digest already binds the job."""
+    return {
+        "schema": "zekam-canonical-test-run-input/v1",
+        "allow_resume": allow_resume,
+        "request_digest": request.request_digest,
+        "maven_plan_digest": binding.approved_maven_plan_digest,
+        "realm_id": str(binding.realm_id),
+        "assignment_id": str(binding.coordinator_assignment_id),
+        "model_id": binding.model_id,
+        "verifier_model_id": binding.verifier_model_id,
+        "provider_profile_digest": None
+        if binding.provider_profile is None
+        else binding.provider_profile.profile_digest,
+        "remote_model": binding.remote_model,
+        "plan_id": str(binding.plan_id) if binding.plan_id else None,
+        "step_id": binding.step_id,
+        "approvals": asdict(approvals),
+        "limits": asdict(limits),
+    }
 
 
 @dataclass(slots=True)
@@ -1150,6 +1158,9 @@ def run_unit_test_job(
         outcome = runtime.loop.run(request, approvals=approvals, limits=limits)
         return {
             "schema": "zekam-unit-test-run/v1",
+            "execution_input": unit_test_job_input_body(
+                request, binding, approvals, limits, allow_resume=allow_resume
+            ),
             "request_digest": outcome.request_digest,
             "terminal": terminal_document(outcome.terminal),
             "attempts": outcome.attempts,
