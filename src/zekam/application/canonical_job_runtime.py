@@ -154,6 +154,7 @@ def run_canonical_job(
         "skill.invocation.from-execution",
         "skill.outcome.native-verify",
         "skill.outcome.native-record",
+        "tournament.select",
     }:
         raise PolicyViolation("Canonical job operation unsupported")
     parse_digest(input_digest)

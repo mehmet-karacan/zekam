@@ -68,6 +68,11 @@ from zekam.application.skill_native_projection import (
 )
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
 from zekam.application.skill_trial_aggregation import aggregate_skill_trials
+from zekam.application.tournament_runtime import (
+    build_tournament_plan,
+    read_tournament,
+    run_tournament,
+)
 from zekam.application.unit_test_provider_profile import load_batch_provider_profile
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ZekamError
@@ -1199,6 +1204,121 @@ def execution_report_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Native skill execution kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("tournament-run")
+def tournament_run_command(
+    trial: Annotated[list[str], typer.Option("--trial")],
+    case_file: Annotated[Path, typer.Option("--case-file")],
+    model: Annotated[str, typer.Option("--model")],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    provider_profile: Annotated[Path | None, typer.Option("--provider-profile")] = None,
+    executable: Annotated[str, typer.Option("--opencode")] = "opencode",
+    timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=10, max=600)] = 180,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    authorize_remote: Annotated[bool, typer.Option("--authorize-remote")] = False,
+    authorize_unmetered: Annotated[bool, typer.Option("--authorize-unmetered-selector")] = False,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    realm_id: Annotated[str | None, typer.Option("--realm-id")] = None,
+    coordinator_id: Annotated[str | None, typer.Option("--coordinator-assignment-id")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan or run one native selection over actual receipt-bound paired trials."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        root = resolve_project_source(resolved_home, scopes[0][1])
+        binary = resolve_opencode_executable(executable)
+        profile = load_batch_provider_profile(provider_profile)
+        case = load_trial_case(case_file)
+
+        def prepare():
+            if (
+                load_batch_provider_profile(provider_profile) != profile
+                or digest(load_trial_case(case_file)) != digest(case)
+                or resolve_project_source(resolved_home, scopes[0][1]) != root
+            ):
+                raise PolicyViolation("Tournament case/profile/source changed after plan")
+            return build_tournament_plan(
+                resolved_home,
+                references=tuple(trial),
+                case=case,
+                project_id=registered.id,
+                model_id=model,
+                root=root,
+                executable=binary,
+                provider_profile=profile,
+                timeout_seconds=timeout_seconds,
+            )
+
+        plan, _context = prepare()
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if plan_digest != plan["plan_digest"] or binding is None:
+            raise PolicyViolation("Tournament exact plan digest and canonical Work required")
+        _emit(
+            run_tournament(
+                resolved_home,
+                binding=binding,
+                plan=plan,
+                case=case,
+                root=root,
+                executable=binary,
+                realm_id=UUID(realm_id or ""),
+                coordinator_id=UUID(coordinator_id or ""),
+                validate_inputs=lambda: prepare(),
+                provider_profile=profile,
+                authorize_remote=authorize_remote,
+                authorize_unmetered=authorize_unmetered,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Tournament bounded girdi/kanit okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("tournament-report")
+def tournament_report_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Reopen selection, builder sources and actual native dispatch without calls."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        _emit(read_tournament(resolved_home, reference, project_id=registered.id))
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Tournament terminal kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

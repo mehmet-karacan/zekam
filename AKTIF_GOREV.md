@@ -34,6 +34,10 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 
 ### 0.1 Güncel Kullanıcı Kararı
 
+**16 Ekim 2026 devam karari:** Kullanici 07:40 checkpoint'inden sonra yeniden
+devam et talimati verdi. Conversational duraklama kaldirildi; kaynak gelistirmesi
+suruyor. Bu karar kanonik Work/lease/receipt uretmez; testler final asamada kalir.
+
 **16 Ekim 2026 07:40 checkpoint talimati:** Kullanici bu saate kadar devam
 edilmesini, ardindan checkpoint ve duraklama istedi. Guncel devir kaydi
 `docs/CHECKPOINT_2026-10-16_0740.md` ve `MODEL_DEVIR_METNI.md` icindedir.
@@ -1817,6 +1821,16 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   passing full kalite/preference/provenance ve genel kabul kapilari aciktir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
+
+  16 Ekim 2026 canonical tournament: mevcut actual paired trial producer'inin
+  2..4 terminal source'u exact case/Work/config/source ve receipt/CAS ile yeniden
+  gradelenir. Ilerleme yoksa yeni model cagrisi yapilmaz; aksi durumda tek native
+  selector ayri canonical claim/checkpoint/receipt ile typed secim yapar. Same
+  model/config/session drift, replay ve no-promotion kapilari korunur. Request/
+  token/cost unmetered boyutlari explicit ve null kalir; ayri authorization ister.
+  Regresyon kaynaklari hazir, CALISTIRILMADI. Tek-case secim full skill/model/host
+  kabulu degildir; gercek kabul ve quantitative metering acik. Ayrinti:
+  `docs/TOURNAMENT_CANONICAL_SELECTION.md`.
 
   16 Ekim 2026 radar read siniri: status/report/candidates, analyse-plan inventory
   ve scheduler read-only handler schema kurmadan/migrate etmeden mode=ro/query_only

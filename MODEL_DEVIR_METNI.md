@@ -1,10 +1,23 @@
 # Model devir metni - 16 Ekim 2026 07:40 checkpoint
 
+## Guncel devam notu
+
+Kullanici checkpoint sonrasinda devam et dedi; kaynak gelistirmesi suruyor.
+Asagidaki 07:40 duraklama bolumu tarihsel snapshot'tir. Yeni canonical tournament
+selection dilimi actual paired sources -> local regrade/no-progress -> tek
+native selector -> canonical receipt/report yolunu ekledi. Ayrinti:
+`docs/TOURNAMENT_CANONICAL_SELECTION.md`. Testler CALISTIRILMADI.
+Siradaki denetim: quantitative token/cost/provider-request metering ve gercek
+native kabul kapilari, ardindan plandaki diger acik WP gelistirmeleri.
+Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu
+uretilmedi. Hedef araci paused gorunuyor; API resume desteklemiyor, yeni hedef
+olusturulmadi. Kullanici devam talimati kaynak gelistirmesi icin gecerlidir.
+
 Bu belge guncel WP-02..12 gorevinin conversational devir notudur. Onceki
 PostgreSQL donemi faz/test sayilari ve calisma talimatlari Git gecmisinde
 kalir; guncel kapsam veya kabul kaniti yerine kullanilmaz.
 
-## Durum
+## Tarihsel checkpoint durumu
 
 - Durum: DURAKLATILDI. Kullanici 07:40 checkpoint/duraklama istedi.
 - Son gelistirme: `70b84433b8e1902412cdd2f5049b58cc093ab24e`; origin/main

@@ -40,6 +40,10 @@
 
 ## Yurutme kaydi
 
+- 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
+
+- Gorev 5 WP-10.05 canonical tournament: actual paired trial -> fresh local grade -> no-progress stop veya tek native verifier-role selector reserved Work/claim/checkpoint/CAS receipt akisina baglandi. Exact source/config/model/session, typed karar, completed replay ve historical report eklendi; caller scores kabul edilmez. Unmetered token/cost/provider-request boyutlari null ve explicit opt-in; promotion false. Unit regresyon kaynaklari hazir, CALISTIRILMADI. Gercek host/full quality ve quantitative metering kabul kapilari acik; docs/TOURNAMENT_CANONICAL_SELECTION.md.
+
 - 16 Ekim 2026 07:40 checkpoint talimati: sekiz yeni kaynak dilimi origin/main'e push edildi, tamaminda testler CALISTIRILMADI. Devir notu docs/CHECKPOINT_2026-10-16_0740.md ve MODEL_DEVIR_METNI.md; mevcut hedef tamamlanmis sayilmaz. 07:40'ta conversational hedef duraklatilir; kullanici devam et diyene kadar yeni gelistirme baslatilmaz.
 
 - Gorev 5/6 WP-10/11 radar connection omru: 37 repository transaction yolu ortak commit/rollback + finally close context'ine baglandi. SQLite context manager'in dosya handle'ini kapatmama davranisina/GC'ye guvenilmez; read-only ve writer basari/hata yollarinda handle birakilir. Retained gercek connection regresyon kaynaklari hazir, CALISTIRILMADI. Schema/migration degismedi; genel kabul acik.
