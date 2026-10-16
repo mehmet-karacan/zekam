@@ -126,6 +126,14 @@ def test_uow_persists_project_source_work_run_step_and_checkpoint(tmp_path: Path
         assert uow.list_checkpoints(run.id) == (checkpoint,)
 
 
+def test_read_only_uow_does_not_take_write_authority(tmp_path: Path) -> None:
+    _, store = _store(tmp_path)
+    with store.read_only_unit_of_work() as uow:
+        assert uow.list_projects(include_archived=False) == ()
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            uow.create_project(slug="read-only", display_name="Read only")
+
+
 def test_run_step_dependency_cannot_cross_run_boundary(tmp_path: Path) -> None:
     _, store = _store(tmp_path)
     with store.unit_of_work() as uow:

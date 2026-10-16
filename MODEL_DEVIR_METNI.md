@@ -53,6 +53,11 @@ eklendi, testler CALISTIRILMADI.
 aynı canonical SQLite readback'ine ekliyor; dependency ozeti de exact scope'ta
 okunuyor ve salt-okunur kapsam korunuyor.
 
+Salt-okunur Work/Run CLI yollarinda SQLite read-only transaction kullaniliyor;
+provider veya Maven calisirken gereksiz `BEGIN IMMEDIATE` write lock tutulmuyor.
+Mutasyon transactionlari degismedi; unit regresyon kaynagi eklendi, testler
+CALISTIRILMADI.
+
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

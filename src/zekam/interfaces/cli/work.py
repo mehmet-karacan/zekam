@@ -41,7 +41,7 @@ def resume_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project is not None else None
             items = uow.list_work_limited(
                 limit=_RESUME_WORK_LIMIT + 1,
@@ -246,7 +246,7 @@ def list_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project else None
             allowed = {item.value for item in state or ()}
             rows = [
@@ -302,7 +302,7 @@ def show_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project is not None else None
             work = uow.resolve_work(work_item_id, project_id=project_id)
             bound_jobs = uow.list_bound_jobs_limited(
@@ -342,7 +342,7 @@ def history_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project is not None else None
             current = uow.resolve_work(work_item_id, project_id=project_id)
             events = uow.list_work_events(current.id)
@@ -371,7 +371,7 @@ def dependencies_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project is not None else None
             work = uow.resolve_work(reference, project_id=project_id)
             rows = uow.list_work_dependencies(work.id, limit=101)
@@ -614,7 +614,7 @@ def run_show_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             run = uow.get_run(run_id)
             steps = [_step_document(item) for item in uow.list_run_steps(run_id)]
             checkpoints = [_checkpoint_document(item) for item in uow.list_checkpoints(run_id)]
@@ -777,7 +777,7 @@ def run_steps_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             rows = [_step_document(item) for item in uow.list_run_steps(run_id)]
             uow.commit()
     except ZekamError as exc:
@@ -845,7 +845,7 @@ def checkpoints_command(
     try:
         store = sqlite_operational_store(home, realm)
         assert store is not None
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             uow.get_run(run_id)
             rows = [_checkpoint_document(item) for item in uow.list_checkpoints(run_id)]
             uow.commit()

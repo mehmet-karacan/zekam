@@ -1339,6 +1339,11 @@ testler CALISTIRILMADI.
 alanlariyla canonical SQLite readback'ine ekler. Ayni exact scope'ta dependency
 ozeti de okunur; salt-okunur kapsam korunur.
 
+**16 Ekim 2026 WP-07 read lock hizlandirmasi:** Salt-okunur Work/Run CLI ve
+dogal dil yollarinda SQLite read-only transaction kullanilir; gereksiz
+`BEGIN IMMEDIATE` write lock tutulmaz. Mutasyon yollarinin optimistic commit
+kapisi degismez. Unit regresyon kaynagi hazirlandi, testler CALISTIRILMADI.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

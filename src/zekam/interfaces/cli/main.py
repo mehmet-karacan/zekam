@@ -287,7 +287,7 @@ def _registered_project_refs(resolved_home: Path) -> frozenset[str]:
     """Operasyonel store'daki aktif proje slug'larini dogrulanmis set olarak dondurur."""
 
     store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
-    with store.unit_of_work() as uow:
+    with store.read_only_unit_of_work() as uow:
         refs = frozenset(project.slug for project in uow.list_projects(include_archived=False))
         uow.commit()
     return refs
@@ -525,7 +525,7 @@ def _ask_work_record(
             console.print(clarification)
         raise typer.Exit(EXIT_CLARIFICATION)
     store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
-    with store.unit_of_work() as uow:
+    with store.read_only_unit_of_work() as uow:
         document = read_work_request(uow, request, project_ref=refs[0])
     if output_json:
         _print_json(document)
@@ -586,7 +586,7 @@ def _ask_work_status(
 
     store = SQLiteOperationalStore(resolved_home / "state" / "operational.db")
     projects: list[dict[str, Any]] = []
-    with store.unit_of_work() as uow:
+    with store.read_only_unit_of_work() as uow:
         for ref in refs:
             project = uow.resolve_project(ref)
             counts = uow.work_state_counts(project_id=project.id)

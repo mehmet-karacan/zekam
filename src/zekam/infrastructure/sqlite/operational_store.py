@@ -292,27 +292,37 @@ class SQLiteOperationalStore:
     def unit_of_work(self) -> SQLiteOperationalUnitOfWork:
         return SQLiteOperationalUnitOfWork(self._path, self._local)
 
+    def read_only_unit_of_work(self) -> SQLiteOperationalUnitOfWork:
+        """Open a bounded read transaction without taking SQLite's write lock."""
+        return SQLiteOperationalUnitOfWork(self._path, self._local, read_only=True)
+
 
 class SQLiteOperationalUnitOfWork:
     """One explicit BEGIN IMMEDIATE transaction; default outcome is rollback."""
 
-    def __init__(self, path: Path, local: threading.local) -> None:
+    def __init__(self, path: Path, local: threading.local, *, read_only: bool = False) -> None:
         self._path = path
         self._local = local
+        self._read_only = read_only
         self._connection: sqlite3.Connection | None = None
         self._committed = False
 
     def __enter__(self) -> Self:
         if bool(getattr(self._local, "active", False)):
             raise ConfigurationError("Nested operational unit-of-work yasak")
-        connection = sqlite3.connect(self._path, timeout=5.0)
+        if self._read_only:
+            connection = sqlite3.connect(
+                f"{self._path.resolve().as_uri()}?mode=ro", uri=True, timeout=5.0
+            )
+        else:
+            connection = sqlite3.connect(self._path, timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("pragma foreign_keys = on")
         if connection.execute("pragma foreign_keys").fetchone()[0] != 1:
             connection.close()
             raise ConfigurationError("SQLite foreign key enforcement acilamadi")
         connection.execute("pragma busy_timeout = 5000")
-        connection.execute("begin immediate")
+        connection.execute("begin" if self._read_only else "begin immediate")
         self._connection = connection
         self._local.active = True
         return self

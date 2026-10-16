@@ -29,6 +29,10 @@ snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 - Job payload'i, owner token'i, grant'i ve ham provider/model icerigi ciktiya alinmaz.
 - Tum cikti salt okunur ve `grants_authority=false` olarak kalir.
 
+Salt-okunur Work/Run CLI okumalari SQLite read-only transaction kullanir; bu
+okumalar `BEGIN IMMEDIATE` write lock'u almaz. Mutasyon komutlari mevcut
+optimistic transaction ve commit kapisinda kalir.
+
 ## Devam baglantisi
 
 `recent_events` ve `runs` alanlari Work'in canonical event/run zincirini; Run ozetleri
