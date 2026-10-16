@@ -1723,6 +1723,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   ve mixed-condition reddi eklendi. Development/holdout ayri; bes holdout pair esigi,
   per-case regression ve basarisiz ornekler korunur. Regresyon kaynaklari hazir,
   CALISTIRILMADI. Bagimsiz verifier/reviewer ve lifecycle producer acik kalir.
+
+  16 Ekim 2026 native audit: farkli requested modelle verifier/reviewer yurutmesi,
+  canonical Work claim/receipt ve role-bound native assignment'a baglandi. Prior
+  verifier subject/receipt, provider/config/model ayrimi, session reuse ve typed
+  decision kapilari eklendi. Ret ve eksik preference kaniti kabul diye yukseltilmez.
+  Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek upstream bagimsizligi, kalite
+  evidence producer ve native invocation kabul kapilari halen acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

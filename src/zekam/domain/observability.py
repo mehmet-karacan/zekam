@@ -109,6 +109,8 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
         "skill review-record",
         "skill trial-run",
         "skill trial-aggregate",
+        "skill audit-run",
+        "skill audit-report",
         "Skill lifecycle CAS ve receipt uygular",
         mutating=True,
         requires_apply_flag=True,

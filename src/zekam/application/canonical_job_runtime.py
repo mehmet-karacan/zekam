@@ -145,6 +145,8 @@ def run_canonical_job(
         "continuity.resume",
         "git.push",
         "skill.trial",
+        "skill.audit.verify",
+        "skill.audit.review",
     }:
         raise PolicyViolation("Canonical job operation unsupported")
     parse_digest(input_digest)

@@ -34,6 +34,8 @@ RESERVED_JOB_OPERATIONS = (
     "knowledge.restore",
     "project.odi-bind",
     "skill.trial",
+    "skill.audit.verify",
+    "skill.audit.review",
 )
 _RUNTIME_KIND = re.compile(r"[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*")
 

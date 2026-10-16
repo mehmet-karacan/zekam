@@ -53,9 +53,10 @@ def test_skill_evidence_record_requires_local_effect_admission(command: str) -> 
     assert not DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(path, {"apply": False}).mutating
 
 
-def test_skill_trial_has_explicit_canonical_control_plane_admission() -> None:
+@pytest.mark.parametrize("command", ["trial-run", "audit-run"])
+def test_skill_trial_has_explicit_canonical_control_plane_admission(command: str) -> None:
     admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(
-        ("skill", "trial-run"), {"apply": True}
+        ("skill", command), {"apply": True}
     )
     assert admission.mutating
     assert admission.exemption is MutationAdmissionExemption.CONTROL_PLANE

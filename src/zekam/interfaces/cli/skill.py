@@ -29,6 +29,7 @@ from zekam.application.skill_packages import (
     projection_receipt,
 )
 from zekam.application.skill_evidence import load_skill_evidence, skill_evidence_record_plan
+from zekam.application.skill_audits import build_skill_audit_plan, read_skill_audit, run_skill_audit
 from zekam.application.skill_trials import build_skill_trial_plan, load_trial_case, run_skill_trial
 from zekam.application.skill_trial_aggregation import aggregate_skill_trials
 from zekam.application.unit_test_provider_profile import load_batch_provider_profile
@@ -789,6 +790,139 @@ def trial_aggregate_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Skill aggregate kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("audit-run")
+def audit_run_command(
+    revision_digest: Annotated[str, typer.Argument()],
+    trial: Annotated[list[str], typer.Option("--trial")],
+    case_file: Annotated[list[Path], typer.Option("--case-file")],
+    model: Annotated[str, typer.Option("--model")],
+    role: Annotated[str, typer.Option("--role")] = "verifier",
+    prior_verifier: Annotated[str | None, typer.Option("--prior-verifier")] = None,
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    provider_profile: Annotated[Path | None, typer.Option("--provider-profile")] = None,
+    executable: Annotated[str, typer.Option("--opencode")] = "opencode",
+    timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=10, max=600)] = 180,
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    authorize_remote: Annotated[bool, typer.Option("--authorize-remote")] = False,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    realm_id: Annotated[str | None, typer.Option("--realm-id")] = None,
+    coordinator_id: Annotated[str | None, typer.Option("--coordinator-assignment-id")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan or execute one distinct-model native verifier/reviewer audit."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        candidate = lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        if not 1 <= len(trial) <= 100 or not 1 <= len(case_file) <= 100:
+            raise PolicyViolation("Skill audit bounded trial/case list required")
+        root = resolve_project_source(resolved_home, scopes[0][1])
+        binary = resolve_opencode_executable(executable)
+        profile = load_batch_provider_profile(provider_profile)
+
+        def prepare():
+            if lifecycle.evaluation_revision(revision_digest, allowed_scopes=scopes) != candidate:
+                raise PolicyViolation("Skill audit candidate drift")
+            if resolve_project_source(resolved_home, scopes[0][1]) != root:
+                raise PolicyViolation("Skill audit source root drift")
+            current_profile = load_batch_provider_profile(provider_profile)
+            if current_profile != profile:
+                raise PolicyViolation("Skill audit provider profile drift")
+            return build_skill_audit_plan(
+                resolved_home,
+                references=tuple(trial),
+                cases=tuple(load_trial_case(path) for path in case_file),
+                project_id=registered.id,
+                revision_digest=revision_digest,
+                package_digest=str(candidate["package_digest"]),
+                root=root,
+                executable=binary,
+                model_id=model,
+                role=role,
+                prior_reference=prior_verifier,
+                provider_profile=profile,
+                timeout_seconds=timeout_seconds,
+            )
+
+        plan, context = prepare()
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if plan_digest != plan["plan_digest"] or binding is None:
+            raise PolicyViolation(
+                "Skill audit exact plan digest and canonical Work binding required"
+            )
+
+        def validate_inputs():
+            current_plan, current_context = prepare()
+            if canonical_json(current_plan) != canonical_json(plan) or canonical_json(
+                current_context
+            ) != canonical_json(context):
+                raise PolicyViolation("Skill audit current terminal evidence changed")
+
+        _emit(
+            run_skill_audit(
+                resolved_home,
+                binding=binding,
+                plan=plan,
+                context=context,
+                root=root,
+                executable=binary,
+                realm_id=UUID(realm_id or ""),
+                coordinator_id=UUID(coordinator_id or ""),
+                validate_inputs=validate_inputs,
+                authorize_remote=authorize_remote,
+                provider_profile=profile,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill audit bounded girdi/kanit okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("audit-report")
+def audit_report_command(
+    reference: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Read one exact scoped terminal audit and reopen its native decision evidence."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        _emit(read_skill_audit(resolved_home, reference, project_id=registered.id))
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Skill audit terminal kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

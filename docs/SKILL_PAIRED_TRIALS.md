@@ -115,6 +115,10 @@ development ciftleri bu esigi doldurmaz. Herhangi bir holdout vakasinda exact
 match gerilemesi `regressed` verir. Process/protocol basarisizligi `failed`
 olarak korunur; kotu ornekler denominator'dan atilmaz.
 
+Gercek native verifier/reviewer yurutme ve receipt-bound readback yolu
+`docs/SKILL_NATIVE_AUDIT.md` icinde tanimlidir. Audit kendi kalite/activation
+sinirlarini korur; aggregate tek basina lifecycle authority'si olmaz.
+
 `comparison_state` olculen exact JSON karsilastirmasidir. Unique vaka ve tekrar
 sayilari aciktir; belirsizlik descriptive-only'dir, guven araligi veya genelleme
 kalitesi uydurulmaz. Caller-supplied holdout etiketi bagimsiz dataset provenance'i
