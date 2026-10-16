@@ -937,6 +937,9 @@ sinirlandi. Eski derived index varsa once `purge-legacy-index` exact plan ve
 receipt zinciriyle temizlenmeli; kullanici home'unda silme islemi bu dilimde
 calistirilmadi. Testler final asamaya ertelendi.
 
+Planlama yolunun ayar yokken kullandigi yerel fallback de E5 profiline sabitlendi;
+`project plan` artik BGE boyutuyla sahte bir local plan uretemez.
+
 - [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
 - [x] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
 - [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.

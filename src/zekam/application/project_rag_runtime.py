@@ -1083,9 +1083,11 @@ def _project_plan(
         expected_tree_digest=discovery.tree_digest,
         embedding_candidates=embedding_candidates,
         allow_remote_source=allow_remote_source,
-        local_model_ref=(knowledge.embedding_model_ref if knowledge is not None else MODEL_ID),
+        local_model_ref=(
+            knowledge.embedding_model_ref if knowledge is not None else LOCAL_MODEL_ID
+        ),
         local_dimension=(
-            knowledge.embedding_dimension if knowledge is not None else VECTOR_DIMENSION
+            knowledge.embedding_dimension if knowledge is not None else LOCAL_VECTOR_DIMENSION
         ),
         **({"check_budget": check_budget} if check_budget is not None else {}),
     )
