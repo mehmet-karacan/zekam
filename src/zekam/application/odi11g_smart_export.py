@@ -152,6 +152,20 @@ _ALLOWED_FIELDS: dict[str, frozenset[str]] = {
     "SnpJoinCol": frozenset({"IJoin", "IColFk", "IColPk", "Pos", "PkColName"}),
     "SnpTxtHeader": frozenset({"ITxt", "Txt", "Enc"}),
 }
+# Classes whose identifiers are dereferenced through a single-record index.
+_INDEX_IDENTITIES = {
+    "SnpModel": "IMod",
+    "SnpTable": "ITable",
+    "SnpCol": "ICol",
+    "SnpDataSet": "IDataSet",
+    "SnpSourceTab": "ISourceTab",
+    "SnpPopCol": "IPopCol",
+    "SnpKey": "IKey",
+    "SnpJoin": "IJoin",
+    "SnpTxtHeader": "ITxt",
+    "SnpPop": "IPop",
+    "SnpTrt": "ITrt",
+}
 _FORBIDDEN_CLASSES = frozenset(
     {
         "SnpConnect",
@@ -324,7 +338,10 @@ def _scan_smart_export(path: Path, *, collect: bool):
                                 continue
                             name = str(child.attrib.get("name", ""))
                             if name in _ALLOWED_FIELDS[class_name]:
-                                fields[name] = (child.text or "").strip()
+                                value = (child.text or "").strip()
+                                if name in fields and fields[name] != value:
+                                    raise PolicyViolation("ODI Smart XML conflicting field")
+                                fields[name] = value
                         allowed[class_name].append(fields)
                     else:
                         excluded[class_name or "unknown"] += 1
@@ -506,10 +523,25 @@ def _nonnull(value: str | None) -> str | None:
     return value if value and value.casefold() != "null" else None
 
 
+def _validate_index_identities(objects):
+    # Composite relation rows may legitimately share parent IDs. Check only
+    # actual single-record indexes, before secret filtering can hide a conflict.
+    for class_name, field in _INDEX_IDENTITIES.items():
+        seen = {}
+        for record in objects.get(class_name, []):
+            identity = _nonnull(record.get(field))
+            if identity is None:
+                continue
+            if identity in seen and seen[identity] != record:
+                raise PolicyViolation("ODI Smart XML conflicting object identity")
+            seen[identity] = record
+
+
 def build_sanitized_odi_plan(
     *, project_id: UUID, project_slug: str, source: Path
 ) -> OdiSanitizedPlan:
     source_digest, _object_count, objects, excluded = _scan_smart_export(source, collect=True)
+    _validate_index_identities(objects)
     texts: dict[str, str] = {}
     skipped_secret = 0
     for item in objects.get("SnpTxtHeader", []):
@@ -597,7 +629,7 @@ def build_sanitized_odi_plan(
         if join_id := _nonnull(item.get("IJoin")):
             join_columns[join_id].append(item)
 
-    profile = ChunkProfile(name="odi11g-smart-sanitized-v1", max_tokens=2048, overlap_tokens=0)
+    profile = ChunkProfile(name="odi11g-smart-sanitized-v2", max_tokens=2048, overlap_tokens=0)
     chunks: list[Chunk] = []
     edges: list[dict[str, str]] = []
     unresolved: list[dict[str, str]] = []

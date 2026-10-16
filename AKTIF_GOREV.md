@@ -1272,6 +1272,8 @@ kabulu acik; `docs/CANONICAL_REFERENCE_INDEX.md`.
 
 **16 Ekim 2026 Smart XML ayni akis gelistirmesi:** Smart XML DTD/entity guard, XML veri cikarimi ve SHA256 ayni bounded descriptor akisina baglandi. 128 MiB byte, 1 milyon element, 256 derinlik ve 200 bin object siniri; biten node detach ve kaynak identity/size/mtime readback eklendi. Sanitizer v2/xml_profile plan ve manifestte; yalniz Field allowlist korunur, final kaynak hash tekrar okunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek ODI/native kabul ve WP kapanisi acik. Ayrinti docs/ODI_SMART_XML_AKISI.md.
 
+**16 Ekim 2026 Smart XML lineage kimlik butunlugu:** Smart XML tek-kayit indekslerinde ayni sinif/kimlige ait celisen allowlist kayitlari lineage oncesinde reddedilir; celisen tekrar Field de reddedilir. Ozdes kayit ve composite relation parent tekrarlarini engellemez. Chunk profile sanitizer v2 ile eslendi. Regresyon kaynaklari hazir, CALISTIRILMADI; native/WP kabulu acik.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

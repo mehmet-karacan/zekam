@@ -164,3 +164,53 @@ def test_many_objects_are_extracted_without_losing_allowed_fields(tmp_path, monk
 
     assert key == digest_of_bytes(raw) and count == 1000
     assert objects["SnpModel"] == [{"IMod": str(number)} for number in range(1000)]
+
+
+@pytest.mark.parametrize("values", [("one", "two"), ("two", "one")])
+def test_conflicting_field_values_reject_in_either_order(tmp_path, values):
+    source = tmp_path / "fields.xml"
+    first, second = values
+    source.write_text(
+        '<SunopsisExport><SmartExportList/><Object class="SnpModel">'
+        f'<Field name="IMod">{first}</Field><Field name="IMod">{second}</Field>'
+        "</Object></SunopsisExport>",
+        encoding="utf-8",
+    )
+    with pytest.raises(PolicyViolation, match="conflicting field"):
+        smart_export._scan_smart_export(source, collect=True)
+
+
+@pytest.mark.parametrize("class_name,field", list(smart_export._INDEX_IDENTITIES.items()))
+def test_conflicting_index_identity_rejects_without_order_dependent_lineage(class_name, field):
+    first = {field: "1"}
+    second = {field: "1", "synthetic_design_field": "different"}
+    for rows in ([first, second], [second, first]):
+        with pytest.raises(PolicyViolation, match="conflicting object identity"):
+            smart_export._validate_index_identities({class_name: rows})
+
+
+def test_identical_identity_and_composite_parent_repetitions_are_allowed():
+    model = {"IMod": "1", "ModName": "same"}
+    smart_export._validate_index_identities(
+        {
+            "SnpModel": [model, dict(model)],
+            "SnpKeyCol": [{"IKey": "1", "ICol": "1"}, {"IKey": "1", "ICol": "2"}],
+        }
+    )
+
+
+def test_sanitizer_rejects_conflicting_models_before_lineage(tmp_path):
+    source = tmp_path / "models.xml"
+    source.write_text(
+        "<SunopsisExport><SmartExportList/>"
+        '<Object class="SnpModel"><Field name="IMod">1</Field><Field name="ModName">first</Field></Object>'
+        '<Object class="SnpModel"><Field name="IMod">1</Field><Field name="ModName">second</Field></Object>'
+        "</SunopsisExport>",
+        encoding="utf-8",
+    )
+    with pytest.raises(PolicyViolation, match="conflicting object identity"):
+        smart_export.build_sanitized_odi_plan(
+            project_id=UUID("00000000-0000-0000-0000-000000000001"),
+            project_slug="gpu",
+            source=source,
+        )

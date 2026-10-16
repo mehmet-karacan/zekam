@@ -11,3 +11,7 @@ Yeni import planlarina xml_profile eklenir. Sanitizer profili odi11g-smart-sanit
 ## Bekleyen dogrulama
 
 Tek descriptor/hash, tek byte UTF-8/UTF-16 declaration, element/depth/object/byte cap, cok nesneli field korunumu ve kaynak mutation regresyon kaynaklari hazirlandi. Testler kullanici talimatiyla CALISTIRILMADI; tum gelistirmeler sonrasi toplu asamada kosulacak. Gercek native ODI ve WP kabulu aciktir.
+
+## Lineage kimlik butunlugu
+
+Smart XML tek-kayit indekslerinde ayni sinif/kimlige ait celisen allowlist kayitlari lineage oncesinde reddedilir; celisen tekrar Field de reddedilir. Ozdes kayit ve composite relation parent tekrarlarini engellemez. Chunk profile sanitizer v2 ile eslendi. Regresyon kaynaklari hazir, CALISTIRILMADI; native/WP kabulu acik.
