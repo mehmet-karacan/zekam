@@ -132,6 +132,7 @@ from zekam.infrastructure.embedding.opencode_remote import (
     OpenCodeRuntimeInvocation,
     RuntimeOpenCodeEmbeddingExecutor,
 )
+from zekam.infrastructure.embedding.onnx_e5 import MAX_BATCH_SIZE as LOCAL_E5_MAX_BATCH_SIZE
 from zekam.infrastructure.git.source_reader import GitCommandError, run_read_only
 from zekam.infrastructure.knowledge_files import KnowledgeFileStore
 from zekam.infrastructure.local_file_security import (
@@ -1125,6 +1126,11 @@ def _plan_document(
     inventory_digest = getattr(discovery, "inventory_digest", None)
     metadata_inventory_digest = getattr(discovery, "metadata_inventory_digest", None)
     secrets = getattr(discovery, "secrets", ())
+    estimate_batch_size = (
+        LOCAL_E5_MAX_BATCH_SIZE
+        if plan.embedding_profile.model_ref == LOCAL_MODEL_ID
+        else MAX_BATCH_SIZE
+    )
     return {
         "schema": "zekam-project-rag-plan/v1",
         "project_id": str(plan.project_id),
@@ -1160,7 +1166,7 @@ def _plan_document(
                 plan.chunks
                 + (oracle_plan.chunks if oracle_plan is not None else ())
                 + (odi_plan.chunks if odi_plan is not None else ()),
-                MAX_BATCH_SIZE,
+                estimate_batch_size,
                 model_id=plan.embedding_profile.model_ref,
             )
         ),

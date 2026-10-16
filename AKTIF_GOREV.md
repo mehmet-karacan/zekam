@@ -939,6 +939,8 @@ calistirilmadi. Testler final asamaya ertelendi.
 
 Planlama yolunun ayar yokken kullandigi yerel fallback de E5 profiline sabitlendi;
 `project plan` artik BGE boyutuyla sahte bir local plan uretemez.
+Plan raporundaki provider-call tahmini de local E5'nin gercek 4'lu batch sinirini
+kullaniyor; remote 64'lu tahmin yalniz explicit remote profile icin korunuyor.
 
 - [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
 - [x] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
