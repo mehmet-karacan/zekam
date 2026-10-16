@@ -55,6 +55,13 @@
   gorunur. Testler CALISTIRILMADI; parser/secret, incremental publication ve
   native kabul matrisi acik.
 
+- Gorev 4 WP-05.03: Eski `apply_project_index` yolu da count/token/payload
+  sinirli deterministik embedding batch planina alindi. Provider cagrisi oncesi
+  cancel/deadline kontrolu ve cagridan sonra tekrar kontrol eklendi; limit veya
+  kismi sonuc CAS/veritabani yayinindan once durur. Provider profile kimligi ve
+  receipt dogrulamasi korunur. Testler CALISTIRILMADI; quota/backoff ve canli
+  provider kabul matrisi acik.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak

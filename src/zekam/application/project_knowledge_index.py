@@ -15,6 +15,8 @@ import json
 import math
 import re
 import stat
+import threading
+import time
 import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Sequence
@@ -35,6 +37,7 @@ from zekam.application.embedding_routing import (
     EmbeddingRouteKind,
     select_embedding_route,
 )
+from zekam.application.provider_adapter import ProviderCallCancelled, ProviderDeadlineExceeded
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
 from zekam.application.source_discovery import (
@@ -69,6 +72,10 @@ MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
 MAX_XML_ELEMENTS = 16_384
 MAX_XML_DEPTH = 256
+MAX_PROJECT_EMBED_BATCH_SIZE = 8
+MAX_PROJECT_EMBED_TEXT_BYTES = 256 * 1024
+MAX_PROJECT_EMBED_BATCH_TOKENS = 8_192
+MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 
 
 def source_identity_digest(project_id: UUID | str, source_revision: str, tree_digest: str) -> str:
@@ -109,6 +116,61 @@ def _assert_plan_source_identity(plan: ProjectIndexPlan) -> None:
         plan.source_identity_digest
     ):
         raise PolicyViolation("Indeks document source identity drift")
+
+
+def _project_embedding_batches(
+    chunks: tuple[Chunk, ...], *, batch_size: int, model_id: str = REAL_EMBEDDING_MODEL_REF
+) -> tuple[tuple[Chunk, ...], ...]:
+    """Build stable count/token/payload bounded batches before provider effects."""
+
+    if type(batch_size) is not int or not 1 <= batch_size <= MAX_PROJECT_EMBED_BATCH_SIZE:
+        raise ValidationFailed("Project embedding batch sayi siniri gecersiz")
+    fixed_bytes = len(
+        json.dumps(
+            {"model": model_id, "input": [], "encoding_format": "float"},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    batches: list[tuple[Chunk, ...]] = []
+    pending: list[Chunk] = []
+    pending_tokens = 0
+    pending_bytes = fixed_bytes
+    for chunk in chunks:
+        raw_bytes = len(chunk.text.encode("utf-8"))
+        item_bytes = len(json.dumps(chunk.text, ensure_ascii=True).encode("utf-8"))
+        if (
+            raw_bytes > MAX_PROJECT_EMBED_TEXT_BYTES
+            or chunk.token_count > MAX_PROJECT_EMBED_BATCH_TOKENS
+            or fixed_bytes + item_bytes > MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES
+        ):
+            raise ValidationFailed("Project embedding tek chunk byte/token sinirini asiyor")
+        next_bytes = pending_bytes + item_bytes + (1 if pending else 0)
+        if pending and (
+            len(pending) >= batch_size
+            or pending_tokens + chunk.token_count > MAX_PROJECT_EMBED_BATCH_TOKENS
+            or next_bytes > MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES
+        ):
+            batches.append(tuple(pending))
+            pending = []
+            pending_tokens = 0
+            pending_bytes = fixed_bytes
+            next_bytes = fixed_bytes + item_bytes
+        pending.append(chunk)
+        pending_tokens += chunk.token_count
+        pending_bytes = next_bytes
+    if pending:
+        batches.append(tuple(pending))
+    return tuple(batches)
+
+
+def _check_project_embedding_budget(
+    cancel: threading.Event | None, deadline_monotonic: float | None
+) -> None:
+    if cancel is not None and cancel.is_set():
+        raise ProviderCallCancelled("Project embedding cancelled")
+    if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+        raise ProviderDeadlineExceeded("Project embedding deadline expired")
 
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -1318,6 +1380,9 @@ def apply_project_index(
     embedding_provider: EmbeddingProvider | None = None,
     embedding_policy: EmbeddingPolicy | None = None,
     now: dt.datetime | None = None,
+    batch_size: int = MAX_PROJECT_EMBED_BATCH_SIZE,
+    cancel: threading.Event | None = None,
+    deadline_monotonic: float | None = None,
 ) -> ProjectIndexResult:
     """Persist immutable CAS manifest and atomically commit all PostgreSQL index rows.
 
@@ -1349,14 +1414,23 @@ def apply_project_index(
     ):
         raise PolicyViolation("Project index/provider profile drift; rebuild required")
     provider_profile.assert_policy(embedding_policy)
+    if cancel is not None and not isinstance(cancel, threading.Event):
+        raise ValidationFailed("Project embedding cancel typed olmali")
+    if deadline_monotonic is not None and (
+        type(deadline_monotonic) not in (int, float) or not math.isfinite(float(deadline_monotonic))
+    ):
+        raise ValidationFailed("Project embedding deadline gecersiz")
 
     # Provider work finishes before CAS/database mutation. A timeout, partial batch,
     # NaN or dimension drift therefore cannot leave a half-activated generation.
     vectors: dict[str, tuple[float, ...]] = {}
-    for offset in range(0, len(plan.chunks), 8):
-        chunk_batch = plan.chunks[offset : offset + 8]
+    for chunk_batch in _project_embedding_batches(
+        plan.chunks, batch_size=batch_size, model_id=plan.embedding_profile.model_ref
+    ):
+        _check_project_embedding_budget(cancel, deadline_monotonic)
         texts = tuple(chunk.text for chunk in chunk_batch)
         embedded = embedding_provider.embed_documents(texts, embedding_policy)
+        _check_project_embedding_budget(cancel, deadline_monotonic)
         verify_document_embedding_batch(texts, embedded, provider_profile)
         for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
             vectors[chunk.chunk_id] = vector
