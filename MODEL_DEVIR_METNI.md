@@ -29,6 +29,10 @@ Tekil dogal dil Work read de exact Work kapsaminda bound job/source snapshot
 alanlarini verir; `exact-work` scope'u ve truncation durumu korunur. Unit/E2E
 regresyon kaynaklari eklendi, testler CALISTIRILMADI.
 
+`work show --json` dogrudan CLI yolunda da ayni exact-work bound job readback'ini
+ve read-only/grants_authority false alanlarini verir. E2E regresyon kaynagi eklendi;
+testler CALISTIRILMADI.
+
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

@@ -11,6 +11,8 @@ authority veya job payload'i uretmez.
 
 Tekil dogal dil Work okumalari (`ask ... is kaydini goster`) da exact Work
 kapsaminda ayni okuyucuyu kullanir; bu yuzeyde scope `exact-work` olarak raporlanir.
+Dogru Work kimligiyle cagrilan `work show --json` de ayni bounded alanlari salt
+okunur olarak verir.
 
 ## Sinirlar
 

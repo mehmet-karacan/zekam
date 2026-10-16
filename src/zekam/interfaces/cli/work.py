@@ -302,7 +302,18 @@ def show_command(
         assert store is not None
         with store.unit_of_work() as uow:
             project_id = uow.resolve_project(project).id if project is not None else None
-            document = _work_document(uow.resolve_work(work_item_id, project_id=project_id))
+            work = uow.resolve_work(work_item_id, project_id=project_id)
+            bound_jobs = uow.list_bound_jobs_limited(
+                work_item_ids=(work.id,),
+                limit=_RESUME_BOUND_JOB_LIMIT + 1,
+            )
+            document = _work_document(work) | {
+                "bound_jobs": list(bound_jobs[:_RESUME_BOUND_JOB_LIMIT]),
+                "bound_jobs_truncated": len(bound_jobs) > _RESUME_BOUND_JOB_LIMIT,
+                "bound_jobs_scope": "exact-work",
+                "read_only": True,
+                "grants_authority": False,
+            }
             uow.commit()
     except ZekamError as exc:
         raise fail_from(exc) from exc

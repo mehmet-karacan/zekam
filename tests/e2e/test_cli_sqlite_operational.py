@@ -382,7 +382,13 @@ def test_cli_work_external_number_scope_history_and_transition(tmp_path: Path) -
     args = ("--project", "selected", "--json", "--home", str(home))
     shown = _invoke(runner, "work", "show", "123", *args)
     assert shown.exit_code == 0, shown.stdout
-    assert json.loads(shown.stdout)["id"] == first.id
+    shown_body = json.loads(shown.stdout)
+    assert shown_body["id"] == first.id
+    assert shown_body["bound_jobs"] == []
+    assert shown_body["bound_jobs_truncated"] is False
+    assert shown_body["bound_jobs_scope"] == "exact-work"
+    assert shown_body["read_only"] is True
+    assert shown_body["grants_authority"] is False
     ambiguous = _invoke(runner, "work", "show", "123", "--json", "--home", str(home))
     assert ambiguous.exit_code != 0
     transitioned = _invoke(

@@ -1311,6 +1311,11 @@ alanlarini canonical SQLite okuyucusundan verir; `exact-work` scope'u ve
 truncation durumu aciktir. Unit/E2E regresyon kaynaklari hazirlandi, testler
 CALISTIRILMADI; lease/grant yeniden edinimi ve Work kabul matrisi aciktir.
 
+**16 Ekim 2026 WP-07 direct Work show canonical readback:** `work show --json`
+dogrudan CLI yolunda exact Work icin bounded bound job ve source snapshot alanlarini
+salt okunur olarak verir; `exact-work`, truncation ve authority bayraklari aciktir.
+E2E regresyon kaynagi hazirlandi, testler CALISTIRILMADI; Work kabul matrisi aciktir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  
