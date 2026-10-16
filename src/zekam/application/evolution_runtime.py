@@ -21,7 +21,7 @@ from zekam.application.composition import ApplicationContext
 from zekam.application.opencode_spool import inspect_spool
 from zekam.application.package_acceptance import build_package_manifest
 from zekam.domain.canonical import digest, parse_digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.evolution_authority import EVOLUTION_HANDLERS
 from zekam.infrastructure.sqlite.evolution_authority import evolution_authority_schema_digest
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
@@ -582,6 +582,10 @@ def effective_evolution_state(plan: dict[str, Any], report: dict[str, Any]) -> s
         return "recovery-required"
     if control_state in {"disabled", "paused"}:
         return str(control_state)
+    if control_state == "setup-required":
+        return "setup-required"
+    if control_state != "observing":
+        return "degraded"
     if plan.get("blockers"):
         return "blocked"
     if isinstance(supervisor, dict) and supervisor.get("state") in {"drifted", "unavailable"}:
@@ -674,8 +678,7 @@ def _operational_usage(database: Path) -> dict[str, Any]:
                 bucket["disk_bytes"] += int(terminal[5])
             model_refs = tuple(sorted(ref for ref in buckets if ref != "unknown"))
             usage_by_model = tuple(
-                {key: bucket[key] for key in bucket}
-                for _, bucket in sorted(buckets.items())
+                {key: bucket[key] for key in bucket} for _, bucket in sorted(buckets.items())
             )
         assert row is not None
         return {
@@ -1197,8 +1200,13 @@ def build_evolution_report(
 
 
 def _read_evolution_control(database: Path) -> dict[str, object]:
+    from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
+    from zekam.infrastructure.sqlite.evolution_control import read_control_chain
+
     if not database.is_file():
         return {"state": "disabled", "reason": "improvement-store-missing"}
+    if path_or_parent_is_link_or_reparse(database):
+        return {"state": "degraded", "reason": "control-store-identity-invalid"}
     try:
         with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as db:
             present = db.execute(
@@ -1206,28 +1214,11 @@ def _read_evolution_control(database: Path) -> dict[str, object]:
             ).fetchone()
             if present is None:
                 return {"state": "setup-required", "reason": "control-schema-missing"}
-            row = db.execute(
-                "select event_digest,ordinal,state,reason,occurred_at,body_json "
-                "from evolution_control_event order by ordinal desc limit 1"
-            ).fetchone()
-        if row is None:
-            return {"state": "observing", "ordinal": 0, "event_digest": None}
-        result: dict[str, object] = {
-            "event_digest": str(row[0]),
-            "ordinal": int(row[1]),
-            "state": str(row[2]),
-            "reason": str(row[3]),
-            "occurred_at": str(row[4]),
-        }
-        try:
-            body = json.loads(str(row[5]))
-        except json.JSONDecodeError:
-            return {"state": "degraded", "reason": "control-event-json-drift"}
-        if isinstance(body, dict) and isinstance(body.get("admission_evidence"), dict):
-            result["admission_evidence"] = body["admission_evidence"]
-        return result
+            return read_control_chain(db, include_bootstrap=False)
     except sqlite3.Error:
         return {"state": "degraded", "reason": "control-read-failed"}
+    except (ZekamError, ValueError, TypeError, UnicodeError, RecursionError):
+        return {"state": "degraded", "reason": "control-chain-invalid"}
 
 
 def build_resume_admission(context: ApplicationContext) -> dict[str, object] | None:

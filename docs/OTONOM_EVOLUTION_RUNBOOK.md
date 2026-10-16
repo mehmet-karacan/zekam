@@ -60,6 +60,24 @@ Knowledge, SQLite ledger, receipt veya kullanici verisi silinmez.
 
 ## Rollout ve recovery
 
+### Control gecmisi butunlugu (16 Ekim 2026, test bekliyor)
+
+Status ve mutation admission ayni salt-okunur control-chain okuyucusunu kullanir.
+Her retained olayin strict JSON, body/hash/kolon, ardisik ordinal ve predecessor
+bagi dogrulanir. Paused -> observing gecisinde resume admission, disabled'dan
+cikista enable plan bagi zorunludur. Tarihsel evidence butunlugu guncel grant
+yetkisi vermez; mevcut trusted resume verifier ayrica uygulanir.
+
+Okuma en fazla 10.000 olay, olay basina 1 MiB ve toplam 8 MiB ile sinirlidir.
+Butce veya butunluk ihlali kismi head dondurmez: runtime degraded raporlar,
+writer yeni olay eklemez. Writer yeni satiri commit etmeden ayni sinirlari
+yeniden uygular; append siniri asilinca onceki head korunur. Bu okuyucu veri
+silmez veya onarmaz. Setup-required/degraded control, running/observing'e
+dusurulmez; recovery-required onceligi korunur.
+
+Regresyon kaynaklari `tests/unit/test_evolution_control_integrity.py` icindedir;
+kullanici talimatiyla CALISTIRILMADI. Bu kaynak dilimi WP kabulunu kapatmaz.
+
 Sirasi shadow, local fixture canary, exact-scope activation ve gerekirse rollback'tir.
 Production trafik kabul edilmediyse rapor `production_traffic=false` kalir. Selector effect'i
 ile terminal settlement arasinda kesinti olursa ayni plan tekrar calistirilmaz. Durable

@@ -1853,6 +1853,14 @@ native invocation ve kabul kaniti acik. `docs/SKILL_YASAM_DONGUSU_CLI.md`.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
+**16 Ekim 2026 - evolution control butunlugu, test bekliyor:** Status ve writer
+ayni bounded retained-chain okuyucusunu kullanir; strict JSON/body/hash/kolon,
+ordinal ve predecessor bagi dogrulanir. Historical resume/enable evidence
+guncel grant yetkisi vermez; trusted verifier korunur. Bozuk veya siniri asan
+gecmis partial head uretmez, yeni append commit edilmez; degraded/setup control
+running/observing diye raporlanmaz. Regresyon kaynaklari hazir, CALISTIRILMADI.
+Gercek native kabul ve genel WP kapanisi aciktir; runbook ayrintilari korunur.
+
 **Bağımlılık/onay:** WP-07/10; model usage WP-08.  
 **Girdi/kapsam:** CAP-11/16/17/22/27; gerçek kayıtlar, scheduler ve veri sahipliği.
 

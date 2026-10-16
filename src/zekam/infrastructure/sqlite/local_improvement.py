@@ -3008,39 +3008,11 @@ class SQLiteLocalImprovementStore:
         return tuple(str(row[0]) for row in rows)
 
     def evolution_control_status(self) -> dict[str, object]:
-        """Read the latest append-only admission-control decision."""
+        """Read the latest decision only after verifying its complete retained chain."""
+        from zekam.infrastructure.sqlite.evolution_control import read_control_chain
 
         with closing(self._connect()) as db:
-            row = db.execute(
-                "select event_digest,ordinal,state,reason,occurred_at,body_json from "
-                "evolution_control_event order by ordinal desc limit 1"
-            ).fetchone()
-        if row is None:
-            return {
-                "state": "observing",
-                "ordinal": 0,
-                "event_digest": None,
-                "reason": "default-local-observation",
-                "occurred_at": None,
-            }
-        result: dict[str, object] = {
-            "event_digest": str(row[0]),
-            "ordinal": int(row[1]),
-            "state": str(row[2]),
-            "reason": str(row[3]),
-            "occurred_at": str(row[4]),
-        }
-        body = _document(str(row[5]))
-        evidence = body.get("admission_evidence")
-        if isinstance(evidence, dict):
-            result["admission_evidence"] = evidence
-        enable_plan_digest = body.get("enable_plan_digest")
-        if isinstance(enable_plan_digest, str):
-            result["enable_plan_digest"] = enable_plan_digest
-        bootstrap_settlement = body.get("bootstrap_settlement")
-        if isinstance(bootstrap_settlement, dict):
-            result["bootstrap_settlement"] = bootstrap_settlement
-        return result
+            return read_control_chain(db)
 
     def set_evolution_control_state(
         self,
@@ -3062,10 +3034,21 @@ class SQLiteLocalImprovementStore:
         occurred_at = _instant(now)
         with closing(self._connect()) as db:
             db.execute("begin immediate")
-            previous = db.execute(
-                "select event_digest,ordinal,state from evolution_control_event "
-                "order by ordinal desc limit 1"
-            ).fetchone()
+            from zekam.infrastructure.sqlite.evolution_control import (
+                read_control_chain,
+                validate_control_body,
+            )
+
+            control = read_control_chain(db)
+            previous = (
+                None
+                if control["ordinal"] == 0
+                else (
+                    control["event_digest"],
+                    control["ordinal"],
+                    control["state"],
+                )
+            )
             previous_state = "observing" if previous is None else str(previous[2])
             previous_digest = None if previous is None else str(previous[0])
             if (
@@ -3146,11 +3129,20 @@ class SQLiteLocalImprovementStore:
                 "occurred_at": occurred_at,
                 "grants_authority": False,
             }
+            validate_control_body(
+                body,
+                ordinal=ordinal,
+                previous_state=previous_state,
+                previous_digest=previous_digest,
+            )
             raw, event_digest = _body(body)
             db.execute(
                 "insert into evolution_control_event values(?,?,?,?,?,?,?)",
                 (event_digest, ordinal, state, previous_digest, reason, occurred_at, raw),
             )
+            # Never commit a row that the shared bounded integrity reader would
+            # reject (including cumulative history limits).
+            read_control_chain(db)
             db.commit()
         return self.evolution_control_status() | {"changed": True}
 
