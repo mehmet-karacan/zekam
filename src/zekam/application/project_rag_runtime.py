@@ -3120,6 +3120,7 @@ def _index(
     combined_revision = digest(
         {
             "repository_revision": bound_plan.source_revision,
+            "repository_inventory_digest": bound_plan.discovery.inventory_digest,
             "oracle_revision": bound_oracle_plan.snapshot.revision_digest
             if bound_oracle_plan
             else None,
@@ -3131,6 +3132,7 @@ def _index(
     combined_tree_digest = digest(
         {
             "repository_tree": bound_plan.tree_digest,
+            "repository_inventory_digest": bound_plan.discovery.inventory_digest,
             "oracle_database": bound_oracle_plan.snapshot.database_identity_digest
             if bound_oracle_plan
             else None,
@@ -3147,6 +3149,7 @@ def _index(
             "project_id": str(project_id),
             "project_slug": project_slug,
             "repository_manifest_digest": digest_of_bytes(bound_plan.manifest),
+            "repository_inventory_digest": bound_plan.discovery.inventory_digest,
             "oracle_manifest_digest": (
                 digest_of_bytes(bound_oracle_plan.manifest)
                 if bound_oracle_plan is not None

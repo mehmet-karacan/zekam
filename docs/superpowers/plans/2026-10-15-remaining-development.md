@@ -80,6 +80,12 @@
   olarak gorunur. Testler CALISTIRILMADI; incremental publication kabul kapisi
   acik.
 
+- Gorev 4 WP-05.04: Birlesik Project RAG revision/tree ve combined manifest
+  repository `inventory_digest` alanini de tasir. Ignored/generated/eligibility
+  metadata degisimi repository content tree ayni kalsa bile generation scope ve
+  canonical manifest digestini degistirir; eski generation current kalmaz.
+  Testler CALISTIRILMADI.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak
