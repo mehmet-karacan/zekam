@@ -1113,15 +1113,23 @@ def _plan_document(
 ) -> dict[str, Any]:
     oracle_chunks = len(oracle_plan.chunks) if oracle_plan is not None else 0
     odi_chunks = len(odi_plan.chunks) if odi_plan is not None else 0
+    plan_source_identity = getattr(
+        plan,
+        "source_identity_digest",
+        source_identity_digest(str(plan.project_id), plan.source_revision, plan.tree_digest),
+    )
+    inventory_digest = getattr(discovery, "inventory_digest", None)
+    metadata_inventory_digest = getattr(discovery, "metadata_inventory_digest", None)
+    secrets = getattr(discovery, "secrets", ())
     return {
         "schema": "zekam-project-rag-plan/v1",
         "project_id": str(plan.project_id),
         "project_slug": plan.project_slug,
-        "source_identity_digest": plan.source_identity_digest,
+        "source_identity_digest": plan_source_identity,
         "source_revision": plan.source_revision,
         "tree_digest": plan.tree_digest,
-        "inventory_digest": discovery.inventory_digest,
-        "metadata_inventory_digest": discovery.metadata_inventory_digest,
+        "inventory_digest": inventory_digest,
+        "metadata_inventory_digest": metadata_inventory_digest,
         "plan_digest": digest(
             {
                 "repository_plan_digest": plan.plan_digest,
@@ -1135,7 +1143,7 @@ def _plan_document(
         "oracle_chunk_count": oracle_chunks,
         "odi_chunk_count": odi_chunks,
         "chunk_count": len(plan.chunks) + oracle_chunks + odi_chunks,
-        "skipped_secret_files": len({item.relative_path for item in discovery.secrets}),
+        "skipped_secret_files": len({item.relative_path for item in secrets}),
         "secret_finding_count": len(discovery.secrets),
         "skipped_unsupported": plan.skipped_unsupported,
         "skipped_encoding": plan.skipped_encoding,
@@ -1398,23 +1406,16 @@ def project_embedding_route(home: Path) -> EmbeddingRoute:
 
 
 def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
-    supported = {
-        (
-            "bge-m3-dense-v1",
-            MODEL_ID,
-            VECTOR_DIMENSION,
-        ),
-        (
-            "multilingual-e5-small-dense-v1",
-            LOCAL_MODEL_ID,
-            LOCAL_VECTOR_DIMENSION,
-        ),
-    }
-    if (
-        knowledge.embedding_profile_id,
-        knowledge.embedding_model_ref,
-        knowledge.embedding_dimension,
-    ) not in supported or knowledge.embedding_distance != "cosine":
+    bge_profile = (
+        knowledge.embedding_profile_id == "bge-m3-dense-v1"
+        and knowledge.embedding_dimension == VECTOR_DIMENSION
+    )
+    e5_profile = (
+        knowledge.embedding_profile_id == "multilingual-e5-small-dense-v1"
+        and knowledge.embedding_model_ref == LOCAL_MODEL_ID
+        and knowledge.embedding_dimension == LOCAL_VECTOR_DIMENSION
+    )
+    if (not bge_profile and not e5_profile) or knowledge.embedding_distance != "cosine":
         raise ConfigurationError("Project RAG canonical embedding profili desteklenmiyor")
     if (
         knowledge.embedding_model_ref == LOCAL_MODEL_ID
