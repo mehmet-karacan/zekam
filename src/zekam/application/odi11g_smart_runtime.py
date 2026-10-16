@@ -98,7 +98,11 @@ def _copy_private(plan, cancel):
         restrict_private_file(temporary)
         source, before = _regular_file(plan.source)
         source_descriptor = os.open(
-            source, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            source,
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
         )
         try:
             opened = os.fstat(source_descriptor)

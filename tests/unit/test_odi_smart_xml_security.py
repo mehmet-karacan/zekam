@@ -16,8 +16,10 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 def test_smart_xml_rejects_dtd_for_supported_encodings(tmp_path: Path, encoding: str) -> None:
     source = tmp_path / "SmartExport.xml"
     source.write_bytes(
-        ('<!DOCTYPE SunopsisExport [<!ENTITY x "synthetic">]>'
-         '<SunopsisExport><SmartExportList />&x;</SunopsisExport>').encode(encoding)
+        (
+            '<!DOCTYPE SunopsisExport [<!ENTITY x "synthetic">]>'
+            "<SunopsisExport><SmartExportList />&x;</SunopsisExport>"
+        ).encode(encoding)
     )
     with pytest.raises(PolicyViolation, match="DTD/entity"):
         _validate_smart_xml(source)
@@ -27,7 +29,7 @@ def test_smart_xml_rejects_external_dtd(tmp_path: Path) -> None:
     source = tmp_path / "SmartExport.xml"
     source.write_bytes(
         b'<!DOCTYPE SunopsisExport SYSTEM "https://example.invalid/x.dtd">'
-        b'<SunopsisExport><SmartExportList /></SunopsisExport>'
+        b"<SunopsisExport><SmartExportList /></SunopsisExport>"
     )
     with pytest.raises(PolicyViolation, match="DTD/entity"):
         _validate_smart_xml(source)
@@ -35,7 +37,7 @@ def test_smart_xml_rejects_external_dtd(tmp_path: Path) -> None:
 
 def test_smart_xml_accepts_plain_utf16_and_rejects_malformed(tmp_path: Path) -> None:
     source = tmp_path / "SmartExport.xml"
-    source.write_bytes('<SunopsisExport><SmartExportList /></SunopsisExport>'.encode("utf-16"))
+    source.write_bytes("<SunopsisExport><SmartExportList /></SunopsisExport>".encode("utf-16"))
     source_digest, count = _validate_smart_xml(source)
     assert source_digest.startswith("sha256:")
     assert count == 0
@@ -60,17 +62,17 @@ def test_smart_export_rejects_source_mutation_after_object_parse(
 </SunopsisExport>""",
         encoding="utf-8",
     )
-    original_objects = smart_export._objects
+    original_scan = smart_export._scan_smart_export
 
-    def mutate_after_parse(path: Path):
-        parsed = original_objects(path)
+    def mutate_after_parse(path: Path, *, collect):
+        parsed = original_scan(path, collect=collect)
         path.write_text(
             path.read_text(encoding="utf-8").replace("MODEL_A", "MODEL_B"),
             encoding="utf-8",
         )
         return parsed
 
-    monkeypatch.setattr(smart_export, "_objects", mutate_after_parse)
+    monkeypatch.setattr(smart_export, "_scan_smart_export", mutate_after_parse)
 
     with pytest.raises(PolicyViolation, match="degisti"):
         smart_export.build_sanitized_odi_plan(
@@ -78,3 +80,87 @@ def test_smart_export_rejects_source_mutation_after_object_parse(
             project_slug="gpu",
             source=source,
         )
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
+def test_guard_rejects_declaration_split_across_single_byte_reads(tmp_path, monkeypatch, encoding):
+    monkeypatch.setattr(smart_export, "_XML_READ_BYTES", 1)
+    source = tmp_path / "split.xml"
+    source.write_bytes(
+        (
+            '<!DOCTYPE SunopsisExport [<!ENTITY value "must-not-expand">]>'
+            "<SunopsisExport><SmartExportList/>&value;</SunopsisExport>"
+        ).encode(encoding)
+    )
+    with pytest.raises(PolicyViolation, match="DTD/entity"):
+        smart_export._scan_smart_export(source, collect=True)
+
+
+def test_guard_parse_hash_share_one_file_descriptor(tmp_path, monkeypatch):
+    from zekam.domain.canonical import digest_of_bytes
+
+    source = tmp_path / "single.xml"
+    raw = b'<SunopsisExport><SmartExportList/><Object class="SnpModel"><Field name="IMod">1</Field><Other name="IMod">not-a-field</Other></Object></SunopsisExport>'
+    source.write_bytes(raw)
+    opened = []
+    original = smart_export.os.open
+
+    def record(path, flags, *args, **kwargs):
+        descriptor = original(path, flags, *args, **kwargs)
+        opened.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(smart_export.os, "open", record)
+    monkeypatch.setattr(
+        smart_export, "_sha256_file", lambda _path: pytest.fail("scan re-opened file for hash")
+    )
+    key, count, objects, excluded = smart_export._scan_smart_export(source, collect=True)
+    assert key == digest_of_bytes(raw) and count == 1
+    assert objects["SnpModel"] == [{"IMod": "1"}] and not excluded
+    assert len(opened) == 1
+    with pytest.raises(OSError):
+        smart_export.os.fstat(opened[0])
+
+
+@pytest.mark.parametrize(
+    "limit,value,xml",
+    [
+        (
+            "_MAX_XML_DEPTH",
+            2,
+            "<SunopsisExport><SmartExportList><nested/></SmartExportList></SunopsisExport>",
+        ),
+        ("_MAX_XML_ELEMENTS", 2, "<SunopsisExport><SmartExportList/><extra/></SunopsisExport>"),
+        (
+            "_MAX_SMART_OBJECTS",
+            1,
+            "<SunopsisExport><SmartExportList/><Object/><Object/></SunopsisExport>",
+        ),
+        ("_MAX_EXPORT_BYTES", 20, "<SunopsisExport><SmartExportList/></SunopsisExport>"),
+    ],
+)
+def test_stream_budgets_never_return_partial_objects(tmp_path, monkeypatch, limit, value, xml):
+    source = tmp_path / "bounded.xml"
+    source.write_text(xml, encoding="utf-8")
+    monkeypatch.setattr(smart_export, limit, value)
+    with pytest.raises((PolicyViolation, ValidationFailed)):
+        smart_export._scan_smart_export(source, collect=True)
+
+
+def test_many_objects_are_extracted_without_losing_allowed_fields(tmp_path, monkeypatch):
+    source = tmp_path / "objects.xml"
+    raw = (
+        "<SunopsisExport><SmartExportList/>"
+        + "".join(
+            f'<Object class="SnpModel"><Field name="IMod">{number}</Field><Field name="SecretField">excluded</Field></Object>'
+            for number in range(1000)
+        )
+        + "</SunopsisExport>"
+    ).encode()
+    source.write_bytes(raw)
+    monkeypatch.setattr(smart_export, "_XML_READ_BYTES", 113)
+    key, count, objects, _excluded = smart_export._scan_smart_export(source, collect=True)
+    from zekam.domain.canonical import digest_of_bytes
+
+    assert key == digest_of_bytes(raw) and count == 1000
+    assert objects["SnpModel"] == [{"IMod": str(number)} for number in range(1000)]

@@ -1270,6 +1270,8 @@ kabulu acik; `docs/CANONICAL_REFERENCE_INDEX.md`.
 
 **16 Ekim 2026 Smart Export canonical import gelistirmesi:** Smart Export canonical import/index source bagi eklendi: plan v2 exact original source identity, source snapshot contract ve destination library ref; typed admitted Work/Run/plan olmadan copy yok. Reserved project.odi-smart-import common claim/project lease/CAS/checkpoint/receipt ve pre-post source/private binding readback kullanir. Private bounded copy/fsync/hash/exclusive hard-link existing farkli/public raw dosyayi overwrite/adopt etmez; own temp identity ile cleanup yapar. Private binding history korunur, raw XML/absolute path CAS sonucuna girmez. Index load_smart_binding actual completed receipt/current mapping/source hash/private ownership ister; legacy/unbound veya missing receipt reddedilir, sanitizer/disclosure kapilari korunur. Completed replay original source yokken yeniden copy/parse/write yapmaz; unknown explicit recovery ister. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek native ODI/Work ve WP kabul acik. Ayrinti docs/ODI_SMART_CANONICAL_IMPORT.md.
 
+**16 Ekim 2026 Smart XML ayni akis gelistirmesi:** Smart XML DTD/entity guard, XML veri cikarimi ve SHA256 ayni bounded descriptor akisina baglandi. 128 MiB byte, 1 milyon element, 256 derinlik ve 200 bin object siniri; biten node detach ve kaynak identity/size/mtime readback eklendi. Sanitizer v2/xml_profile plan ve manifestte; yalniz Field allowlist korunur, final kaynak hash tekrar okunur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek ODI/native kabul ve WP kapanisi acik. Ayrinti docs/ODI_SMART_XML_AKISI.md.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

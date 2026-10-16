@@ -30,6 +30,23 @@ SMART_BINDING_SCHEMA = "zekam-project-local-odi11g-smart-binding/v2"
 SMART_SANITIZED_SCHEMA = "zekam-odi11g-sanitized-lineage/v1"
 SMART_IMPORT_OPERATION = "project.odi-smart-import"
 _MAX_EXPORT_BYTES = 128 * 1024 * 1024
+_MAX_XML_ELEMENTS = 1_000_000
+_MAX_XML_DEPTH = 256
+_MAX_SMART_OBJECTS = 200_000
+_XML_READ_BYTES = 64 * 1024
+
+
+def _xml_profile():
+    return {
+        "engine": "expat-guard+xml-pull-same-stream/v1",
+        "read_bytes": _XML_READ_BYTES,
+        "max_bytes": _MAX_EXPORT_BYTES,
+        "max_elements": _MAX_XML_ELEMENTS,
+        "max_depth": _MAX_XML_DEPTH,
+        "max_objects": _MAX_SMART_OBJECTS,
+    }
+
+
 _REPARSE_ATTRIBUTE = 0x400
 
 _ALLOWED_FIELDS: dict[str, frozenset[str]] = {
@@ -197,7 +214,11 @@ def _sha256_file(path: Path) -> str:
     path, before = _regular_file(path)
     value = hashlib.sha256()
     descriptor = os.open(
-        path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        path,
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
     )
     try:
         opened = os.fstat(descriptor)
@@ -239,61 +260,136 @@ def _verify_smart_source_unchanged(path: Path, expected_digest: str) -> None:
         raise PolicyViolation("ODI Smart Export okuma sirasinda degisti")
 
 
-def _reject_xml_declarations(path: Path) -> None:
-    """Encoding-aware, bounded XML preflight; declarations are never expanded."""
+def _scan_smart_export(path: Path, *, collect: bool):
+    """Guard, parse and hash the same bounded descriptor stream exactly once."""
+    import hashlib
 
+    source, before = _regular_file(path)
     guard = expat.ParserCreate()
+    parser = ET.XMLPullParser(events=("start", "end"))
+    element_count = depth = object_count = total = 0
+    root_name, smart_marker = "", False
+    stack = []
+    object_depth = 0
+    allowed: dict[str, list[dict[str, str]]] = defaultdict(list)
+    excluded: Counter[str] = Counter()
+    hasher = hashlib.sha256()
 
-    def reject_declaration(*_args: object) -> None:
+    def reject_declaration(*_args):
         raise PolicyViolation("ODI Smart Export DTD/entity tasiyamaz")
 
-    def reject_external(*_args: object) -> int:
+    def reject_external(*_args):
         raise PolicyViolation("ODI Smart Export external entity tasiyamaz")
+
+    def start(*_args):
+        nonlocal element_count, depth
+        element_count += 1
+        depth += 1
+        if element_count > _MAX_XML_ELEMENTS or depth > _MAX_XML_DEPTH:
+            raise PolicyViolation("ODI Smart XML element/depth budget exceeded")
+
+    def end(*_args):
+        nonlocal depth
+        depth -= 1
 
     guard.StartDoctypeDeclHandler = reject_declaration
     guard.EntityDeclHandler = reject_declaration
     guard.ExternalEntityRefHandler = reject_external
-    total = 0
+    guard.StartElementHandler = start
+    guard.EndElementHandler = end
+
+    def drain():
+        nonlocal root_name, smart_marker, object_count, object_depth
+        for event, elem in parser.read_events():
+            tag = elem.tag.rsplit("}", 1)[-1]
+            if event == "start":
+                if not stack:
+                    root_name = tag
+                stack.append(elem)
+                if tag == "SmartExportList":
+                    smart_marker = True
+                if tag == "Object":
+                    object_depth += 1
+                continue
+            if tag == "Object":
+                object_count += 1
+                if object_count > _MAX_SMART_OBJECTS:
+                    raise PolicyViolation("ODI Smart object count budget exceeded")
+                if collect:
+                    class_name = _short_class(str(elem.attrib.get("class", "")))
+                    if class_name in _ALLOWED_FIELDS:
+                        fields = {}
+                        for child in elem:
+                            if child.tag.rsplit("}", 1)[-1] != "Field":
+                                continue
+                            name = str(child.attrib.get("name", ""))
+                            if name in _ALLOWED_FIELDS[class_name]:
+                                fields[name] = (child.text or "").strip()
+                        allowed[class_name].append(fields)
+                    else:
+                        excluded[class_name or "unknown"] += 1
+                object_depth -= 1
+                elem.clear()
+                if len(stack) > 1:
+                    stack[-2].remove(elem)
+            elif object_depth == 0:
+                elem.clear()
+                if len(stack) > 1:
+                    stack[-2].remove(elem)
+            stack.pop()
+
+    descriptor = os.open(
+        source,
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
+    )
     try:
-        with path.open("rb") as stream:
-            while block := stream.read(1024 * 1024):
-                total += len(block)
-                if total > _MAX_EXPORT_BYTES:
-                    raise ValidationFailed("ODI Smart Export boyutu 1..128 MiB araliginda olmali")
-                guard.Parse(block, False)
-            guard.Parse(b"", True)
-    except expat.ExpatError:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino, opened.st_size) != (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+        ):
+            raise PolicyViolation("ODI Smart XML descriptor identity drift")
+        while block := os.read(descriptor, min(_XML_READ_BYTES, _MAX_EXPORT_BYTES + 1 - total)):
+            total += len(block)
+            if total > _MAX_EXPORT_BYTES:
+                raise PolicyViolation("ODI Smart XML byte budget exceeded")
+            # Reject DTD/entity/depth before feeding these same bytes to ET.
+            guard.Parse(block, False)
+            hasher.update(block)
+            parser.feed(block)
+            drain()
+        guard.Parse(b"", True)
+        parser.close()
+        drain()
+        after = os.fstat(descriptor)
+    except (ET.ParseError, expat.ExpatError):
         raise ValidationFailed("ODI Smart Export XML parse edilemedi") from None
+    finally:
+        os.close(descriptor)
+    current = source.lstat()
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    if (
+        identity(before) != identity(after)
+        or identity(before) != identity(current)
+        or total != before.st_size
+    ):
+        raise PolicyViolation("ODI Smart XML stream readback identity drift")
+    if root_name != "SunopsisExport" or not smart_marker:
+        raise ValidationFailed("Dosya ODI 11g Smart Export degil")
+    return "sha256:" + hasher.hexdigest(), object_count, allowed, excluded
+
+
+def _reject_xml_declarations(path: Path) -> None:
+    _scan_smart_export(path, collect=False)
 
 
 def _validate_smart_xml(path: Path) -> tuple[str, int]:
-    source, before = _regular_file(path)
-    _reject_xml_declarations(source)
-    root_name = ""
-    smart_marker = False
-    object_count = 0
-    try:
-        for event, elem in ET.iterparse(source, events=("start", "end")):
-            tag = elem.tag.rsplit("}", 1)[-1]
-            if event == "start" and not root_name:
-                root_name = tag
-            if event == "start" and tag == "SmartExportList":
-                smart_marker = True
-            if event == "end" and tag == "Object":
-                object_count += 1
-                elem.clear()
-    except ET.ParseError as exc:
-        raise ValidationFailed("ODI Smart Export XML parse edilemedi") from exc
-    after = source.lstat()
-    if (before.st_dev, before.st_ino, before.st_size) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-    ):
-        raise PolicyViolation("ODI Smart Export okuma sirasinda degisti")
-    if root_name != "SunopsisExport" or not smart_marker:
-        raise ValidationFailed("Dosya ODI 11g Smart Export degil")
-    return _sha256_file(source), object_count
+    source_digest, object_count, _allowed, _excluded = _scan_smart_export(path, collect=False)
+    return source_digest, object_count
 
 
 def _existing_ancestor_is_safe(path: Path) -> None:
@@ -332,6 +428,7 @@ def build_smart_import_plan(
     stable = {
         "schema": SMART_IMPORT_PLAN_SCHEMA,
         "operation": SMART_IMPORT_OPERATION,
+        "xml_profile": _xml_profile(),
         "project_id": project_id,
         "project_slug": project_slug,
         "library_name": library_name,
@@ -401,24 +498,7 @@ def _short_class(value: str) -> str:
 
 
 def _objects(path: Path) -> tuple[dict[str, list[dict[str, str]]], Counter[str]]:
-    allowed: dict[str, list[dict[str, str]]] = defaultdict(list)
-    excluded: Counter[str] = Counter()
-    for _event, elem in ET.iterparse(path, events=("end",)):
-        if elem.tag.rsplit("}", 1)[-1] != "Object":
-            continue
-        class_name = _short_class(str(elem.attrib.get("class", "")))
-        if class_name in _ALLOWED_FIELDS:
-            fields: dict[str, str] = {}
-            for child in elem:
-                if child.tag.rsplit("}", 1)[-1] != "Field":
-                    continue
-                name = str(child.attrib.get("name", ""))
-                if name in _ALLOWED_FIELDS[class_name]:
-                    fields[name] = (child.text or "").strip()
-            allowed[class_name].append(fields)
-        else:
-            excluded[class_name or "unknown"] += 1
-        elem.clear()
+    _source_digest, _count, allowed, excluded = _scan_smart_export(path, collect=True)
     return allowed, excluded
 
 
@@ -429,9 +509,7 @@ def _nonnull(value: str | None) -> str | None:
 def build_sanitized_odi_plan(
     *, project_id: UUID, project_slug: str, source: Path
 ) -> OdiSanitizedPlan:
-    source_digest, _ = _validate_smart_xml(source)
-    objects, excluded = _objects(source)
-    _verify_smart_source_unchanged(source, source_digest)
+    source_digest, _object_count, objects, excluded = _scan_smart_export(source, collect=True)
     texts: dict[str, str] = {}
     skipped_secret = 0
     for item in objects.get("SnpTxtHeader", []):
@@ -1095,7 +1173,8 @@ def build_sanitized_odi_plan(
         "project_slug": project_slug,
         "source_digest": source_digest,
         "source_format": "odi11g-smart-export",
-        "sanitizer_profile": "odi11g-smart-sanitized-v1",
+        "sanitizer_profile": "odi11g-smart-sanitized-v2",
+        "xml_profile": _xml_profile(),
         "object_counts": object_counts,
         "excluded_object_counts": dict(sorted(excluded.items())),
         "chunk_count": len(chunks),
@@ -1112,6 +1191,7 @@ def build_sanitized_odi_plan(
         "report_embedded": False,
         "data_classification": "confidential-corporate",
     }
+    _verify_smart_source_unchanged(source, source_digest)
     return OdiSanitizedPlan(
         canonical_json(manifest_doc).encode("utf-8"),
         tuple(chunks),
