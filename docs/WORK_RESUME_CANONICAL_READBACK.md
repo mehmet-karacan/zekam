@@ -22,5 +22,10 @@ alanlari ise project, Work revision, Run, step, source snapshot, config ve plan
 digest bagini gosterir. Bu gorunum yeni lease veya grant uretmez. Efekt baslatmadan
 once mevcut lease, grant, source ve binding kosullari yeniden dogrulanmalidir.
 
+`bound_jobs[*].source_snapshot` mevcutsa snapshot'in source binding ID'si,
+revision ref'i ve tree/content/config digestleri ayni canonical SQLite joininden
+okunur. Snapshot ID varken bu alanlardan biri eksikse resume readback'i basari
+sayilmaz.
+
 Regresyon kaynagi `tests/e2e/test_cli_sqlite_operational.py` icindedir. Kullanici
 talimati geregi testler tum gelistirmeler bitene kadar calistirilmadi.

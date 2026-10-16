@@ -1292,6 +1292,12 @@ private-key alan veya degerleri ile `grants_authority=true` reddedilir. Unit
 regresyon kaynagi hazirlandi, testler CALISTIRILMADI. Ayrinti
 `docs/WORK_CHECKPOINT_PAYLOAD.md`.
 
+**16 Ekim 2026 WP-07 source snapshot resume readback:** Bound job resume ozetinde
+source snapshot ID mevcutsa canonical SQLite join ile revision, tree, content ve
+config digestleri de okunur; eksik snapshot baglantisi fail-closed reddedilir.
+Unit regresyon kaynagi hazirlandi, testler CALISTIRILMADI. Bu okuma lease veya
+grant uretmez; Work kabul matrisi aciktir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

@@ -1565,9 +1565,12 @@ class SQLiteOperationalUnitOfWork:
         placeholders = ",".join("?" for _ in work_item_ids)
         rows = connection.execute(
             "select b.*,jobs.state,jobs.attempt_count,jobs.terminal_evidence_digest,"
+            " s.source_binding_id,s.revision_ref source_revision_ref,s.tree_digest source_tree_digest,"
+            " s.content_digest source_content_digest,s.config_digest source_config_digest,"
             " json_extract(jobs.payload_json,'$.work_binding_digest') payload_binding_digest,"
             f" exists({current}) canonical_inputs_current"
             " from local_job_binding b join local_job jobs on jobs.id=b.local_job_id"
+            " left join source_snapshot s on s.id=b.source_snapshot_id"
             f" where b.work_item_id in ({placeholders})"
             " order by case when jobs.state in ('ready','running','recovery-required')"
             " then 0 else 1 end,jobs.updated_at desc,jobs.id desc limit ?",
@@ -1609,6 +1612,25 @@ class SQLiteOperationalUnitOfWork:
                 or binding.binding_digest != row["payload_binding_digest"]
             ):
                 raise PolicyViolation("Bound job resume binding digest drift")
+            source_snapshot = None
+            if binding.source_snapshot_id is not None:
+                source_values = (
+                    row["source_binding_id"],
+                    row["source_revision_ref"],
+                    row["source_tree_digest"],
+                    row["source_content_digest"],
+                    row["source_config_digest"],
+                )
+                if any(value is None for value in source_values):
+                    raise PolicyViolation("Bound job source snapshot readback eksik")
+                source_snapshot = {
+                    "id": binding.source_snapshot_id,
+                    "source_binding_id": str(row["source_binding_id"]),
+                    "revision_ref": str(row["source_revision_ref"]),
+                    "tree_digest": str(row["source_tree_digest"]),
+                    "content_digest": str(row["source_content_digest"]),
+                    "config_digest": str(row["source_config_digest"]),
+                }
             summaries.append(
                 binding.body()
                 | {
@@ -1618,6 +1640,7 @@ class SQLiteOperationalUnitOfWork:
                     "attempt_count": int(row["attempt_count"]),
                     "terminal_evidence_digest": row["terminal_evidence_digest"],
                     "canonical_inputs_current": bool(row["canonical_inputs_current"]),
+                    "source_snapshot": source_snapshot,
                     "effect_count": effect_count,
                     "missing_receipt_count": missing_receipt_count,
                     "read_only": True,

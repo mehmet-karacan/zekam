@@ -44,6 +44,8 @@
 
 - Gorev 2 WP-07.01..04: Operational checkpoint payload dogrulamasi canonical JSON boyutunu 16 KiB, derinligi ve alan sayisini sinirlar; secret/credential/token/prompt/response/transcript/raw-content/private-key alan veya degerlerini ve `grants_authority=true` durumunu reddeder. Unit regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve WP kabul kapilari acik.
 
+- Gorev 2 WP-07.02/04: Bound job resume readback'i source snapshot ID varken revision/tree/content/config digestlerini canonical SQLite join ile tasir; eksik snapshot readback'i fail-closed reddeder. Unit regresyon kaynagi hazir, CALISTIRILMADI. Lease/grant yeniden edinimi ve WP kabul kapilari acik.
+
 - Gorev 4 WP-04/WP-06.01: ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 - Gorev 4 WP-04/WP-06.01: ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

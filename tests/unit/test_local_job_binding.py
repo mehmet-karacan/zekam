@@ -412,6 +412,9 @@ def test_scoped_bound_job_resume_reports_drift_and_missing_receipt_without_paylo
         (summary,) = uow.list_bound_jobs_limited(work_item_ids=(binding.work_item_id,), limit=20)
         assert summary["job_id"] == job.id
         assert summary["canonical_inputs_current"] is True
+        assert summary["source_snapshot"]["id"] == binding.source_snapshot_id
+        assert summary["source_snapshot"]["revision_ref"] == "revision-1"
+        assert summary["source_snapshot"]["tree_digest"] == digest("tree")
         assert summary["effect_count"] == summary["missing_receipt_count"] == 1
         assert summary["grants_authority"] is False
         assert "omit-me" not in str(summary) and "binding-owner" not in str(summary)
