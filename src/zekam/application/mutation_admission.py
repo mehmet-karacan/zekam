@@ -500,7 +500,13 @@ class CliMutationAdmissionRegistry:
             rules.append(
                 CliMutationRule(
                     command_path,
-                    requires_full_continuity=True,
+                    # A LOCAL_EFFECT exemption is an explicitly reviewed
+                    # authority-free local write and must not be mislabeled as
+                    # a full-continuity mutation.  Control-plane exemptions
+                    # still retain the common continuity gate.
+                    requires_full_continuity=(
+                        exemption is not MutationAdmissionExemption.LOCAL_EFFECT
+                    ),
                     exemption=exemption,
                     always_mutating=command_path in _ALWAYS_MUTATING_FULL_CONTINUITY,
                     mutation_parameters=(
@@ -608,13 +614,19 @@ class CliMutationAdmissionRegistry:
 DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY = CliMutationAdmissionRegistry()
 
 
-def assert_local_effect_admission(command_path: tuple[str, ...]) -> CliMutationAdmission:
-    """Fail closed unless the invocation is one reviewed authority-free local effect."""
+def assert_local_effect_admission(
+    command_path: tuple[str, ...], parameters: Mapping[str, Any] | None = None
+) -> CliMutationAdmission:
+    """Fail closed unless the invocation is one reviewed authority-free local effect.
 
-    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(command_path)
+    ``parameters`` is intentionally optional for always-mutating leaves.  Apply
+    based commands must pass their parsed parameters so a preview can never be
+    upgraded to a local effect by a static command-path check.
+    """
+
+    admission = DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY.classify(command_path, parameters or {})
     if (
-        command_path not in _LOCAL_EFFECT_COMMANDS
-        or not admission.mutating
+        not admission.mutating
         or admission.requires_full_continuity
         or admission.requires_existing_hydration
         or admission.exemption is not MutationAdmissionExemption.LOCAL_EFFECT

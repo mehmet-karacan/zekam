@@ -27,6 +27,7 @@ from zekam.application.git_publication_enrollment import (
     enroll_publication_trust,
     load_trust_enrollment_plan,
 )
+from zekam.application.mutation_admission import assert_local_effect_admission
 from zekam.application.git_publication_wire import (
     publication_authorization_from_body,
     publication_evidence_from_body,
@@ -113,6 +114,7 @@ def trust_rotate_command(
         if not apply:
             console.print_json(json.dumps(preview_trust_rotation(context.home, plan, approval)))
             return
+        assert_local_effect_admission(("git", "publication", "trust-rotate"), {"apply": apply})
         if run_id is None or plan_digest != plan["plan_digest"]:
             raise PolicyViolation("Publication rotation exact Work/plan apply binding required")
         with SQLiteOperationalStore(
@@ -207,6 +209,7 @@ def trust_enroll_command(
                 json.dumps({"plan": plan, "apply": False, "grants_authority": False})
             )
             return
+        assert_local_effect_admission(("git", "publication", "trust-enroll"), {"apply": apply})
         if run_id is None or plan_digest != plan["plan_digest"]:
             raise PolicyViolation("Publication enrollment exact Work/plan apply binding required")
         store = SQLiteOperationalStore(context.settings.database.sqlite_path(context.home))
@@ -514,6 +517,10 @@ def evidence_bundle_command(
         document = _read(plan_file)
         publication = publication_plan_from_body(document.get("plan", document))
         context = _context(home)
+        if apply:
+            assert_local_effect_admission(
+                ("git", "publication", "evidence-bundle"), {"apply": apply}
+            )
         operation = admit_publication_evidence if apply else prepare_publication_evidence
         result = operation(
             context.home,
@@ -670,6 +677,7 @@ def apply_command(
                 )
             )
             return
+        assert_local_effect_admission(("git", "publication", "apply"), {"apply": apply})
         context = _context(home)
         replay = replay_canonical_job(
             context.home,
@@ -719,6 +727,9 @@ def apply_admission_command(
     try:
         context = _context(home)
         if apply:
+            assert_local_effect_admission(
+                ("git", "publication", "apply-admission"), {"apply": apply}
+            )
             if authorization_id is None:
                 raise ValidationFailed(
                     "Publication native yayin exact approved authorization ister"
