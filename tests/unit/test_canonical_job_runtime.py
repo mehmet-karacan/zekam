@@ -141,6 +141,7 @@ def test_generic_consumer_cannot_take_index_or_measurement_jobs(world):
         "skill.native.execute",
         "skill.invocation.from-execution",
         "skill.outcome.native-verify",
+        "skill.outcome.native-record",
     ):
         world.runtime.enqueue(
             idempotency_key=operation, payload={"operation": operation}, binding=world.binding

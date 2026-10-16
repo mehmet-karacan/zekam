@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Mapping
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -1668,6 +1668,69 @@ class SQLiteSkillLifecycle:
         )
         return value
 
+    @contextmanager
+    def _canonical_recording_fence(self, binding: Any, *, operation: str, input_digest: str):
+        from zekam.application.canonical_job_runtime import canonical_job_key
+        from zekam.application.local_runtime import LocalJobBinding
+        from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+
+        if type(binding) is not LocalJobBinding or operation not in {
+            "skill.invocation.native-record",
+            "skill.invocation.from-execution",
+            "skill.outcome.native-record",
+        }:
+            raise PolicyViolation("Skill recording exact operation/binding required")
+        parse_digest(input_digest)
+        runtime = SQLiteLocalRuntimeStore(self.operational_path, existing_only=True)
+        snapshot = runtime.job_snapshot(
+            canonical_job_key(binding.binding_digest, operation, input_digest)
+        )
+        if snapshot is None or runtime.job_binding(snapshot["job_id"]) != binding:
+            raise PolicyViolation("Native invocation own canonical recording claim required")
+        payload = {
+            "operation": operation,
+            "input_digest": input_digest,
+            "work_binding_digest": binding.binding_digest,
+        }
+        effect = digest(
+            {
+                "operation": operation,
+                "binding": binding.binding_digest,
+                "input": input_digest,
+            }
+        )
+        with closing(
+            sqlite3.connect(
+                f"{self.operational_path.resolve().as_uri()}?mode=rw", uri=True, timeout=5.0
+            )
+        ) as operational:
+            operational.execute("begin immediate")
+            rows = operational.execute(
+                "select j.state,j.payload_json,j.fencing_counter,c.operation,c.effect_digest,"
+                "c.fencing_token,l.fencing_token,l.expires_at,r.id from local_job j "
+                "join local_effect_claim c on c.job_id=j.id "
+                "join local_lease l on l.id=c.lease_id and l.job_id=j.id "
+                "left join local_effect_receipt r on r.claim_id=c.id where j.id=?",
+                (snapshot["job_id"],),
+            ).fetchall()
+            if len(rows) != 1:
+                raise PolicyViolation("Native invocation single recording claim required")
+            row = rows[0]
+            expires = dt.datetime.fromisoformat(str(row[7]).replace("Z", "+00:00"))
+            if (
+                row[0] != "running"
+                or canonical_json(json.loads(str(row[1]))) != canonical_json(payload)
+                or row[3] != operation
+                or row[4] != effect
+                or not (row[2] == row[5] == row[6])
+                or expires.tzinfo is None
+                or expires <= dt.datetime.now(dt.UTC)
+                or row[8] is not None
+            ):
+                raise PolicyViolation("Native invocation live claim/fence drift")
+            yield operational
+            operational.rollback()
+
     def record_native_invocation(
         self,
         *,
@@ -1677,7 +1740,6 @@ class SQLiteSkillLifecycle:
         allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
     ) -> dict[str, Any]:
         """Atomically consume one native load under its own canonical recording claim."""
-        from zekam.application.canonical_job_runtime import canonical_job_key
         from zekam.application.local_runtime import LocalJobBinding
         from zekam.application.composition import build_context
         from zekam.application.skill_native_invocation import (
@@ -1686,7 +1748,6 @@ class SQLiteSkillLifecycle:
             build_native_invocation_plan,
         )
         from zekam.application.project_rag_runtime import resolve_project_source
-        from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
         plan = json.loads(canonical_json(plan))
         context = build_context(home=home)
@@ -1736,53 +1797,9 @@ class SQLiteSkillLifecycle:
             raise PolicyViolation(
                 "Native invocation source changed before recording claim consumption"
             )
-        runtime = SQLiteLocalRuntimeStore(self.operational_path, existing_only=True)
-        snapshot = runtime.job_snapshot(
-            canonical_job_key(binding.binding_digest, OPERATION, plan["plan_digest"])
-        )
-        if snapshot is None or runtime.job_binding(snapshot["job_id"]) != binding:
-            raise PolicyViolation("Native invocation own canonical recording claim required")
-        payload = {
-            "operation": OPERATION,
-            "input_digest": plan["plan_digest"],
-            "work_binding_digest": binding.binding_digest,
-        }
-        effect = digest(
-            {
-                "operation": OPERATION,
-                "binding": binding.binding_digest,
-                "input": plan["plan_digest"],
-            }
-        )
-        with closing(
-            sqlite3.connect(
-                f"{self.operational_path.resolve().as_uri()}?mode=rw", uri=True, timeout=5.0
-            )
+        with self._canonical_recording_fence(
+            binding, operation=OPERATION, input_digest=plan["plan_digest"]
         ) as operational:
-            operational.execute("begin immediate")
-            rows = operational.execute(
-                "select j.state,j.payload_json,j.fencing_counter,c.operation,c.effect_digest,"
-                "c.fencing_token,l.fencing_token,l.expires_at,r.id from local_job j "
-                "join local_effect_claim c on c.job_id=j.id "
-                "join local_lease l on l.id=c.lease_id and l.job_id=j.id "
-                "left join local_effect_receipt r on r.claim_id=c.id where j.id=?",
-                (snapshot["job_id"],),
-            ).fetchall()
-            if len(rows) != 1:
-                raise PolicyViolation("Native invocation single recording claim required")
-            row = rows[0]
-            expires = dt.datetime.fromisoformat(str(row[7]).replace("Z", "+00:00"))
-            if (
-                row[0] != "running"
-                or canonical_json(json.loads(str(row[1]))) != canonical_json(payload)
-                or row[3] != OPERATION
-                or row[4] != effect
-                or not (row[2] == row[5] == row[6])
-                or expires.tzinfo is None
-                or expires <= dt.datetime.now(dt.UTC)
-                or row[8] is not None
-            ):
-                raise PolicyViolation("Native invocation live claim/fence drift")
             active = self.require_active_package(
                 plan["managed_binding"]["package_digest"], allowed_scopes=allowed_scopes
             )
@@ -1831,7 +1848,6 @@ class SQLiteSkillLifecycle:
                     )
                     values.append(previous)
                 learning.commit()
-            operational.rollback()
         return {
             "schema": "zekam-native-skill-invocation-result/v1",
             "plan": plan,
@@ -1839,6 +1855,95 @@ class SQLiteSkillLifecycle:
             "state": "unverified",
             "skill_effect_verified": False,
             "host_attested": False,
+            "provider_calls": 0,
+            "grants_authority": False,
+        }
+
+    def record_native_outcome(
+        self,
+        *,
+        home: Path,
+        plan: dict[str, Any],
+        binding: Any,
+        allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
+    ) -> dict[str, Any]:
+        """Consume the actual native verifier operation, never a relabeled legacy receipt."""
+        from zekam.application.skill_native_invocation import _require_home
+        from zekam.application.skill_outcome_recording import OPERATION, build_outcome_record_plan
+        from zekam.application.skill_outcome_verification import _verification_owner
+
+        _require_home(home, self)
+        plan = json.loads(canonical_json(plan))
+        _verification_owner(plan, binding)
+        current = build_outcome_record_plan(
+            home,
+            lifecycle=self,
+            verifier_ref=plan["verifier_job_id"],
+            project_id=binding.project_id,
+            allowed_scopes=allowed_scopes,
+        )
+        if (
+            canonical_json(current) != canonical_json(plan)
+            or binding.plan_digest != plan["plan_digest"]
+            or plan["recordable"] is not True
+            or plan["outcome_body"] is None
+        ):
+            raise PolicyViolation("Native outcome exact verified source/recording binding required")
+        body = plan["outcome_body"]
+        value = digest(body)
+        with self._canonical_recording_fence(
+            binding, operation=OPERATION, input_digest=plan["plan_digest"]
+        ):
+            with closing(self._connect()) as learning:
+                learning.execute("begin immediate")
+                invocation = learning.execute(
+                    "select state,work_ref,run_ref,agent_ref,body_json from skill_invocation_v2 where invocation_digest=?",
+                    (body["invocation_digest"],),
+                ).fetchone()
+                origin = plan["execution_work_binding"]
+                if (
+                    invocation is None
+                    or invocation[0] not in {"completed", "unverified"}
+                    or invocation[1] != origin["work_item_id"]
+                    or invocation[2] != origin["run_id"]
+                    or invocation[3] == body["verifier_ref"]
+                    or digest(json.loads(invocation[4])) != body["invocation_digest"]
+                ):
+                    raise PolicyViolation("Native outcome exact invocation source/owner drift")
+                existing = learning.execute(
+                    "select outcome_digest,body_json from skill_outcome_v2 where invocation_digest=?",
+                    (body["invocation_digest"],),
+                ).fetchone()
+                if existing is not None:
+                    if existing[0] != value or canonical_json(
+                        json.loads(existing[1])
+                    ) != canonical_json(body):
+                        raise ConcurrencyConflict(
+                            "Native outcome immutable decision already exists"
+                        )
+                else:
+                    learning.execute(
+                        "insert into skill_outcome_v2 values(?,?,?,?,?,?,?,?)",
+                        (
+                            value,
+                            body["invocation_digest"],
+                            body["status"],
+                            body["grader_kind"],
+                            body["verifier_ref"],
+                            body["evidence_digest"],
+                            body["observed_at"],
+                            canonical_json(body),
+                        ),
+                    )
+                learning.commit()
+        return {
+            "schema": "zekam-native-skill-outcome-record-result/v1",
+            "plan": plan,
+            "outcome_digest": value,
+            "status": body["status"],
+            "verification_scope": "one-native-task-artifact",
+            "quality_evaluation_complete": False,
+            "activatable": False,
             "provider_calls": 0,
             "grants_authority": False,
         }

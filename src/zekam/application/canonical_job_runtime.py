@@ -153,6 +153,7 @@ def run_canonical_job(
         "skill.native.execute",
         "skill.invocation.from-execution",
         "skill.outcome.native-verify",
+        "skill.outcome.native-record",
     }:
         raise PolicyViolation("Canonical job operation unsupported")
     parse_digest(input_digest)
