@@ -647,6 +647,14 @@ def run_research(
         raise PolicyViolation("Research apply exact remote-query ve agent-run authorization ister")
     if cancel is not None and cancel.is_set():
         raise PolicyViolation("Research iptal edildi")
+    required_source_binding = (
+        "source_revision",
+        "tree_digest",
+        "source_identity_digest",
+        "generation_digest",
+    )
+    if any(key not in plan.body for key in required_source_binding):
+        raise PolicyViolation("Research plan source identity binding eksik")
     if work_binding is not None and (
         type(work_binding) is not LocalJobBinding
         or work_binding.project_id != plan.project_id
