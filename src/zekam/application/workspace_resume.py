@@ -10,7 +10,7 @@ from zekam.application.bounded_file import read_bounded_text
 from zekam.application.capability_inventory import compact_capability_summary
 from zekam.application.opencode_lifecycle import resume_projection
 from zekam.application.project_knowledge_index import source_identity_digest
-from zekam.application.run_readback import run_document
+from zekam.application.run_readback import execution_guard, run_document
 from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
@@ -314,6 +314,7 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 ).items()
             }
             uow.commit()
+    execution = execution_guard(bound_jobs)
     project_names = {item.id: item.slug for item in projects}
     work = open_work + completed_work
     # Apply state selection before SQL LIMIT so completed history cannot hide
@@ -339,7 +340,15 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
         for item in open_work[:_OPEN_WORK_LIMIT]
         if item.state == "blocked" or dependencies[item.id]["blocked"]
     ]
-    if blocked_work:
+    if execution["status"] in {
+        "recovery-required",
+        "revalidation-required",
+        "manual-review-required",
+    }:
+        next_safe_action = execution["next_safe_action"]
+    elif execution["status"] in {"lease-active", "lease-reacquisition-required", "no-bound-job"}:
+        next_safe_action = execution["next_safe_action"]
+    elif blocked_work:
         next_safe_action = "Bloklu work kayitlarini ve bagimlilik kanitlarini incele."
     elif latest_checkpoint is not None and latest_checkpoint["next_safe_action"]:
         next_safe_action = latest_checkpoint["next_safe_action"]
@@ -382,10 +391,9 @@ def build_resume_packet(home: Path, *, session_id: str | None = None) -> dict[st
                 for item in completed_work[:_COMPLETED_WORK_LIMIT]
             ],
         },
+        "execution": execution,
         "navigation": {
-            "current_objective": _bounded(latest_checkpoint.get("next_safe_action"))
-            if latest_checkpoint is not None
-            else (_bounded(open_work[0].title) if open_work else None),
+            "current_objective": _bounded(next_safe_action),
             "completed": (
                 _completed_summaries()
                 if latest_checkpoint is None

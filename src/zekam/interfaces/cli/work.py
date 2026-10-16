@@ -13,7 +13,7 @@ from rich.console import Console
 
 from zekam.application.bounded_file import read_bounded_bytes
 from zekam.application.operational_store import OperationalWorkRecord
-from zekam.application.run_readback import run_document
+from zekam.application.run_readback import execution_guard, run_document
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ZekamError
 from zekam.domain.realm import DEFAULT_REALM_SLUG
@@ -91,6 +91,24 @@ def resume_command(
         }
         for item in items[:_RESUME_WORK_LIMIT]
     ]
+    execution = execution_guard(bound_jobs)
+    if execution["status"] in {
+        "recovery-required",
+        "revalidation-required",
+        "manual-review-required",
+        "lease-active",
+        "lease-reacquisition-required",
+        "no-bound-job",
+    }:
+        next_safe_action = execution["next_safe_action"]
+    elif any(
+        item["state"] == "ready" and not item["dependencies"]["blocked"] for item in open_items
+    ):
+        next_safe_action = "ready work item sec; guncel yetki ve lease kosullarini dogrula"
+    elif open_items:
+        next_safe_action = "acik islerin durum ve bagimliliklarini incele"
+    else:
+        next_safe_action = "acik is bulunmuyor"
     activity = sorted(
         (
             {"work_item_id": work_id} | event
@@ -114,18 +132,8 @@ def resume_command(
         "bound_jobs": list(bound_jobs[:_RESUME_BOUND_JOB_LIMIT]),
         "bound_jobs_truncated": len(bound_jobs) > _RESUME_BOUND_JOB_LIMIT,
         "bound_jobs_scope": "returned-open-work-window",
-        "next_safe_action": (
-            "ready work item sec; guncel yetki ve lease kosullarini dogrula"
-            if any(
-                item["state"] == "ready" and not item["dependencies"]["blocked"]
-                for item in open_items
-            )
-            else (
-                "acik islerin durum ve bagimliliklarini incele"
-                if open_items
-                else "acik is bulunmuyor"
-            )
-        ),
+        "execution": execution,
+        "next_safe_action": next_safe_action,
         "read_only": True,
         "grants_authority": False,
         "bounded": True,
@@ -306,6 +314,7 @@ def show_command(
                 "bound_jobs": list(bound_jobs[:_RESUME_BOUND_JOB_LIMIT]),
                 "bound_jobs_truncated": len(bound_jobs) > _RESUME_BOUND_JOB_LIMIT,
                 "bound_jobs_scope": "exact-work",
+                "execution": execution_guard(bound_jobs),
                 "runs": [_run_document(run) for run in runs[:_RESUME_RUN_LIMIT]],
                 "runs_truncated": len(runs) > _RESUME_RUN_LIMIT,
                 "run_limit": _RESUME_RUN_LIMIT,

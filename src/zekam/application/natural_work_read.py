@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from zekam.application.operational_store import OperationalUnitOfWork
-from zekam.application.run_readback import run_document
+from zekam.application.run_readback import execution_guard, run_document
 from zekam.domain.canonical import digest
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.intake import normalize_text
@@ -102,6 +102,7 @@ def read_work_request(
         work_item_ids=(work.id,),
         limit=_BOUND_JOB_LIMIT + 1,
     )
+    execution = execution_guard(bound_jobs)
     body: dict[str, Any] = {
         "schema": "zekam-natural-work-read/v1",
         "status": "reported",
@@ -122,6 +123,7 @@ def read_work_request(
         "bound_jobs": list(bound_jobs[:_BOUND_JOB_LIMIT]),
         "bound_jobs_truncated": len(bound_jobs) > _BOUND_JOB_LIMIT,
         "bound_jobs_scope": "exact-work",
+        "execution": execution,
         "read_only": True,
         "grants_authority": False,
         "provider_calls": 0,

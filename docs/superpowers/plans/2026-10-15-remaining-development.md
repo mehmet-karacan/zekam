@@ -284,6 +284,8 @@
 
 - 16 Ekim 2026 source binding metadata readback: `project source` planinda ayni bounded content-free `metadata_inventory_digest` baglandi. Binding path/revision kimligi degismeden ignored/generated metadata snapshot'i plan readback'inde gorunur; partial inventory fail-closed reddedilir. Test CALISTIRILMADI; native source kabul kapisi acik.
 
+- 16 Ekim 2026 WP-07.01..04 execution guard: `work resume`, canonical Work show ve dogal Work readback artik bagli job lease/recovery/binding durumunu ortak salt-okunur projection ile raporlar. Receipt'siz, recovery-required, binding driftli veya eksik readback devam yonlendirmesi yerine recovery/revalidation ister; yeni lease/grant edinimi authority'siz acik bir sonraki adim olarak kalir. Test CALISTIRILMADI; gercek lease/grant yeniden edinimi ve WP kabul kapisi acik.
+
 - Gorev 3 publication CLI composition: config-pinned public trust loader, strict plan/evidence/approval codec, native CLI plan/import/status/revoke/apply ve mutation admission baglandi. Imzali import exact replay idempotent; tarihsel completed apply yeni remote/trust islemi yapmaz. Regresyon kodu hazir, CALISTIRILMADI. Gercek producer enrollment/receipt producer ve native host enforcement kabulleri acik.
 
 - 16 Ekim 2026 yeni hedef active; onceki duraklatilmis hedef degistirilmeden kalan tum kapsam icin yeni sayac baslatildi. Gorev 3 signed SQLite publication ledger v9, gercek source receipt/CAS dogrulamasi ve atomic live-claim consumption eklendi. Migration/backup/CLI db dry-run ve runtime version destekleri baglandi; kullanici DB migration'i yapilmadi. Regresyon kodu hazir, CALISTIRILMADI. Trusted producer provisioning, gercek test/verifier receipt adapter ve publication CLI composition acik.
