@@ -127,6 +127,13 @@ def _setup(tmp_path):
     )
 
 
+# Diger native OpenCode test modulleri bu ortak fixture'i kullanir. Eski
+# ad olan _setup korunurken, public test fixture baglantisi _request ile
+# deterministik bir bicimde saglanir.
+def _request(tmp_path):
+    return _setup(tmp_path)
+
+
 def _output(spec, stdout, *, exit_code=0):
     return ProcessOutput(
         ProcessResult(
@@ -248,6 +255,7 @@ def test_corrupt_cas_rejected_before_cli_start(tmp_path, monkeypatch):
 
 def test_loopback_profile_uses_empty_private_data_without_remote_permission(tmp_path, monkeypatch):
     from dataclasses import replace
+
     from zekam.application.unit_test_provider_profile import BatchProvider, BatchProviderProfile
 
     adapter, request, permit = _setup(tmp_path)

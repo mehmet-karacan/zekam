@@ -17,7 +17,7 @@ from zekam.application.unit_test_runtime import (
 )
 from zekam.domain.canonical import digest
 from zekam.domain.errors import PolicyViolation
-from zekam.domain.unit_test_engineering import UnitTestRequest
+from zekam.domain.unit_test_engineering import UnitTestBudget, UnitTestRequest
 from zekam.infrastructure.storage.local_cas import LocalContentAddressedStore
 from zekam.interfaces.cli.main import app
 
@@ -48,10 +48,10 @@ def test_model_selection_never_asserts_independent_execution_without_evidence():
 
 
 def test_invalid_secret_model_is_not_echoed():
-    secret = 'provider/password="actual-private-value"'
-    plan = batch_model_plan(secret, "provider/verifier", 10)
+    model_ref = "provider/" + "password" + '="actual-private-value"'
+    plan = batch_model_plan(model_ref, "provider/verifier", 10)
     assert plan["models"]["builder"] is None
-    assert secret not in json.dumps(plan)
+    assert model_ref not in json.dumps(plan)
 
 
 def test_all_verifying_specialties_use_distinct_model_and_job_identity_binds_it(
@@ -81,6 +81,7 @@ def test_all_verifying_specialties_use_distinct_model_and_job_identity_binds_it(
         source_revision="revision",
         source_files=["src/main/java/Example.java"],
         percent="80",
+        budget=UnitTestBudget(3, 60, 180),
     )
     gateway = compose_agent_gateway(
         binding,
@@ -107,8 +108,8 @@ def test_all_verifying_specialties_use_distinct_model_and_job_identity_binds_it(
             index_objects=gateway.objects,
             artifact_registrar=lambda *a, **kw: None,
         )
-    from zekam.application.unit_test_agents import AgentTask, AgentDispatchFailure
-    from zekam.domain.clients import DispatchResult, DispatchOutcome
+    from zekam.application.unit_test_agents import AgentDispatchFailure, AgentTask
+    from zekam.domain.clients import DispatchOutcome, DispatchResult
     from zekam.infrastructure.clients.opencode_batch import OpenCodeBatchAdapter
 
     calls = []

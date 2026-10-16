@@ -224,7 +224,10 @@ def batch_config(
         document["agents"][_AGENT].update(
             steps=2,
             permissions=[*deny, allow],
-            system=f"Call the skill tool exactly once with id {native_skill.name}. Then return only the requested JSON. No other tools.",
+            system=(
+                f"Call the skill tool exactly once with id {native_skill.name}. "
+                "Then return only the requested JSON. No other tools."
+            ),
         )
         document["skills"] = [skill_root or "$PRIVATE_NATIVE_SKILL_ROOT"]
         document["experimental"]["policies"].extend(
@@ -549,7 +552,14 @@ def opencode_batch_adapter(
             client_id="opencode",
             executable=executable,
             capabilities=frozenset(
-                {"chat", "code", "structured-result", "model-selection", "cancellation"}
+                {
+                    "chat",
+                    "code",
+                    "structured-result",
+                    "model-selection",
+                    "cancellation",
+                    "child-dispatch",
+                }
             ),
             version=SUPPORTED_VERSION,
         ),
