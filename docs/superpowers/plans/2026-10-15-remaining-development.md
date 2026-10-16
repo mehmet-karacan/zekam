@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- 16 Ekim 2026 07:40 checkpoint talimati: sekiz yeni kaynak dilimi origin/main'e push edildi, tamaminda testler CALISTIRILMADI. Devir notu docs/CHECKPOINT_2026-10-16_0740.md ve MODEL_DEVIR_METNI.md; mevcut hedef tamamlanmis sayilmaz. 07:40'ta conversational hedef duraklatilir; kullanici devam et diyene kadar yeni gelistirme baslatilmaz.
+
 - Gorev 5/6 WP-10/11 radar connection omru: 37 repository transaction yolu ortak commit/rollback + finally close context'ine baglandi. SQLite context manager'in dosya handle'ini kapatmama davranisina/GC'ye guvenilmez; read-only ve writer basari/hata yollarinda handle birakilir. Retained gercek connection regresyon kaynaklari hazir, CALISTIRILMADI. Schema/migration degismedi; genel kabul acik.
 
 - Gorev 5 WP-10.05 tournament contract: bounded integer budget/usage, finite nonbool score, exact gate/isolation/UUID ve plan digest kontrolleri eklendi. Future completed_at selection'a giremez; same declared model case/#variant bagimsizlik sayilmaz. Negatif regresyon kaynaklari hazir, CALISTIRILMADI. Bu typed contract'tir; actual dispatch/receipt/model bagimsizligi, fixture/baseline/no-progress runner ve WP kabulu acik; docs/RADAR_RUNBOOK.md.
