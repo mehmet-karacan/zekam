@@ -813,9 +813,12 @@ def _source_freshness_for_query(
 
     For atomic Git roots the per-query full ``discover().tree_digest`` re-scan is
     replaced by a bounded HEAD + ``git status`` content-aware check (see
-    ``_git_source_freshness_signal``).  For ordinary directory roots there is no
-    journal, so the recorded content-based ``directory:`` revision is compared to
-    the current one; a mismatch is a content change and never a silent "current".
+    ``_git_source_freshness_signal``), followed only by a content-free metadata
+    inventory pass when the indexed state carries that signal.  For ordinary
+    directory roots there is no journal, so the recorded content-based
+    ``directory:`` revision is compared to the current one and the same bounded
+    metadata signal is checked when available; a mismatch is never a silent
+    "current" result.
     """
     if source_root is None:
         return ["project-source-binding-unavailable"], {"source_freshness": "unavailable"}
@@ -2502,6 +2505,15 @@ def build_project_source_binding_plan(
     if root == Path(root.anchor):
         raise ValidationFailed("Project source root bounded directory olmali")
     head, status_digest, revision = _git_source_state(root)
+    metadata_discovery = discover(
+        root,
+        policy=DiscoveryPolicy(read_content=False, scan_secrets=False),
+    )
+    if (
+        metadata_discovery.truncated
+        or metadata_discovery.inventory_status is not InventoryStatus.COMPLETE
+    ):
+        raise ValidationFailed("Project source metadata inventory partial")
     source_kind = "git" if head else "directory"
     body = {
         "schema": "zekam-project-local-source-binding/v1",
@@ -2513,6 +2525,7 @@ def build_project_source_binding_plan(
         "git_head": head or None,
         "git_status_digest": f"sha256:{status_digest}" if head else None,
         "source_revision": revision,
+        "metadata_inventory_digest": metadata_discovery.metadata_inventory_digest,
     }
     return body | {
         "schema": "zekam-project-local-source-binding-plan/v1",
