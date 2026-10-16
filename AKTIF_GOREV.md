@@ -1788,6 +1788,13 @@ Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
   oracle grade'ini gercek artifact'ten tekrar hesaplar; failure/mismatch korunur.
   Regresyon kaynaklari hazir, CALISTIRILMADI. Execution receipt -> invocation
   ledger, ayri native verifier -> outcome ve gercek host/kalite kabulu aciktir.
+
+  16 Ekim 2026 actual execution -> invocation: source native execute terminal
+  receipt/artifact'i ayri canonical recording claim altinda ledger'a baglandi.
+  Original execution Work/run kimligi korunur; baska Work/config/source'a
+  reassociation ve duplicate call reddedilir. Historical report kaynak receipt
+  ve row zincirini tekrar okur. Regresyonlar CALISTIRILMADI; state unverified
+  kalir. Actual farkli verifier/receipt -> outcome ve host/kalite kabulu acik.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
 - [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 - [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.

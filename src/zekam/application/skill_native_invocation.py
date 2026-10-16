@@ -193,6 +193,7 @@ def _read_rows(
     lifecycle: SQLiteSkillLifecycle, result: dict[str, Any], binding: LocalJobBinding
 ) -> None:
     plan = result["plan"]
+    origin = plan.get("execution_work_binding", binding.body())
     previous = None
     rows = result.get("invocation_digests")
     if type(rows) is not list or len(rows) != len(STATES):
@@ -202,8 +203,8 @@ def _read_rows(
             "schema": "zekam-skill-invocation/v2",
             "revision_digest": plan["managed_binding"]["revision_digest"],
             "package_digest": plan["managed_binding"]["package_digest"],
-            "work_ref": binding.work_item_id,
-            "run_ref": binding.run_id,
+            "work_ref": origin["work_item_id"],
+            "run_ref": origin["run_id"],
             "agent_ref": plan["agent_ref"],
             "client_id": "opencode",
             "harness_digest": plan["harness_digest"],
@@ -295,12 +296,18 @@ def read_native_invocation(
     allowed_scopes: tuple[tuple[SkillScopeKind, str], ...],
 ) -> dict[str, Any]:
     _require_home(home, lifecycle)
+    from zekam.application.skill_execution_invocation import (
+        OPERATION as EXECUTION_OPERATION,
+        build_execution_invocation_plan,
+        execution_recording_context,
+    )
+
     runtime = SQLiteLocalRuntimeStore(lifecycle.operational_path, existing_only=True)
     snapshot = runtime.job_snapshot(reference)
     if (
         snapshot is None
         or snapshot["state"] != "completed"
-        or snapshot["payload"].get("operation") != OPERATION
+        or snapshot["payload"].get("operation") not in {OPERATION, EXECUTION_OPERATION}
     ):
         raise PolicyViolation("Native invocation completed recording job required")
     binding = runtime.job_binding(snapshot["job_id"])
@@ -309,7 +316,10 @@ def read_native_invocation(
     objects = LocalContentAddressedStore(home / load_settings(home=home).object_store_relative)
     _object(objects, snapshot["terminal_evidence_digest"], maximum=64_000)
     result = replay_canonical_job(
-        home, binding=binding, operation=OPERATION, input_digest=snapshot["payload"]["input_digest"]
+        home,
+        binding=binding,
+        operation=snapshot["payload"]["operation"],
+        input_digest=snapshot["payload"]["input_digest"],
     )
     if (
         result is None
@@ -326,5 +336,17 @@ def read_native_invocation(
     )
     if candidate["package_digest"] != result["plan"]["managed_binding"]["package_digest"]:
         raise PolicyViolation("Native invocation recorded candidate scope drift")
+    if snapshot["payload"]["operation"] == EXECUTION_OPERATION:
+        execution_recording_context(result["plan"], binding)
+        current = build_execution_invocation_plan(
+            home,
+            lifecycle=lifecycle,
+            execution_ref=result["plan"]["execution_job_id"],
+            project_id=project_id,
+            allowed_scopes=allowed_scopes,
+            require_active=False,
+        )
+        if canonical_json(current) != canonical_json(result["plan"]):
+            raise PolicyViolation("Invocation projection historical native source drift")
     _read_rows(lifecycle, result, binding)
     return result | {"receipt_evidence_digest": snapshot["terminal_evidence_digest"]}

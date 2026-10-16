@@ -41,6 +41,10 @@ from zekam.application.skill_native_execution import (
     read_native_execution,
     run_native_execution,
 )
+from zekam.application.skill_execution_invocation import (
+    build_execution_invocation_plan,
+    run_execution_invocation,
+)
 from zekam.application.skill_audits import build_skill_audit_plan, read_skill_audit, run_skill_audit
 from zekam.application.skill_measured_aggregate import (
     build_measured_aggregate_plan,
@@ -793,6 +797,66 @@ def invocation_report_command(
         raise typer.Exit(70) from exc
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         typer.echo("Hata: Native invocation kayit kaniti okunamadi", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("invocation-from-execution")
+def invocation_from_execution_command(
+    execution_ref: Annotated[str, typer.Argument()],
+    project: Annotated[str, typer.Option("--project")] = "zekam",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    work_run: Annotated[str | None, typer.Option("--work-run")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
+    work_step: Annotated[str | None, typer.Option("--work-step")] = None,
+    work_binding_digest: Annotated[str | None, typer.Option("--work-binding-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Record actual native execution using its original Work/run identity."""
+    try:
+        _learning, lifecycle, resolved_home = _paths(home)
+        scopes = _cli_scope(lifecycle, resolved_home, "project", project)
+        with SQLiteOperationalStore(lifecycle.operational_path).unit_of_work() as uow:
+            registered = uow.resolve_project(scopes[0][1])
+        plan = build_execution_invocation_plan(
+            resolved_home,
+            lifecycle=lifecycle,
+            execution_ref=execution_ref,
+            project_id=registered.id,
+            allowed_scopes=scopes,
+        )
+        binding = resolve_optional_work_binding(
+            resolved_home,
+            run_id=work_run,
+            work_revision=work_revision,
+            run_step_id=work_step,
+            expected_binding_digest=work_binding_digest,
+            project_id=registered.id,
+            plan_digest=plan["plan_digest"],
+            apply=apply,
+        )
+        if not apply:
+            _emit(
+                plan
+                | ({"work_binding": work_binding_document(binding)} if binding is not None else {})
+            )
+            return
+        if binding is None or plan_digest != plan["plan_digest"]:
+            raise PolicyViolation("Execution invocation exact recording Work/plan required")
+        _emit(
+            run_execution_invocation(
+                resolved_home,
+                lifecycle=lifecycle,
+                plan=plan,
+                binding=binding,
+                allowed_scopes=scopes,
+            )
+        )
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
+        typer.echo("Hata: Native execution invocation kaniti okunamadi", err=True)
         raise typer.Exit(70) from exc
 
 

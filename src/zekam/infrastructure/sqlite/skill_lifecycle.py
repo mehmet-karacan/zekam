@@ -1688,6 +1688,7 @@ class SQLiteSkillLifecycle:
         from zekam.application.project_rag_runtime import resolve_project_source
         from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
+        plan = json.loads(canonical_json(plan))
         context = build_context(home=home)
         if (
             type(binding) is not LocalJobBinding
@@ -1705,13 +1706,32 @@ class SQLiteSkillLifecycle:
             raise PolicyViolation("Native invocation exact home/Work/observation binding required")
         if len(allowed_scopes) != 1 or allowed_scopes[0][0] is not SkillScopeKind.PROJECT:
             raise PolicyViolation("Native invocation exact project recording scope required")
-        current = build_native_invocation_plan(
-            home,
-            lifecycle=self,
-            event_id=plan["native_event_id"],
-            project_root=resolve_project_source(home, allowed_scopes[0][1]),
-            allowed_scopes=allowed_scopes,
+        from zekam.application.skill_execution_invocation import (
+            OPERATION as EXECUTION_OPERATION,
+            SCHEMA as EXECUTION_SCHEMA,
+            build_execution_invocation_plan,
+            execution_recording_context,
         )
+
+        origin = binding.body()
+        if plan["schema"] == EXECUTION_SCHEMA:
+            OPERATION = EXECUTION_OPERATION
+            origin = execution_recording_context(plan, binding)
+            current = build_execution_invocation_plan(
+                home,
+                lifecycle=self,
+                execution_ref=plan["execution_job_id"],
+                project_id=binding.project_id,
+                allowed_scopes=allowed_scopes,
+            )
+        else:
+            current = build_native_invocation_plan(
+                home,
+                lifecycle=self,
+                event_id=plan["native_event_id"],
+                project_root=resolve_project_source(home, allowed_scopes[0][1]),
+                allowed_scopes=allowed_scopes,
+            )
         if canonical_json(current) != canonical_json(plan):
             raise PolicyViolation(
                 "Native invocation source changed before recording claim consumption"
@@ -1799,8 +1819,8 @@ class SQLiteSkillLifecycle:
                         learning,
                         active["revision_digest"],
                         package_digest=plan["managed_binding"]["package_digest"],
-                        work_ref=binding.work_item_id,
-                        run_ref=binding.run_id,
+                        work_ref=origin["work_item_id"],
+                        run_ref=origin["run_id"],
                         agent_ref=plan["agent_ref"],
                         client_id="opencode",
                         harness_digest=plan["harness_digest"],

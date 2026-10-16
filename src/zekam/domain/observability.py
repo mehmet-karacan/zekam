@@ -125,6 +125,7 @@ CANONICAL_COMMANDS: tuple[CommandContract, ...] = (
             "skill evaluation-from-audits",
             "skill invocation-record",
             "skill execute-native",
+            "skill invocation-from-execution",
         )
     ),
     *(
