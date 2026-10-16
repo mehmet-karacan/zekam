@@ -62,6 +62,13 @@
   receipt dogrulamasi korunur. Testler CALISTIRILMADI; quota/backoff ve canli
   provider kabul matrisi acik.
 
+- Gorev 4 WP-05.03: Legacy project embedding apply provider cagrilarinda
+  yalniz transient-unavailable durumlar icin 4 denemeli bounded backoff,
+  cancellation/deadline kesmesi ve toplam provider-call kotasi eklendi.
+  Outcome-unknown/deadline/kalici HTTP hatasi tekrar edilmiyor; receipt/profile
+  dogrulamasi ve CAS oncesi atomiclik korunuyor. Testler CALISTIRILMADI;
+  canli provider ve performans kabul matrisi acik.
+
 - Gorev 4 WP-06.02: Oracle metadata indeksinde `EXECUTE IMMEDIATE` ve `DBMS_SQL.PARSE`
   dinamik SQL hedefleri `unresolved_relations` olarak guvenli nesne kimligi ve belirsizlik
   turu ile kaydedildi; ham SQL, bind degeri ve tahmini lineage kenari uretilmedi. Kaynak

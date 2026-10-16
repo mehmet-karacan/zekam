@@ -37,7 +37,13 @@ from zekam.application.embedding_routing import (
     EmbeddingRouteKind,
     select_embedding_route,
 )
-from zekam.application.provider_adapter import ProviderCallCancelled, ProviderDeadlineExceeded
+from zekam.application.model_health_service import ProbeUnavailable
+from zekam.application.provider_adapter import (
+    ProviderCallCancelled,
+    ProviderDeadlineExceeded,
+    ProviderHTTPUnavailable,
+    ProviderOutcomeUnknown,
+)
 from zekam.application.knowledge_ingestion import IngestionService, pending_version
 from zekam.application.knowledge_parsers import default_router
 from zekam.application.source_discovery import (
@@ -171,6 +177,42 @@ def _check_project_embedding_budget(
         raise ProviderCallCancelled("Project embedding cancelled")
     if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
         raise ProviderDeadlineExceeded("Project embedding deadline expired")
+
+
+def _embed_project_batch_with_retry(
+    provider: EmbeddingProvider,
+    texts: tuple[str, ...],
+    policy: EmbeddingPolicy,
+    *,
+    cancel: threading.Event | None,
+    deadline_monotonic: float | None,
+) -> EmbeddingBatch:
+    """Retry bounded transport-unavailable calls without hiding unknown effects."""
+
+    for attempt in range(4):
+        _check_project_embedding_budget(cancel, deadline_monotonic)
+        try:
+            batch = provider.embed_documents(texts, policy)
+            _check_project_embedding_budget(cancel, deadline_monotonic)
+            return batch
+        except ProbeUnavailable as exc:
+            _check_project_embedding_budget(cancel, deadline_monotonic)
+            if (
+                attempt == 3
+                or isinstance(exc, (ProviderDeadlineExceeded, ProviderOutcomeUnknown))
+                or (isinstance(exc, ProviderHTTPUnavailable) and not exc.retryable)
+            ):
+                raise
+            delay = min(2**attempt, 4)
+            if deadline_monotonic is not None:
+                delay = min(delay, deadline_monotonic - time.monotonic())
+                if delay <= 0:
+                    raise ProviderDeadlineExceeded("Project embedding deadline expired") from None
+            if cancel is None:
+                time.sleep(delay)
+            elif cancel.wait(delay):
+                raise ProviderCallCancelled("Project embedding cancelled") from None
+    raise AssertionError("unreachable")
 
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -1383,6 +1425,7 @@ def apply_project_index(
     batch_size: int = MAX_PROJECT_EMBED_BATCH_SIZE,
     cancel: threading.Event | None = None,
     deadline_monotonic: float | None = None,
+    max_provider_calls: int | None = None,
 ) -> ProjectIndexResult:
     """Persist immutable CAS manifest and atomically commit all PostgreSQL index rows.
 
@@ -1420,18 +1463,32 @@ def apply_project_index(
         type(deadline_monotonic) not in (int, float) or not math.isfinite(float(deadline_monotonic))
     ):
         raise ValidationFailed("Project embedding deadline gecersiz")
+    if max_provider_calls is not None and (
+        type(max_provider_calls) is not int or max_provider_calls < 1
+    ):
+        raise ValidationFailed("Project embedding provider cagrisi siniri gecersiz")
 
     # Provider work finishes before CAS/database mutation. A timeout, partial batch,
     # NaN or dimension drift therefore cannot leave a half-activated generation.
     vectors: dict[str, tuple[float, ...]] = {}
+    provider_calls = 0
     for chunk_batch in _project_embedding_batches(
         plan.chunks, batch_size=batch_size, model_id=plan.embedding_profile.model_ref
     ):
         _check_project_embedding_budget(cancel, deadline_monotonic)
         texts = tuple(chunk.text for chunk in chunk_batch)
-        embedded = embedding_provider.embed_documents(texts, embedding_policy)
+        embedded = _embed_project_batch_with_retry(
+            embedding_provider,
+            texts,
+            embedding_policy,
+            cancel=cancel,
+            deadline_monotonic=deadline_monotonic,
+        )
         _check_project_embedding_budget(cancel, deadline_monotonic)
         verify_document_embedding_batch(texts, embedded, provider_profile)
+        provider_calls += embedded.receipt.provider_call_count
+        if max_provider_calls is not None and provider_calls > max_provider_calls:
+            raise PolicyViolation("Project embedding provider cagrisi kotasi asildi")
         for chunk, vector in zip(chunk_batch, embedded.vectors, strict=True):
             vectors[chunk.chunk_id] = vector
     if len(vectors) != len(plan.chunks):
