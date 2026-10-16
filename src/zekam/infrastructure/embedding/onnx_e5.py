@@ -86,8 +86,8 @@ class LocalE5Configuration:
             raise ConfigurationError("Local E5 dimension 384 olmali")
         if self.max_sequence_length != MAX_SEQUENCE_LENGTH:
             raise ConfigurationError("Local E5 sequence length 512 olmali")
-        if type(self.max_batch_size) is not int or not 1 <= self.max_batch_size <= 32:
-            raise ConfigurationError("Local E5 batch siniri gecersiz")
+        if type(self.max_batch_size) is not int or not 1 <= self.max_batch_size <= MAX_BATCH_SIZE:
+            raise ConfigurationError("Local E5 batch siniri 1..4 olmali")
         if (
             type(self.intra_op_num_threads) is not int
             or self.intra_op_num_threads < 1
