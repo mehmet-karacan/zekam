@@ -983,6 +983,40 @@ def test_research_evidence_empty_result_is_explicit_evidence_gap(
     assert coverage["gaps"] == ["no-citations"]
 
 
+def test_import_reference_keeps_source_kind_and_old_repo_only_policy_does_not_disclose_it(
+    monkeypatch, tmp_path
+):
+    import copy
+    from zekam.domain.research import SourceKind
+
+    home, store, project = _runtime(tmp_path, monkeypatch)
+    plan = build_research_run_plan(
+        store, home, project_ref=project.slug, question="Musteri servisi nerede?"
+    )
+    monkeypatch.setattr(
+        subject,
+        "read_project_citation",
+        lambda *a, **kw: {
+            "source_revision": plan.body["source_revision"],
+            "source_ref": "canonical/reference",
+            "body": "Approved imported specification",
+            "content_digest": digest("content"),
+            "locator": {"block_index": 0},
+            "locator_type": "project-knowledge-reference",
+            "trust": "untrusted-reference",
+        },
+    )
+    rag = {"citations": [{"chunk_id": "reference-1"}], "index_freshness": "current"}
+    evidence, snapshots, _, _ = subject._bounded_evidence(home, plan, rag)
+    assert evidence[0]["source_kind"] == "import" and snapshots[0].kind is SourceKind.IMPORT
+    body = copy.deepcopy(plan.body)
+    body["question"]["policy"]["allowed_kinds"] = ["repository"]
+    restricted = replace(plan, body=body)
+    evidence, snapshots, _, coverage = subject._bounded_evidence(home, restricted, rag)
+    assert not evidence and not snapshots
+    assert "reference-source-not-permitted" in coverage["gaps"]
+
+
 def test_research_evidence_budget_still_scans_secret_after_legacy_fifth(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

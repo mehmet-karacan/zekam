@@ -46,6 +46,11 @@ from zekam.application.embedding_routing import EmbeddingRouteCandidate, Embeddi
 from zekam.application.home import HomeLayout
 from zekam.application.knowledge_file_plane import ProjectProjection
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.reference_corpus import (
+    REFERENCE_PATH_PREFIX,
+    REFERENCE_PARSER,
+    collect_reference_corpus,
+)
 from zekam.application.local_embedding_composition import build_verified_mac_embedding
 from zekam.application.local_runtime import LocalJobBinding
 from zekam.application.model_health_service import ProbeUnavailable
@@ -861,6 +866,11 @@ def project_rag_source_freshness(home: Path, project_slug: str) -> dict[str, Any
         except FileNotFoundError:
             source_root = None
     stale_reasons, observations = _source_freshness_for_query(state, source_root)
+    references = collect_reference_corpus(home, str(project_id), slug)
+    if state.get("reference_snapshot_digest") != references.snapshot_digest and (
+        references.notes or state.get("reference_snapshot_digest") is not None
+    ):
+        stale_reasons.append("reference-corpus-stale")
     freshness = "stale" if stale_reasons else "current"
     if observations.get("source_freshness") in {"unknown", "unavailable"}:
         freshness = "unknown"
@@ -2563,6 +2573,13 @@ def read_project_citation(
             generation_digest=selected_generation,
         )
     view = views[chunk_id]
+    reference = bool(
+        view.locator.relative_path and view.locator.relative_path.startswith(REFERENCE_PATH_PREFIX)
+    )
+    if reference:
+        collect_reference_corpus(home, project_id, slug).verify_citation(
+            home, view.locator.relative_path, identity["source_digest"]
+        )
     return {
         "schema": "zekam-project-citation/v1",
         "project_id": project_id,
@@ -2570,10 +2587,16 @@ def read_project_citation(
         "generation_digest": selected_generation,
         "chunk_id": chunk_id,
         **identity,
-        "locator_type": "database-object" if view.locator.object_name else "project-file",
+        "locator_type": "project-knowledge-reference"
+        if reference
+        else "database-object"
+        if view.locator.object_name
+        else "project-file",
         "locator": view.locator.as_dict(),
         "body": view.text,
         "verified": True,
+        "source_kind": "import" if reference else "repository",
+        "trust": "untrusted-reference" if reference else "source-evidence",
     }
 
 
@@ -2793,6 +2816,7 @@ def _index(
     cancel: threading.Event | None = None,
     deadline_monotonic: float | None = None,
     max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
+    expected_reference_snapshot_digest: str | None = None,
 ) -> dict[str, Any]:
     _validate_remote_call_limit(max_remote_provider_calls)
     if deadline_monotonic is None:
@@ -2812,6 +2836,16 @@ def _index(
         knowledge=knowledge,
         check_budget=lambda: _check_index_budget(cancel, deadline_monotonic),
     )
+    references = collect_reference_corpus(
+        paths["home"], str(project_id), project_slug, with_chunks=True
+    )
+    if (
+        expected_reference_snapshot_digest is not None
+        and references.snapshot_digest != expected_reference_snapshot_digest
+    ):
+        raise PolicyViolation("Canonical reference snapshot approved plan'dan degisti")
+    if any(item.relative_path.startswith(REFERENCE_PATH_PREFIX) for item in plan.discovery.files):
+        raise PolicyViolation("Repository reserved reference locator namespace'ini kullanamaz")
     _check_index_budget(cancel, deadline_monotonic)
     oracle_plan: OracleMetadataIndexPlan | None = None
     oracle_receipt: dict[str, object] | None = None
@@ -2842,7 +2876,7 @@ def _index(
         paths["ledger"],
         opencode_config,
         project_id,
-        plan.chunks,
+        plan.chunks + references.chunks,
         knowledge,
         remote_authorized=authorize_remote_source,
         cancel=cancel,
@@ -2900,6 +2934,7 @@ def _index(
         bound_plan.chunks
         + (bound_oracle_plan.chunks if bound_oracle_plan is not None else ())
         + (odi_plan.chunks if odi_plan is not None else ())
+        + references.chunks
     )
     scope_by_chunk: dict[str, str] = {}
     for source_chunks, parser_ref, parser_version in (
@@ -2910,6 +2945,7 @@ def _index(
             bound_oracle_plan.document.parser_version if bound_oracle_plan is not None else "",
         ),
         (odi_plan.chunks if odi_plan is not None else (), SMART_SANITIZED_SCHEMA, "1"),
+        (references.chunks, REFERENCE_PARSER, "1"),
     ):
         for chunk in source_chunks:
             if chunk.chunk_id in scope_by_chunk:
@@ -3010,6 +3046,13 @@ def _index(
     if len(vectors) != len(chunks):
         raise PolicyViolation("Project RAG vector cache incomplete")
     if (
+        collect_reference_corpus(
+            paths["home"], str(project_id), project_slug, verify_files=True
+        ).snapshot_digest
+        != references.snapshot_digest
+    ):
+        raise PolicyViolation("Reference corpus indexing sirasinda degisti; generation uygulanmadi")
+    if (
         _git_source_state(
             source_root, check_budget=lambda: _check_index_budget(cancel, deadline_monotonic)
         )
@@ -3025,6 +3068,7 @@ def _index(
             else None,
             "odi_source_digest": odi_plan.source_digest if odi_plan else None,
             "odi_plan_digest": odi_plan.plan_digest if odi_plan else None,
+            "reference_snapshot_digest": references.snapshot_digest,
         }
     )
     combined_tree_digest = digest(
@@ -3037,6 +3081,7 @@ def _index(
             if bound_oracle_plan
             else None,
             "odi_source_digest": odi_plan.source_digest if odi_plan else None,
+            "reference_snapshot_digest": references.snapshot_digest,
         }
     )
     combined_manifest = canonical_json(
@@ -3051,6 +3096,7 @@ def _index(
                 else None
             ),
             "odi_manifest_digest": digest_of_bytes(odi_plan.manifest) if odi_plan else None,
+            "reference_snapshot_digest": references.snapshot_digest,
             "source_revision": combined_revision,
             "tree_digest": combined_tree_digest,
             "row_data_included": False,
@@ -3119,7 +3165,22 @@ def _index(
         )
         for chunk in (odi_plan.chunks if odi_plan is not None else ())
     )
-    records = source_records + oracle_records + odi_records
+    reference_records = tuple(
+        KnowledgeIndexRecord(
+            chunk_id=_generation_chunk_id(chunk.chunk_id, generation_chunk_scope_digest),
+            project_id=str(project_id),
+            source_revision=combined_revision,
+            source_path=str(chunk.locator.relative_path),
+            source_digest=references.source_digest(str(chunk.locator.relative_path)),
+            locator=chunk.locator,
+            text=chunk.text,
+            content_digest=digest_of_bytes(chunk.text.encode("utf-8")),
+            chunk_order=len(source_records) + len(oracle_records) + len(odi_records) + chunk.order,
+            vector=vectors[chunk.chunk_id],
+        )
+        for chunk in references.chunks
+    )
+    records = source_records + oracle_records + odi_records + reference_records
     # Stage the complete index without changing the queryable ready generation.
     _check_index_budget(cancel, deadline_monotonic)
     with SQLiteKnowledgeIndex(paths["index"], create=not paths["index"].exists()) as index:
@@ -3185,6 +3246,10 @@ def _index(
     projection_path = paths["project_root"] / "PROJECT.yaml"
     result = _plan_document(discovery, bound_plan, bound_oracle_plan, odi_plan) | {
         "schema": "zekam-project-rag-index/v1",
+        "reference_snapshot_digest": references.snapshot_digest,
+        "reference_note_count": len(references.notes),
+        "reference_chunk_count": len(references.chunks),
+        "chunk_count": len(records),
         "status": "passed",
         "repository_source_revision": bound_plan.source_revision,
         "repository_tree_digest": bound_plan.tree_digest,
@@ -3260,6 +3325,11 @@ def _query(
     if state.get("project_id") != str(project_id):
         raise PolicyViolation("Project RAG state project binding drift")
     stale_reasons: list[str] = []
+    references = collect_reference_corpus(home, str(project_id), project_slug)
+    if state.get("reference_snapshot_digest") != references.snapshot_digest and (
+        references.notes or state.get("reference_snapshot_digest") is not None
+    ):
+        stale_reasons.append("reference-corpus-stale")
     # WP3-B: content-aware freshness without a per-query full ``discover`` tree
     # re-scan.  Uses HEAD + git status to bound *which* indexed paths changed and
     # compares changed-file on-disk content against the indexed content digest, so
@@ -3355,6 +3425,16 @@ def _query(
             dense_disabled_reason=dense_disabled_reason,
         )
     stale_reasons = list(dict.fromkeys([*result.get("stale_reasons", ()), *stale_reasons]))
+    current_references = collect_reference_corpus(home, str(project_id), project_slug)
+    if current_references.snapshot_digest != references.snapshot_digest:
+        stale_reasons.append("reference-corpus-changed-during-query")
+    for citation in result.get("citations", ()):
+        reference_path = citation.get("locator", {}).get("relative_path") or ""
+        if reference_path.startswith(REFERENCE_PATH_PREFIX):
+            current_references.verify_citation(home, reference_path, citation["source_digest"])
+            citation["locator_type"] = "project-knowledge-reference"
+            citation["source_kind"] = "import"
+            citation["trust"] = "untrusted-reference"
     result["index_freshness"] = "stale" if stale_reasons else "current"
     result["stale_reasons"] = stale_reasons
     result["reindex_recommended"] = bool(stale_reasons)
@@ -3508,6 +3588,9 @@ def build_index_job_plan(
         "oracle_identity_digest": oracle_identity_digest,
         "odi_binding_digest": digest(odi) if odi else None,
         "odi_plan_digest": odi_plan_digest,
+        "reference_snapshot_digest": collect_reference_corpus(
+            home, str(project_id), slug
+        ).snapshot_digest,
         "batch_size": batch_size,
         "timeout_seconds": timeout_seconds,
         "max_remote_provider_calls": max_remote_provider_calls,
@@ -3533,6 +3616,7 @@ def index_registered_project(
     max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
     work_binding: LocalJobBinding | None = None,
     execution_key: str = "default",
+    expected_reference_snapshot_digest: str | None = None,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
@@ -3553,10 +3637,13 @@ def index_registered_project(
             "max_remote_provider_calls": max_remote_provider_calls,
         }
 
+        approved_references: list[str] = []
+
         def validate_inputs() -> None:
             plan = build_index_job_plan(resolved_home, slug, **options)
             if plan["plan_digest"] != work_binding.plan_digest:
                 raise PolicyViolation("Canonical index plan binding drift")
+            approved_references[:] = [plan["reference_snapshot_digest"]]
             validate_bound_source(
                 resolved_home,
                 work_binding,
@@ -3574,6 +3661,7 @@ def index_registered_project(
                 slug,
                 **options,
                 cancel=cancellation,
+                expected_reference_snapshot_digest=approved_references[0],
             ),
             validate_inputs=validate_inputs,
             execution_key=execution_key,
@@ -3604,6 +3692,7 @@ def index_registered_project(
         cancel=cancel,
         deadline_monotonic=deadline_monotonic,
         max_remote_provider_calls=max_remote_provider_calls,
+        expected_reference_snapshot_digest=expected_reference_snapshot_digest,
     )
 
 

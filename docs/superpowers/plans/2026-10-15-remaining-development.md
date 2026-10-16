@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 4 WP-05/06 reference index: terminal scoped active note snapshot, bounded Markdown chunks ve batch producer proof mevcut project index cache/journal/combined generation yoluna baglandi. Canonical plan pin ve yayin oncesi drift; query/citation current note/file readback ve import source-kind/policy ayrimi eklendi. SQLite/vector/cache/supersession/pin/research negatif regresyon kaynaklari hazir, CALISTIRILMADI. Legacy adoption, gercek client/ACL/performans kabul kapilari acik; docs/CANONICAL_REFERENCE_INDEX.md.
+
 - Gorev 4 WP-06.04 source head: site/issue/attachment origin prefix'i canonical active note query'sine, ayni version timestamp/plan dedup'a ve generated update/archive/supersedes akisina baglandi. Effect oncesi head CAS ve terminal producer/receipt/resolution kapisi eklendi. Historical archive replay current sayilmaz. Regresyon kodu hazir, CALISTIRILMADI. Legacy source adoption, incremental vector/index publication ve canli kabul halen acik.
 
 - Gorev 4 WP-06.04 knowledge publication: Jira mapping -> canonical project scope, fresh source pins ve generated reference, mevcut knowledge.create claim/receipt akisina CLI plan/apply ile baglandi. Exact completed replay note/receipt/resolution readback yapar; ready/attempt=0 enqueue recovery duzeltildi. Yerel SQLite/file/search/replay/drift/recovery regresyon kaynaklari hazir, CALISTIRILMADI. Remote-source head/supersession/incremental index bagi ve gercek client/ACL kabul acik.

@@ -218,7 +218,10 @@ class _CountingDocumentProvider:
 
 
 def _bind_counting_local_provider(
-    monkeypatch: pytest.MonkeyPatch, knowledge: KnowledgeSettings
+    monkeypatch: pytest.MonkeyPatch,
+    knowledge: KnowledgeSettings,
+    *,
+    canonical_references: bool = False,
 ) -> tuple[_CountingDocumentProvider, EmbeddingProfile]:
     profile = _test_embedding_profile()
     provider = _CountingDocumentProvider(profile)
@@ -239,6 +242,15 @@ def _bind_counting_local_provider(
     )
     monkeypatch.setattr(runtime, "load_smart_binding", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runtime, "_provider", lambda *_args, **_kwargs: binding)
+    if not canonical_references:
+        from zekam.application.reference_corpus import ReferenceCorpus
+
+        # These repository/cache fixtures have no operational project registry.
+        monkeypatch.setattr(
+            runtime,
+            "collect_reference_corpus",
+            lambda home, project_id, slug, **kwargs: ReferenceCorpus(str(project_id), ()),
+        )
     return provider, profile
 
 

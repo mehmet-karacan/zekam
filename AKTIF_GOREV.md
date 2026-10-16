@@ -1181,6 +1181,15 @@ Tarihsel archive replay current reference sayilmaz. Regresyon kodu hazir,
 CALISTIRILMADI. Legacy source adoption/reconciliation, incremental index/vector
 publication ve canli kabul kaniti halen acik.
 
+**16 Ekim 2026 — WP-05/06 canonical reference index:** Terminal producer
+kanitli aktif note snapshot'i bounded chunk'larla mevcut project index vector
+cache/journal ve combined staged generation'a baglandi. Plan/execute reference
+pin'i, yayin oncesi drift ve citation current file/hash kapilari eklendi.
+Superseded not yeni generation'a tasinmaz. Research import kaynak turunu ayirir;
+eski repository-only policy sahte repository evidence uretmez. Regresyon kodu
+hazir, CALISTIRILMADI. Legacy source adoption, gercek client/ACL ve performans
+kabulu acik; `docs/CANONICAL_REFERENCE_INDEX.md`.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

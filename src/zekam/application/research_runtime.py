@@ -143,7 +143,7 @@ def build_research_run_plan(
         intent_digest=intent_digest,
         source_revision=str(rag["source_revision"]),
         policy=SourcePolicy(
-            frozenset({SourceKind.REPOSITORY}),
+            frozenset({SourceKind.REPOSITORY, SourceKind.IMPORT}),
             project_scope=project.slug,
             allow_row_data=False,
         ),
@@ -280,6 +280,7 @@ def _bounded_evidence(
     if not isinstance(citations, list):
         raise ValidationFailed("Research RAG citations liste olmali")
     budget = _evidence_budget(plan)
+    allowed_kinds = _question_from_plan(plan).policy.allowed_kinds
     selected_chars = 0
     truncated_items = 0
     gaps: list[str] = []
@@ -329,6 +330,14 @@ def _bounded_evidence(
         source_revision = str(reopened["source_revision"])
         if source_revision != str(plan.body["source_revision"]):
             raise PolicyViolation("Research evidence source revision drift")
+        kind = (
+            SourceKind.IMPORT
+            if reopened.get("locator_type") == "project-knowledge-reference"
+            else SourceKind.REPOSITORY
+        )
+        if kind not in allowed_kinds:
+            gaps.append("reference-source-not-permitted")
+            continue
         body = str(reopened["body"])
         if scan_text(body, relative_path=str(reopened["source_ref"])):
             raise PolicyViolation("Research evidence secret taramasini gecemedi")
@@ -341,6 +350,8 @@ def _bounded_evidence(
         delivered_payload_digest = digest(delivered_body)
         item = {
             "citation_id": citation_id,
+            "source_kind": kind.value,
+            "trust": reopened.get("trust", "source-evidence"),
             "source_ref": reopened["source_ref"],
             "source_revision": source_revision,
             "original_content_digest": original_content_digest,
@@ -354,7 +365,7 @@ def _bounded_evidence(
         snapshots.append(
             SourceSnapshot(
                 snapshot_id=citation_id,
-                kind=SourceKind.REPOSITORY,
+                kind=kind,
                 locator=str(reopened["source_ref"]),
                 content_digest=str(reopened["content_digest"]),
                 captured_at=_now(),

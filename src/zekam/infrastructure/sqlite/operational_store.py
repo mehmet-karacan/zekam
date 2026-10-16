@@ -2266,6 +2266,89 @@ class SQLiteOperationalUnitOfWork:
                 raise PolicyViolation("Knowledge reference terminal producer effect drift")
         return head
 
+    def knowledge_reference_snapshot(
+        self, *, project_id: str, portable_prefix: str, limit: int = 128
+    ) -> tuple[KnowledgeNoteRecord, ...]:
+        project_id = _canonical_uuid(project_id, "Knowledge project")
+        portable_prefix = validate_portable_relative(portable_prefix, "Knowledge reference prefix")
+        if type(limit) is not int or not 1 <= limit <= 128:
+            raise ValidationFailed("Knowledge reference snapshot limit 1..128 olmali")
+        rows = (
+            self._db()
+            .execute(
+                "select * from knowledge_note where project_id=? and owner_scope=? "
+                "and authorship='generated' and note_kind='reference' and state='active' "
+                "and portable_ref>=? and portable_ref<? order by portable_ref limit ?",
+                (
+                    project_id,
+                    f"project:{project_id}",
+                    portable_prefix,
+                    portable_prefix + "\uffff",
+                    limit + 1,
+                ),
+            )
+            .fetchall()
+        )
+        if len(rows) > limit:
+            raise PolicyViolation("Knowledge reference snapshot bounded siniri asildi")
+        notes = tuple(_row_knowledge_note(row) for row in rows)
+        if not notes:
+            return ()
+        placeholders = ",".join("?" for _ in notes)
+        # One receipt scan for the scoped corpus, never a full history scan per note.
+        producers = (
+            self._db()
+            .execute(
+                "select j.payload_json,c.effect_digest,r.status receipt_status,rr.outcome resolution_outcome "
+                "from local_job j join local_effect_claim c on c.job_id=j.id "
+                "left join local_effect_receipt r on r.claim_id=c.id "
+                "left join local_recovery_case rc on rc.effect_claim_id=c.id and rc.job_id=j.id "
+                "left join local_recovery_resolution rr on rr.recovery_case_id=rc.id "
+                "where j.state='completed' and json_extract(j.payload_json,'$.project_id')=? "
+                f"and json_extract(j.payload_json,'$.target_ref') in ({placeholders}) "
+                "and c.operation=json_extract(j.payload_json,'$.operation') order by j.id limit ?",
+                (project_id, *(note.portable_ref for note in notes), 2 * len(notes) + 1),
+            )
+            .fetchall()
+        )
+        by_ref: dict[str, list] = {}
+        for producer in producers:
+            payload = json.loads(producer["payload_json"])
+            by_ref.setdefault(payload["target_ref"], []).append((producer, payload))
+        for note in notes:
+            matches = by_ref.get(note.portable_ref, [])
+            if len(matches) != 1:
+                raise PolicyViolation("Knowledge reference snapshot terminal producer belirsiz")
+            producer, payload = matches[0]
+            expected = digest(
+                {
+                    key: payload[key]
+                    for key in (
+                        "operation",
+                        "plan_digest",
+                        "source_note_id",
+                        "target_ref",
+                        "target_content_digest",
+                    )
+                }
+            )
+            if (
+                not note.materialized
+                or producer["effect_digest"] != expected
+                or payload.get("target_content_digest") != note.content_digest
+                or payload.get("owner_scope") != note.owner_scope
+                or payload.get("project_slug") != note.project_slug
+                or payload.get("authorship") != "generated"
+                or payload.get("operation") not in {"knowledge.create", "knowledge.update"}
+                or not (
+                    producer["receipt_status"] == "completed"
+                    or producer["receipt_status"] in {None, "unknown"}
+                    and producer["resolution_outcome"] == "completed"
+                )
+            ):
+                raise PolicyViolation("Knowledge reference snapshot terminal proof drift")
+        return notes
+
     def get_knowledge_note(self, reference: str) -> KnowledgeNoteRecord:
         reference = _required_text(reference, "Knowledge note reference")
         if len(reference.encode("utf-8")) > 1024:
