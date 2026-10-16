@@ -35,6 +35,10 @@ snapshot baglantisi CLI veya dogal dil ozetinde sessizce kaybolmaz.
 - Bound job penceresi en fazla 50 kayittir; `bound_jobs_truncated` sonucu bildirir.
 - Work status raporunda bound job scope'u `returned-open-work-window` olarak
   belirtilir; source snapshot varsa revision/tree/content/config digestleri korunur.
+- `bound_jobs[*].lease_state` yalniz `present` veya `absent` olarak tasinir;
+  owner kimligi, token ve fencing degeri disari cikmaz. Running job'da lease
+  yoklugu veya terminal/recovery job'da lease kalintisi execution guard'i
+  `recovery-required` durumuna getirir.
 - `recent_activity` event zamanina gore en fazla 300 kayittir.
 - Job payload'i, owner token'i, grant'i ve ham provider/model icerigi ciktiya alinmaz.
 - Tum cikti salt okunur ve `grants_authority=false` olarak kalir.
@@ -54,8 +58,9 @@ revision ref, tree/content/config digestleri ile config revision digestini tasir
 dogrulamadan efekt baslatamaz; bu alanlar salt okunur bir revalidation sinyalidir.
 `bound_jobs`
 alanlari ise project, Work revision, Run, step, source snapshot, config ve plan
-digest bagini gosterir. Bu gorunum yeni lease veya grant uretmez. Efekt baslatmadan
-once mevcut lease, grant, source ve binding kosullari yeniden dogrulanmalidir.
+digest bagini ve public lease varlik durumunu gosterir. Bu gorunum yeni lease veya
+grant uretmez. Efekt baslatmadan once mevcut lease, grant, source ve binding
+kosullari yeniden dogrulanmalidir.
 
 `bound_jobs[*].source_snapshot` mevcutsa snapshot'in source binding ID'si,
 revision ref'i ve tree/content/config digestleri ayni canonical SQLite joininden
