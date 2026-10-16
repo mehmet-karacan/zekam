@@ -357,6 +357,7 @@ def test_work_run_step_dependencies_and_checkpoint_are_durable(tmp_path: Path) -
     assert checkpoint.exit_code == 0, checkpoint.stdout
     checkpoint_body = json.loads(checkpoint.stdout)
     assert checkpoint_body["checkpoint"]["sequence"] == 1
+    assert checkpoint_body["checkpoint"]["source_snapshot_id"] is None
 
     listed = _invoke(runner, "work", "checkpoints", run_id, "--home", str(home), "--json")
     assert listed.exit_code == 0, listed.stdout

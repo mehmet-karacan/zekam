@@ -147,6 +147,7 @@ def read_work_request(
                             "id": row.id,
                             "sequence": row.sequence,
                             "checkpoint_digest": row.checkpoint_digest,
+                            "source_snapshot_id": row.source_snapshot_id,
                         }
                         for row in checkpoints[:5]
                     ],

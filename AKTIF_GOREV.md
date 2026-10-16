@@ -1324,6 +1324,11 @@ E2E regresyon kaynagi hazirlandi, testler CALISTIRILMADI; native/live kabul acik
 Route ve resolved scope digestleri history JSON ciktiya eklendi; kapsam kaniti
 read-only olarak yeniden denetlenebilir.
 
+**16 Ekim 2026 WP-07 checkpoint source readback:** CheckpointRecord ve CLI/dogal
+dil checkpoint ozetleri canonical `source_snapshot_id` alanini tasir; run ile
+kaynak snapshot baglantisi projection katmaninda dusurulmez. Regresyon kaynaklari
+hazirlandi, testler CALISTIRILMADI.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

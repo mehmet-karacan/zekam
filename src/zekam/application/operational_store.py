@@ -86,6 +86,7 @@ class CheckpointRecord:
     run_id: str
     sequence: int
     checkpoint_digest: str
+    source_snapshot_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

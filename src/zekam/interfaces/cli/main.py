@@ -644,6 +644,7 @@ def _ask_work_status(
                                     "id": checkpoint.id,
                                     "sequence": checkpoint.sequence,
                                     "checkpoint_digest": checkpoint.checkpoint_digest,
+                                    "source_snapshot_id": checkpoint.source_snapshot_id,
                                 }
                                 for checkpoint in checkpoint_window[:_WORK_STATUS_CHECKPOINT_LIMIT]
                             ],

@@ -543,6 +543,7 @@ def _checkpoint_document(checkpoint: Any) -> dict[str, Any]:
         "run_id": checkpoint.run_id,
         "sequence": checkpoint.sequence,
         "checkpoint_digest": checkpoint.checkpoint_digest,
+        "source_snapshot_id": checkpoint.source_snapshot_id,
     }
 
 

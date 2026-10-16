@@ -1233,7 +1233,9 @@ class SQLiteOperationalUnitOfWork:
             )
         except sqlite3.IntegrityError as exc:
             raise ValidationFailed("Checkpoint constraint ihlali") from exc
-        return CheckpointRecord(checkpoint_id, run_id, sequence, checkpoint_digest)
+        return CheckpointRecord(
+            checkpoint_id, run_id, sequence, checkpoint_digest, source_snapshot_id
+        )
 
     def get_work(self, work_item_id: str) -> OperationalWorkRecord:
         row = (
@@ -1676,14 +1678,20 @@ class SQLiteOperationalUnitOfWork:
         rows = (
             self._db()
             .execute(
-                "select id, run_id, sequence, checkpoint_digest from checkpoint"
+                "select id, run_id, sequence, source_snapshot_id, checkpoint_digest from checkpoint"
                 " where run_id = ? order by sequence " + ordering + limit_clause,
                 (run_id, *extra),
             )
             .fetchall()
         )
         return tuple(
-            CheckpointRecord(row["id"], row["run_id"], row["sequence"], row["checkpoint_digest"])
+            CheckpointRecord(
+                row["id"],
+                row["run_id"],
+                row["sequence"],
+                row["checkpoint_digest"],
+                row["source_snapshot_id"],
+            )
             for row in rows
         )
 
