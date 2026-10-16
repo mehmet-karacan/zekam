@@ -82,6 +82,20 @@ home'una trust/anahtar yazmadi. Mevcut canonical job runtime'in exact
 `state/operational.db` yolu disindaki bir konfigde sessizce baska DB'ye
 gecilmez; acik hata verilir.
 
+16 Ekim 2026 typed config bagi: kalici config.yaml'in optional
+`git_publication` bolumu yalniz exact `trust_digest` alanini kabul eder. Pin,
+canonical sha256 metin olmalidir; null/bool/extra field ve root dotted-key
+alias'i reddedilir. Settings.sanitized() configured pin'i korur; normal config
+revision aktivasyonu bu degeri kaybetmez. Session override, nested veya dotted
+key ile kalici trust/CLI integration tercihini degistiremez. Yapilandirilmamis
+durumda yeni config alani, registry veya signer olusmaz.
+
+Publication CLI hem loaded Settings pin'ini hem aktif config'e bagli registry'yi
+ister; aralarindaki drift reddedilir. Bu bag kendi basina key provisioning,
+producer enrollment, config aktivasyonu veya yayin yetkisi degildir. Gercek
+Settings -> sanitized active SQLite config -> registry loader/CLI composition
+ve malformed/session/drift regresyon kaynaklari hazir; CALISTIRILMADI.
+
 Operational v9 `SQLiteGitPublicationLedger` gercek mevcut DB'de imzali kanit,
 approval, consumption ve revocation tablolarini append-only tutar. Guvenilen
 producer verifier capability'leri host composition tarafindan verilir; store

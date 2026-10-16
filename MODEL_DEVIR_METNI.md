@@ -26,6 +26,10 @@ traceability.json canonical catalog/manifest/ZIP/readback kapsamindadir. Gercek
 run/evidence/execution commit null, release chain incomplete kalir.
 WP-06.05 actual history root diff ve partial kapsam dogrulugu gelistirildi;
 docs/ISSUE_GIT_GECMISI_KAPSAMI.md. Regresyonlar CALISTIRILMADI.
+Publication registry trust pin'i typed Settings/sanitized active config/provenance
+yoluna baglandi; CLI current settings/active registry drift'ini reddeder. Persistent
+pin ve CLI preference icin dotted/nested session bypass reddi eklendi. Actual
+key/enrollment/receipt producer halen acik; testler CALISTIRILMADI.
 Test/generator/verify CALISTIRILMADI. Siradaki denetim: kalan canonical kaynak baglari,
 gercek trusted producer/native kabul ve WP-12 traceability gelistirmeleri.
 Resume komutu bu ortamda ZEKAM_HOME hazir degil dedi; Work/lease durumu

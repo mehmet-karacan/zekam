@@ -24,7 +24,7 @@ import yaml
 from yaml.nodes import MappingNode
 
 from zekam.application.environment import environment_value
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.client_integration import ClientIntegrationPolicy
 from zekam.domain.config_provenance import (
     ConfigLayer,
@@ -201,6 +201,33 @@ class ClientSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class GitPublicationSettings:
+    """Optional public registry pin; no signer material or activation authority."""
+
+    trust_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.trust_digest is not None:
+            if type(self.trust_digest) is not str:
+                raise ConfigurationError("Publication trust pin canonical digest olmali")
+            try:
+                parse_digest(self.trust_digest)
+            except ValidationFailed as exc:
+                raise ConfigurationError("Publication trust pin canonical digest olmali") from exc
+
+
+def _publication_settings(document: Mapping[str, Any]) -> GitPublicationSettings:
+    if "git_publication" not in document:
+        return GitPublicationSettings()
+    raw = document["git_publication"]
+    if not isinstance(raw, Mapping) or set(raw) != {"trust_digest"}:
+        raise ConfigurationError("git_publication exact trust_digest mapping olmali")
+    if type(raw["trust_digest"]) is not str:
+        raise ConfigurationError("Publication configured trust pin bos/null olamaz")
+    return GitPublicationSettings(trust_digest=raw["trust_digest"])
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     """Cozulmus uygulama yapilandirmasi."""
 
@@ -215,6 +242,7 @@ class Settings:
     sources: tuple[str, ...] = ()
     config_provenance: ConfigProvenanceGraph | None = None
     permission_profile: PermissionProfileRevision | None = None
+    git_publication: GitPublicationSettings = field(default_factory=GitPublicationSettings)
 
     def sanitized(self) -> dict[str, Any]:
         """Secret icermeyen rapor gorunumu."""
@@ -267,6 +295,11 @@ class Settings:
                     "managed": self.permission_profile.managed,
                     "grants_authority": False,
                 }
+            ),
+            **(
+                {"git_publication": {"trust_digest": self.git_publication.trust_digest}}
+                if self.git_publication.trust_digest is not None
+                else {}
             ),
         }
 
@@ -406,6 +439,9 @@ def _validate_document(loaded: object, path: Path) -> dict[str, Any]:
             f"Desteklenmeyen yapilandirma semasi: {schema!r}, beklenen {CONFIG_SCHEMA!r}"
         )
     _assert_no_secret_keys(loaded)
+    if any(str(key).startswith("git_publication.") for key in loaded):
+        raise ConfigurationError("Publication trust pin nested mapping olmali")
+    _publication_settings(loaded)
     return loaded
 
 
@@ -528,9 +564,11 @@ def load_settings(
 
     if session_overrides:
         _assert_no_secret_keys(session_overrides)
-        if "cli" in session_overrides:
+        if any(
+            str(key).split(".", 1)[0] in {"cli", "git_publication"} for key in session_overrides
+        ):
             raise ConfigurationError(
-                "Session override kalici CLI integration tercihini degistiremez"
+                "Session override kalici CLI integration veya publication trust tercihini degistiremez"
             )
         sources.append("session")
         layers.append(ConfigLayer("session", 50, dict(session_overrides)))
@@ -652,6 +690,7 @@ def load_settings(
     storage_document = dict(document.get("storage") or {})
     object_store_relative = str(storage_document.get("object_store_relative", "artifacts/sha256"))
     clients = _parse_clients(document, cli.integrations)
+    publication = _publication_settings(document)
 
     return Settings(
         home=home,
@@ -665,6 +704,7 @@ def load_settings(
         sources=tuple(sources),
         config_provenance=provenance,
         permission_profile=permission_profile,
+        git_publication=publication,
     )
 
 

@@ -472,6 +472,13 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
 - [ ] **WP-02.01** — Kök ve alt dizin için ince giriş üret; tekrar eden instruction/skill kopyalarını mevcut kanonik generator üzerinden tekilleştir. Zekam dışı yeni oturumda inert davranışı gerçek hostta sınayarak göster.
 - [x] **WP-02.02** — İstemci metadata/instruction/hook/MCP/shell/subagent desteğini sürüm bazında ayrı kaydet. Destek yoksa manual komut ezberi yerine açık destek sınırı ve kurulabilir adapter planı ver.
 - [ ] **WP-02.03** — Onaylı görevde shell allow hedefini host-native policy ile uygula. Push/yayın exception'ını model prompt'una değil uygulanabilir araç/transport sınırına bağla; başarısız guard'ı başarı sayma.
+
+  16 Ekim 2026 publication typed config: registry trust pin'i normal Settings
+  ve sanitized active config yoluna baglandi; configured public digest kaybolmaz.
+  Publication CLI loaded settings/active registry pin drift'ini reddeder. Kalici
+  pin session/nested/dotted-key ile degistirilemez; unconfigured durumda registry
+  veya signer uretilmez. Regresyon kaynaklari hazir, CALISTIRILMADI. Actual
+  provisioning/enrollment, receipt producer ve native guard kabulleri aciktir.
 - [x] **WP-02.04** — Tek MCP kaydını hosta göre projekte et; kullanıcının credential'ını veya yabancı girdisini kopyalama/silme. Plan→sahiplik→apply→readback→rollback ve drift/conflict testleri olsun.
 - [x] **WP-02.05** — Global legacy temizliği gerekiyorsa exact sahipliği kanıtlı parçalar için ayrı migration planı üret; yeni sistem tekrar global kalıntı oluşturmasın. Kullanıcı HOME/data taşıma onayı yoksa durumu koru.
 

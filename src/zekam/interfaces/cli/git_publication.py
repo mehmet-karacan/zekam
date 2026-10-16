@@ -23,7 +23,7 @@ from zekam.application.git_publication_wire import (
 )
 from zekam.application.project_rag_runtime import resolve_project_source, resolve_registered_project
 from zekam.domain.canonical import canonical_json, digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed, ZekamError
 from zekam.infrastructure.git.publication import BoundGitPushTransport
 from zekam.infrastructure.sqlite.git_publication import (
     SQLiteGitPublicationLedger,
@@ -62,7 +62,12 @@ def _context(home):
 
 def _components(home):
     context = _context(home)
+    configured_pin = context.settings.git_publication.trust_digest
+    if configured_pin is None:
+        raise ConfigurationError("Publication trust pin kalici config'te hazir degil")
     trust = load_publication_trust(context.home)
+    if trust.trust_digest != configured_pin:
+        raise PolicyViolation("Publication loaded settings/active registry trust digest drift")
     objects = LocalContentAddressedStore(context.home / context.settings.object_store_relative)
     ledger = SQLiteGitPublicationLedger(
         context.settings.database.sqlite_path(context.home),
