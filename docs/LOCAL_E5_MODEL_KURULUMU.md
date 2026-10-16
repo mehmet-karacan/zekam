@@ -12,9 +12,11 @@ disinda, kullanici veri alaninda tutulur ve Git'e eklenmez.
 - Agirlik SHA256: `4d24e2bc01a447951524466ef533e52944bf48509e6552810bcee1a2711cb02c`
 - Windows kalici kok: `%LOCALAPPDATA%/Zekam/models/Xenova-multilingual-e5-small/<revision>`
 
-Kurulum manifesti model, tokenizer, config ve sentencepiece dosyalarinin revision
-ve digest bagini tasir. Saglayici agirlik digestini manifestteki ve sabit beklenen
-SHA256 ile karsilastirir; uyusmazlikta fail-closed davranir.
+Kurulum manifesti sabitlenen yedi dosyanin (ONNX agirlik, tokenizer, config,
+sentencepiece ve tokenizer yardimcilari) revision, boyut ve digest bagini tasir.
+Saglayici runtime'a girerken bu yedi dosyanin her birini manifestteki SHA256 ve
+boyutla yeniden karsilastirir; agirlik ayrica sabit beklenen SHA256 ile
+eslestirilir. Uyusmazlikta fail-closed davranir.
 
 Kurulumu yeniden almak veya mevcut kurulumu ag kullanmadan kontrol etmek icin
 repository'deki yardimci kullanilir:

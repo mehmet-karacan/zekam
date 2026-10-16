@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -110,6 +111,14 @@ def test_configuration_enforces_pinned_cpu_batch_contract(tmp_path) -> None:
     assert configuration.inter_op_num_threads == 1
     assert configuration.query_prefix == "query: "
     assert configuration.passage_prefix == "passage: "
+
+
+def test_manifest_requires_the_complete_pinned_file_set(tmp_path) -> None:
+    manifest_path = tmp_path / "install-manifest.json"
+    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
+
+    with pytest.raises(subject.ConfigurationError, match="dosya kumesi"):
+        subject._read_manifest(manifest_path, subject.LocalE5Configuration(tmp_path))
 
 
 def test_mask_aware_pooling_returns_normalized_384_vectors(

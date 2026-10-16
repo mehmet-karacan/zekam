@@ -53,6 +53,15 @@ _MAX_REPEAT_DELTA = 1e-6
 _MAX_BATCH_DELTA = 0.02
 _MIN_BATCH_COSINE = 0.995
 _MIN_SEMANTIC_MARGIN = 0.01
+_REQUIRED_INSTALL_FILES = (
+    "config.json",
+    "quant_config.json",
+    "sentencepiece.bpe.model",
+    "special_tokens_map.json",
+    "tokenizer_config.json",
+    "tokenizer.json",
+    MODEL_FILE,
+)
 _DEFAULT_ALLOWLIST = (
     DataClassification.PUBLIC,
     DataClassification.INTERNAL,
@@ -134,12 +143,14 @@ def default_local_e5_configuration() -> LocalE5Configuration:
     return LocalE5Configuration(model_root=root / MODEL_REVISION)
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file_with_size(path: Path) -> tuple[int, str]:
+    size = 0
     value = hashlib.sha256()
     with path.open("rb") as stream:
         while chunk := stream.read(1024 * 1024):
+            size += len(chunk)
             value.update(chunk)
-    return value.hexdigest()
+    return size, value.hexdigest()
 
 
 def _private_regular(path: Path) -> bool:
@@ -167,12 +178,20 @@ def _read_manifest(path: Path, configuration: LocalE5Configuration) -> dict[str,
         not isinstance(document, dict)
         or document.get("schema") != "zekam-local-embedding-install/v1"
         or document.get("repository") != MODEL_REPOSITORY
+        or document.get("source_revision") != configuration.revision
         or document.get("revision") != configuration.revision
         or document.get("model_ref") != configuration.exact_model_id
         or document.get("model_file") != MODEL_FILE
         or not isinstance(document.get("files"), list)
     ):
         raise ConfigurationError("Local E5 install manifest kimlik drift etti")
+    paths: list[str] = []
+    for item in document["files"]:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            raise ConfigurationError("Local E5 manifest dosya kaydi gecersiz")
+        paths.append(item["path"])
+    if len(paths) != len(_REQUIRED_INSTALL_FILES) or set(paths) != set(_REQUIRED_INSTALL_FILES):
+        raise ConfigurationError("Local E5 manifest dosya kumesi drift etti")
     return document
 
 
@@ -192,28 +211,38 @@ def _assert_model_files(configuration: LocalE5Configuration) -> tuple[dict[str, 
     if not root.is_dir() or _is_link_or_reparse(root.lstat()):
         raise ConfigurationError("Local E5 model root regular dizin olmali")
     manifest = _read_manifest(configuration.manifest_path, configuration)
-    model_path = configuration.model_path
-    tokenizer_path = root / "tokenizer.json"
-    if not _private_regular(model_path) or not _private_regular(tokenizer_path):
-        raise ConfigurationError("Local E5 model/tokenizer regular dosya olmali")
-    for path in (model_path, tokenizer_path):
+    for relative in _REQUIRED_INSTALL_FILES:
+        path = root / relative
+        if not _private_regular(path):
+            raise ConfigurationError(f"Local E5 dosyasi regular olmali: {relative}")
         try:
             path.relative_to(root)
         except ValueError as exc:
             raise ConfigurationError("Local E5 model yolu root disinda") from exc
-    model_sha = _sha256_file(model_path)
-    model_record = _manifest_file_record(manifest, MODEL_FILE)
-    if (
-        model_sha != EXPECTED_MODEL_SHA256
-        or model_record.get("sha256") != EXPECTED_MODEL_SHA256
-        or model_record.get("upstream_sha256") != EXPECTED_MODEL_SHA256
-        or model_record.get("size_bytes") != model_path.stat().st_size
-    ):
-        raise ConfigurationError("Local E5 model SHA256/size dogrulamasi basarisiz")
-    tokenizer_sha = _sha256_file(tokenizer_path)
-    tokenizer_record = _manifest_file_record(manifest, "tokenizer.json")
-    if tokenizer_record.get("sha256") != tokenizer_sha:
-        raise ConfigurationError("Local E5 tokenizer SHA256 drift etti")
+    digests: dict[str, tuple[int, str]] = {}
+    for relative in _REQUIRED_INSTALL_FILES:
+        path = root / relative
+        record = _manifest_file_record(manifest, relative)
+        expected_size = record.get("size_bytes")
+        expected_sha = record.get("sha256")
+        upstream_sha = record.get("upstream_sha256")
+        if (
+            type(expected_size) is not int
+            or expected_size < 0
+            or not isinstance(expected_sha, str)
+            or len(expected_sha) != 64
+            or any(char not in "0123456789abcdef" for char in expected_sha)
+            or upstream_sha != expected_sha
+        ):
+            raise ConfigurationError(f"Local E5 manifest SHA/size kaydi gecersiz: {relative}")
+        actual_size, actual_sha = _sha256_file_with_size(path)
+        if actual_size != expected_size or actual_sha != expected_sha:
+            raise ConfigurationError(f"Local E5 dosya SHA256/size drift etti: {relative}")
+        digests[relative] = (actual_size, actual_sha)
+    model_sha = digests[MODEL_FILE][1]
+    if model_sha != EXPECTED_MODEL_SHA256:
+        raise ConfigurationError("Local E5 model SHA256 sabit degil")
+    tokenizer_sha = digests["tokenizer.json"][1]
     return manifest, model_sha, tokenizer_sha
 
 
