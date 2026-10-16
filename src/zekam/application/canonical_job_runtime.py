@@ -141,6 +141,7 @@ def run_canonical_job(
     if operation not in {
         "publication.trust.enroll",
         "publication.trust.rotate",
+        "publication.test.attest",
         "project.index",
         "test.measure",
         "test.run",
@@ -194,7 +195,8 @@ def run_canonical_job(
         resources=(f"canonical-project:{binding.project_id}",)
         + (
             ("canonical-global:publication-trust",)
-            if operation in {"publication.trust.enroll", "publication.trust.rotate"}
+            if operation
+            in {"publication.trust.enroll", "publication.trust.rotate", "publication.test.attest"}
             else ()
         ),
     )

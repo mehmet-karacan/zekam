@@ -247,6 +247,8 @@ def read_publication_test_source(home: Path, reference: str, *, plan: GitPublica
     body = {
         "schema": "zekam-publication-test-source/v1",
         "subject_digest": plan.subject_digest,
+        "publication_binding_digest": plan.binding.binding_digest,
+        "target": plan.target.body(),
         "source_job_id": source["job_id"],
         "source_evidence_digest": source["source_evidence_digest"],
         "execution_id": source["execution_id"],

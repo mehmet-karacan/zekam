@@ -399,6 +399,7 @@ def test_unknown_effect_is_not_redispatched(world):
 
 def test_generic_consumer_cannot_take_index_or_measurement_jobs(world):
     for operation in (
+        "publication.test.attest",
         "project.index",
         "test.measure",
         "skill.trial",

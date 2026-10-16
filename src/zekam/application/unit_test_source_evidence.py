@@ -275,6 +275,7 @@ def _read_native_measurement_source(home: Path, reference: str) -> tuple:
         "job_id": snapshot["job_id"],
         "execution_id": binding.run_id,
         "project_id": binding.project_id,
+        "work_item_id": binding.work_item_id,
         "config_revision_id": binding.config_revision_id,
         "config_digest": binding.config_digest,
         "source_snapshot_id": binding.source_snapshot_id,

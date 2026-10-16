@@ -392,6 +392,24 @@ def test_source_command(
         raise fail_from(exc) from exc
 
 
+@app.command("test-evidence")
+def test_evidence_command(
+    producer_reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    """Tamamlanmis host producer receipt'inden imzali test kanitini okur; imzalamaz."""
+    from zekam.application.git_publication_test_producer import read_test_producer_result
+
+    try:
+        context = _context(home)
+        result = read_test_producer_result(context.home, producer_reference)
+        console.print_json(json.dumps(result, ensure_ascii=False))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise fail_from(ValidationFailed("Publication test producer receipt okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
+
+
 @app.command("import-evidence")
 def evidence_command(
     input_file: Annotated[Path, typer.Argument()],
@@ -400,6 +418,16 @@ def evidence_command(
 ) -> None:
     try:
         document = _read(input_file)
+        if document.get("schema") == "zekam-publication-test-producer-export/v1":
+            # Export metadata is never authority. Read the actual completed job
+            # again and compare the complete export before admitting its envelope.
+            from zekam.application.git_publication_test_producer import read_test_producer_result
+
+            context = _context(home)
+            actual = read_test_producer_result(context.home, document["producer_job_id"])
+            if canonical_json(document) != canonical_json(actual):
+                raise ValidationFailed("Publication test producer export drift")
+            document = actual["envelope"]
         evidence = publication_evidence_from_body(document["evidence"])
         producer = UUID(document["producer_id"])
         expected = evidence_attestation_body(

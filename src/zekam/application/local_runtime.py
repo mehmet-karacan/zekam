@@ -23,6 +23,7 @@ RUNTIME_OUTBOX_KINDS = (
 RESERVED_JOB_OPERATIONS = (
     "publication.trust.enroll",
     "publication.trust.rotate",
+    "publication.test.attest",
     "git.push",
     "project.index",
     "test.measure",
