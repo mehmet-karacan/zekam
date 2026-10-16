@@ -21,6 +21,10 @@ alanlarini da canonical SQLite'dan verir; snapshot ID varken eksik join fail-clo
 reddedilir. Unit regresyon kaynagi eklendi, testler CALISTIRILMADI. Ayrinti
 docs/WORK_RESUME_CANONICAL_READBACK.md.
 
+Dogal dil Work status raporu da ayni bounded canonical bound job/source snapshot
+okumasini proje basina donen acik Work penceresine baglar; scope ve truncation
+alanlari acikca raporlanir. E2E regresyon kaynagi eklendi, testler CALISTIRILMADI.
+
 ODI preflight policy ile reddedilen topology/sensitive/secret dosyalarin raw byte hashini public plan files alanina tasimaz; content_digest null kalir. Kabul edilen dosya fingerprint ve rejected planin bind reddi korunur. CLI regresyon kaynagi hazir, CALISTIRILMADI.
 
 ODI directory discovery limiti queue boyutu yerine toplam kesfedilen file/directory sayisina baglandi; islenmis bos dizinler artik butceden dusmez. Deep empty chain, mixed entry ve exact limit regresyon kaynaklari hazir, CALISTIRILMADI. Native/WP kabul acik.

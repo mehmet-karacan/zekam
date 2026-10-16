@@ -1298,6 +1298,13 @@ config digestleri de okunur; eksik snapshot baglantisi fail-closed reddedilir.
 Unit regresyon kaynagi hazirlandi, testler CALISTIRILMADI. Bu okuma lease veya
 grant uretmez; Work kabul matrisi aciktir.
 
+**16 Ekim 2026 WP-07 status canonical bound job readback:** Dogal dil Work durum
+raporu, proje basina donen acik Work penceresi icin ayni bounded bound job ve
+source snapshot okuyucusunu kullanir. `bound_jobs_scope` ve truncation durumu
+rapora eklenir; payload, owner token ve grant alani cikmaz. E2E regresyon kaynagi
+hazirlandi, testler CALISTIRILMADI; lease/grant yeniden edinimi ve Work kabul
+matrisi aciktir.
+
 ### WP-07 — Work, Kuyruk Ve İstemciler Arası Devam
 
 **Bağımlılık/onay:** WP-00/02/03; existing operational schema.  

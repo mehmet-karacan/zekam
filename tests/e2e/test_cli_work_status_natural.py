@@ -167,6 +167,9 @@ def test_ask_work_status_reports_events_and_unknown_usage_without_inventing_metr
         "status": "unknown",
         "reason": "run-usage-receipt-missing",
     }
+    assert item["bound_jobs"] == []
+    assert item["bound_jobs_truncated"] is False
+    assert item["bound_jobs_scope"] == "returned-open-work-window"
     assert (home / "state" / "operational.db").read_bytes() == before
 
 
@@ -233,6 +236,8 @@ def test_ask_work_status_bounds_details_but_keeps_exact_project_totals(tmp_path:
     assert all(
         run["checkpoints_truncated"] and len(run["checkpoints"]) == 5 for run in detail["runs"]
     )
+    assert project_doc["bound_jobs"] == []
+    assert project_doc["bound_jobs_truncated"] is False
     assert document["bounded"] and document["read_only"]
     assert not document["grants_authority"]
     text_result = runner.invoke(

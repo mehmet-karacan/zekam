@@ -4,13 +4,18 @@
 
 `work resume --json` artik yalniz acik Work basliklarini listelemez. Secilen
 bounded acik Work penceresi icin SQLite operational authority'den son Work
-eventlerini, son Run ozetlerini ve bound job referanslarini okur.
+eventlerini, son Run ozetlerini ve bound job referanslarini okur. Dogal dildeki
+`zekam ask ... --json` Work durum raporu da ayni canonical bound job okuyucusunu
+proje basina donen acik Work penceresine uygular; iki yuzey farkli bir operational
+authority veya job payload'i uretmez.
 
 ## Sinirlar
 
 - En fazla 100 acik Work okunur.
 - Work basina en fazla 3 event ve 3 Run ozetlenir.
 - Bound job penceresi en fazla 50 kayittir; `bound_jobs_truncated` sonucu bildirir.
+- Work status raporunda bound job scope'u `returned-open-work-window` olarak
+  belirtilir; source snapshot varsa revision/tree/content/config digestleri korunur.
 - `recent_activity` event zamanina gore en fazla 300 kayittir.
 - Job payload'i, owner token'i, grant'i ve ham provider/model icerigi ciktiya alinmaz.
 - Tum cikti salt okunur ve `grants_authority=false` olarak kalir.

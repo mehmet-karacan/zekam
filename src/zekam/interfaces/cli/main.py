@@ -367,6 +367,7 @@ _WORK_STATUS_EVENT_LIMIT = 20
 _WORK_STATUS_RUN_LIMIT = 5
 _WORK_STATUS_STEP_LIMIT = 20
 _WORK_STATUS_CHECKPOINT_LIMIT = 5
+_WORK_STATUS_BOUND_JOB_LIMIT = 50
 
 _WORK_STATUS_PHRASES = (
     "ne kadar is kaldi",
@@ -524,6 +525,10 @@ def _ask_work_status(
                 *open_window[:_WORK_STATUS_OPEN_LIMIT],
                 *closed_window[:_WORK_STATUS_CLOSED_LIMIT],
             )
+            bound_jobs = uow.list_bound_jobs_limited(
+                work_item_ids=tuple(item.id for item in open_window[:_WORK_STATUS_OPEN_LIMIT]),
+                limit=_WORK_STATUS_BOUND_JOB_LIMIT + 1,
+            )
             dependencies = uow.work_dependency_summaries(tuple(item.id for item in rows))
             items: list[dict[str, Any]] = []
             for item in rows:
@@ -613,6 +618,9 @@ def _ask_work_status(
                     ),
                     "open_truncated": len(open_window) > _WORK_STATUS_OPEN_LIMIT,
                     "closed_truncated": len(closed_window) > _WORK_STATUS_CLOSED_LIMIT,
+                    "bound_jobs": list(bound_jobs[:_WORK_STATUS_BOUND_JOB_LIMIT]),
+                    "bound_jobs_truncated": len(bound_jobs) > _WORK_STATUS_BOUND_JOB_LIMIT,
+                    "bound_jobs_scope": "returned-open-work-window",
                     "items": items,
                     "open_items": [
                         item
@@ -639,6 +647,7 @@ def _ask_work_status(
             "runs_per_work": _WORK_STATUS_RUN_LIMIT,
             "steps_per_run": _WORK_STATUS_STEP_LIMIT,
             "checkpoints_per_run": _WORK_STATUS_CHECKPOINT_LIMIT,
+            "bound_jobs_per_project": _WORK_STATUS_BOUND_JOB_LIMIT,
         },
         "usage": {
             "status": "unknown",
