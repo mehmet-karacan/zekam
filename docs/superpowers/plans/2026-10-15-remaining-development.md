@@ -120,6 +120,8 @@
 
 - Gorev 2 WP-07.05 native source root: Checkpoint/resume source readback'inde Git kokune giden symlink veya Windows reparse ancestor kabul edilmez; exact fiziksel root siniri `source-root-link-or-reparse` ile fail-closed kalir. Regresyon kaynaklari hazir, CALISTIRILMADI.
 
+- Gorev 2/4 WP-07.02/04 resume RAG readback: `workspace_resume` RAG ozeti state'te source binding varsa revision/tree/source identity alanlarini yeniden dogrulayip ayni packet'e tasir; bozuk veya eksik yeni binding attention-required olur, eski alanlari olmayan state bounded uyumlulukla kalir. Regresyon kaynaklari hazir, CALISTIRILMADI.
+
 - 16 Ekim 2026 kullanici yeniden devam izni verdi; 07:40 conversational duraklama kaldirildi. Resume read ZEKAM_HOME hazir degil hatasi verdi; kanonik Work/lease durumu uydurulmadi. Hedef araci paused gorunuyor ve mevcut API resume desteklemiyor; yeni hedef uretilmedi.
 
 - Gorev 5 WP-10.05 canonical tournament: actual paired trial -> fresh local grade -> no-progress stop veya tek native verifier-role selector reserved Work/claim/checkpoint/CAS receipt akisina baglandi. Exact source/config/model/session, typed karar, completed replay ve historical report eklendi; caller scores kabul edilmez. Unmetered token/cost/provider-request boyutlari null ve explicit opt-in; promotion false. Unit regresyon kaynaklari hazir, CALISTIRILMADI. Gercek host/full quality ve quantitative metering kabul kapilari acik; docs/TOURNAMENT_CANONICAL_SELECTION.md.

@@ -9,6 +9,7 @@ from typing import Any
 from zekam.application.bounded_file import read_bounded_text
 from zekam.application.capability_inventory import compact_capability_summary
 from zekam.application.opencode_lifecycle import resume_projection
+from zekam.application.project_knowledge_index import source_identity_digest
 from zekam.application.run_readback import run_document
 from zekam.application.secret_detection import SECRET_RULES, scan_text
 from zekam.domain.canonical import digest, parse_digest
@@ -90,6 +91,24 @@ def _read_rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict
         raise PolicyViolation("Project RAG resume state scope drift")
     generation_digest = str(state.get("generation_digest", ""))
     parse_digest(generation_digest)
+    source_binding_keys = ("source_revision", "tree_digest", "source_identity_digest")
+    source_binding_present = any(key in state for key in source_binding_keys)
+    source_binding: dict[str, str] = {}
+    if source_binding_present:
+        if not all(isinstance(state.get(key), str) for key in source_binding_keys):
+            raise PolicyViolation("Project RAG resume source identity eksik")
+        source_revision = str(state["source_revision"])
+        tree_digest = str(state["tree_digest"])
+        identity = str(state["source_identity_digest"])
+        parse_digest(source_revision)
+        parse_digest(tree_digest)
+        if identity != source_identity_digest(project_id, source_revision, tree_digest):
+            raise PolicyViolation("Project RAG resume source identity drift")
+        source_binding = {
+            "source_revision": source_revision,
+            "tree_digest": tree_digest,
+            "source_identity_digest": identity,
+        }
     integrity = state.get("index_integrity")
     recorded_integrity = (
         str(integrity.get("status", "unknown")) if isinstance(integrity, dict) else "unknown"
@@ -103,6 +122,7 @@ def _read_rag_summary(home: Path, *, project_id: str, project_slug: str) -> dict
             "database_metadata_chunk_count": int(state.get("oracle_chunk_count", 0)),
             "database_access": str(state.get("database_access", "unknown")),
             "recorded_integrity": recorded_integrity,
+            **source_binding,
         }
     except (TypeError, ValueError) as exc:
         raise PolicyViolation("Project RAG resume counters integer olmali") from exc
