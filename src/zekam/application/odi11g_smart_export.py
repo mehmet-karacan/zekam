@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import stat
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
@@ -25,11 +24,9 @@ from zekam.domain.canonical import canonical_json, digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.knowledge import Locator, UnitKind
 from zekam.domain.retrieval import Chunk, ChunkProfile, estimate_tokens
-from zekam.infrastructure.knowledge_files import KnowledgeFileStore
-from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
-SMART_IMPORT_PLAN_SCHEMA = "zekam-odi11g-smart-import-plan/v1"
-SMART_BINDING_SCHEMA = "zekam-project-local-odi11g-smart-binding/v1"
+SMART_IMPORT_PLAN_SCHEMA = "zekam-odi11g-smart-import-plan/v2"
+SMART_BINDING_SCHEMA = "zekam-project-local-odi11g-smart-binding/v2"
 SMART_SANITIZED_SCHEMA = "zekam-odi11g-sanitized-lineage/v1"
 SMART_IMPORT_OPERATION = "project.odi-smart-import"
 _MAX_EXPORT_BYTES = 128 * 1024 * 1024
@@ -184,6 +181,7 @@ class OdiSanitizedPlan:
 
 def _regular_file(path: Path) -> tuple[Path, os.stat_result]:
     absolute = Path(os.path.abspath(os.fspath(path)))
+    _existing_ancestor_is_safe(absolute.parent)
     info = absolute.lstat()
     attrs = int(getattr(info, "st_file_attributes", 0))
     if stat.S_ISLNK(info.st_mode) or attrs & _REPARSE_ATTRIBUTE or not stat.S_ISREG(info.st_mode):
@@ -196,10 +194,36 @@ def _regular_file(path: Path) -> tuple[Path, os.stat_result]:
 def _sha256_file(path: Path) -> str:
     import hashlib
 
+    path, before = _regular_file(path)
     value = hashlib.sha256()
-    with path.open("rb") as stream:
-        while block := stream.read(1024 * 1024):
+    descriptor = os.open(
+        path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino, opened.st_size) != (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+        ):
+            raise PolicyViolation("ODI Smart hash open identity drift")
+        total = 0
+        while block := os.read(descriptor, min(1024 * 1024, _MAX_EXPORT_BYTES + 1 - total)):
+            total += len(block)
+            if total > _MAX_EXPORT_BYTES:
+                raise PolicyViolation("ODI Smart hash byte budget exceeded")
             value.update(block)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    current = path.lstat()
+    fields = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    if (
+        fields(before) != fields(after)
+        or fields(before) != fields(current)
+        or total != before.st_size
+    ):
+        raise PolicyViolation("ODI Smart hash readback identity drift")
     return f"sha256:{value.hexdigest()}"
 
 
@@ -290,6 +314,11 @@ def _existing_ancestor_is_safe(path: Path) -> None:
 def build_smart_import_plan(
     *, project_id: str, project_slug: str, source: Path, library_root: Path, library_name: str
 ) -> OdiSmartImportPlan:
+    from zekam.domain.identifiers import validate_slug
+
+    project_slug = validate_slug(project_slug)
+    if str(UUID(project_id)) != project_id:
+        raise ValidationFailed("ODI Smart project canonical UUID olmali")
     source, info = _regular_file(source)
     source_digest, object_count = _validate_smart_xml(source)
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", library_name):
@@ -308,6 +337,24 @@ def build_smart_import_plan(
         "library_name": library_name,
         "library_root_digest": digest_of_bytes(str(root).encode("utf-8")),
         "source_digest": source_digest,
+        "source_identity_digest": digest_of_bytes(str(source).encode("utf-8")),
+        "source_snapshot_contract": {
+            "revision_ref": source_digest,
+            "tree_digest": digest(
+                {
+                    "source_identity_digest": digest_of_bytes(str(source).encode("utf-8")),
+                    "source_digest": source_digest,
+                }
+            ),
+            "content_digest": digest(
+                {
+                    "format": "odi11g-smart-export",
+                    "source_digest": source_digest,
+                    "source_identity_digest": digest_of_bytes(str(source).encode("utf-8")),
+                    "source_size_bytes": info.st_size,
+                }
+            ),
+        },
         "source_size_bytes": info.st_size,
         "object_count": object_count,
         "destination_ref": f"{library_name}/exports/{hex_digest}/design/SmartExport.xml",
@@ -322,192 +369,21 @@ def build_smart_import_plan(
 
 
 def import_smart_export(
-    *, home: Path, plan: OdiSmartImportPlan, expected_plan_digest: str
+    *, home: Path, plan: OdiSmartImportPlan, expected_plan_digest: str, work_binding=None
 ) -> dict[str, Any]:
-    if expected_plan_digest != plan.plan_digest:
-        raise PolicyViolation("ODI Smart import exact plan digest ister")
-    current_digest, _ = _validate_smart_xml(plan.source)
-    if current_digest != plan.body["source_digest"]:
-        raise PolicyViolation("ODI Smart Export plan sonrasi degisti")
-    runtime = SQLiteLocalRuntimeStore(home / "state" / "operational.db", existing_only=True)
-    job, created = runtime.enqueue(
-        idempotency_key=f"odi-smart-import:{plan.plan_digest}",
-        payload=dict(plan.body) | {"dry_run": False},
-        max_attempts=1,
+    from zekam.application.odi11g_smart_runtime import import_canonical_smart_export
+
+    return import_canonical_smart_export(
+        home=home, plan=plan, expected_plan_digest=expected_plan_digest, work_binding=work_binding
     )
-    if not created:
-        snapshot = runtime.job_snapshot(job.id)
-        if snapshot is None:
-            raise PolicyViolation("ODI Smart import replay job bulunamadi")
-        if snapshot["state"] == "recovery-required":
-            if (
-                not plan.destination.is_file()
-                or _sha256_file(plan.destination) != plan.body["source_digest"]
-            ):
-                raise PolicyViolation("ODI Smart import recovery destination kaniti bulunamadi")
-            binding = {
-                "schema": SMART_BINDING_SCHEMA,
-                "project_id": plan.body["project_id"],
-                "project_slug": plan.body["project_slug"],
-                "source_file": str(plan.destination),
-                "source_digest": plan.body["source_digest"],
-                "destination_ref": plan.body["destination_ref"],
-                "plan_digest": plan.plan_digest,
-                "raw_local_only": True,
-                "sanitizer_required": True,
-                "report_embedded": False,
-            }
-            KnowledgeFileStore(home).write_private_binding(
-                str(plan.body["binding_ref"]), (canonical_json(binding) + "\n").encode("utf-8")
-            )
-            evidence = digest(
-                {
-                    "operation": SMART_IMPORT_OPERATION,
-                    "plan_digest": plan.plan_digest,
-                    "source_digest": plan.body["source_digest"],
-                    "binding_digest": digest(binding),
-                    "recovery": True,
-                }
-            )
-            resolutions: list[str] = []
-            for case in runtime.recovery_cases(open_only=True):
-                if case.job_id == job.id:
-                    resolutions.append(
-                        runtime.resolve_recovery(
-                            case.id, outcome="completed", evidence_digest=evidence
-                        ).id
-                    )
-            if not resolutions:
-                raise PolicyViolation("ODI Smart import recovery case bulunamadi")
-            recovered = runtime.reconcile_recovery(job.id)
-            return {
-                "schema": "zekam-odi11g-smart-import-result/v1",
-                "job_id": job.id,
-                "state": recovered.state,
-                "plan_digest": plan.plan_digest,
-                "destination_ref": plan.body["destination_ref"],
-                "source_digest": plan.body["source_digest"],
-                "binding_ref": plan.body["binding_ref"],
-                "replayed": True,
-                "recovered": True,
-                "recovery_resolution_ids": resolutions,
-                "grants_authority": False,
-            }
-        return {
-            "schema": "zekam-odi11g-smart-import-result/v1",
-            "job_id": job.id,
-            "state": snapshot["state"],
-            "plan_digest": plan.plan_digest,
-            "destination_ref": plan.body["destination_ref"],
-            "replayed": True,
-            "effects": snapshot["effects"],
-            "grants_authority": False,
-        }
-    work = runtime.claim_next(
-        owner_id=f"odi-smart-{os.getpid()}",
-        owner_pid=os.getpid(),
-        owner_token=os.urandom(32).hex(),
-        lease_seconds=600,
-        resources=(f"project:{plan.body['project_id']}:odi-smart",),
-        supported_operations=(SMART_IMPORT_OPERATION,),
-        job_id=job.id,
-    )
-    if work is None:
-        raise PolicyViolation("ODI Smart import job claim edilemedi")
-    claim, claim_created = runtime.claim_effect(
-        work,
-        operation=SMART_IMPORT_OPERATION,
-        effect_digest=digest(
-            {"plan_digest": plan.plan_digest, "destination_ref": plan.body["destination_ref"]}
-        ),
-        idempotency_key=f"odi-smart:{plan.plan_digest}:effect",
-    )
-    if not claim_created:
-        runtime.finish(work, state="recovery-required")
-        raise PolicyViolation("ODI Smart import effect replay; silent redispatch yasak")
-    try:
-        plan.destination.parent.mkdir(parents=True, exist_ok=True)
-        _existing_ancestor_is_safe(plan.destination.parent)
-        if plan.destination.exists():
-            if _sha256_file(plan.destination) != plan.body["source_digest"]:
-                raise PolicyViolation("Content-addressed ODI destination digest drift")
-        else:
-            temporary = plan.destination.with_name(f".{plan.destination.name}.{os.getpid()}.tmp")
-            with plan.source.open("rb") as source_stream, temporary.open("xb") as target_stream:
-                shutil.copyfileobj(source_stream, target_stream, length=1024 * 1024)
-                target_stream.flush()
-                os.fsync(target_stream.fileno())
-            if _sha256_file(temporary) != plan.body["source_digest"]:
-                temporary.unlink(missing_ok=True)
-                raise PolicyViolation("ODI Smart import copy digest drift")
-            os.replace(temporary, plan.destination)
-        binding = {
-            "schema": SMART_BINDING_SCHEMA,
-            "project_id": plan.body["project_id"],
-            "project_slug": plan.body["project_slug"],
-            "source_file": str(plan.destination),
-            "source_digest": plan.body["source_digest"],
-            "destination_ref": plan.body["destination_ref"],
-            "plan_digest": plan.plan_digest,
-            "raw_local_only": True,
-            "sanitizer_required": True,
-            "report_embedded": False,
-        }
-        KnowledgeFileStore(home).write_private_binding(
-            str(plan.body["binding_ref"]), (canonical_json(binding) + "\n").encode("utf-8")
-        )
-        evidence = digest(
-            {
-                "operation": SMART_IMPORT_OPERATION,
-                "plan_digest": plan.plan_digest,
-                "source_digest": plan.body["source_digest"],
-                "binding_digest": digest(binding),
-            }
-        )
-        receipt = runtime.record_receipt(claim, status="completed", evidence_digest=evidence)
-        runtime.finish(work, state="completed", evidence_digest=evidence)
-    except Exception as exc:
-        failure = digest(
-            {
-                "operation": SMART_IMPORT_OPERATION,
-                "status": "unknown",
-                "error_type": type(exc).__name__,
-            }
-        )
-        try:
-            runtime.record_receipt(claim, status="unknown", evidence_digest=failure)
-            runtime.finish(work, state="recovery-required")
-        except Exception:
-            pass
-        raise
-    return {
-        "schema": "zekam-odi11g-smart-import-result/v1",
-        "job_id": job.id,
-        "state": "completed",
-        "plan_digest": plan.plan_digest,
-        "destination_ref": plan.body["destination_ref"],
-        "source_digest": plan.body["source_digest"],
-        "binding_ref": plan.body["binding_ref"],
-        "receipt_id": receipt.id,
-        "replayed": False,
-        "grants_authority": False,
-    }
 
 
 def load_smart_binding(
     home: Path, project_slug: str, *, verify_source: bool = True
 ) -> dict[str, Any] | None:
-    path = home / "projeler" / project_slug / "baglantilar" / "odi11g-smart.json"
-    if not path.exists():
-        return None
-    binding = KnowledgeFileStore(home).read_private_binding(
-        f"projeler/{project_slug}/baglantilar/odi11g-smart.json"
-    )
-    if binding.get("schema") != SMART_BINDING_SCHEMA or binding.get("project_slug") != project_slug:
-        raise PolicyViolation("ODI Smart binding schema/project drift")
-    if verify_source and not smart_binding_source_current(binding):
-        raise PolicyViolation("ODI Smart binding source digest drift")
-    return binding
+    from zekam.application.odi11g_smart_runtime import load_canonical_smart_binding
+
+    return load_canonical_smart_binding(home, project_slug, verify_source=verify_source)
 
 
 def smart_binding_source_current(binding: dict[str, Any]) -> bool:

@@ -371,6 +371,7 @@ _EXEMPT_COMMANDS: dict[tuple[str, ...], MutationAdmissionExemption] = {
     ("project", "index"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "integrate"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "odi-bind"): MutationAdmissionExemption.CONTROL_PLANE,
+    ("project", "odi-smart-import"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "rebind"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "remove"): MutationAdmissionExemption.CONTROL_PLANE,
     ("project", "restore"): MutationAdmissionExemption.CONTROL_PLANE,

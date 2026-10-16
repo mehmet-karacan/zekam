@@ -484,6 +484,8 @@ def odi_smart_import_command(
     library_root: Annotated[Path, typer.Option("--library-root")] = Path("C:/innova/odi"),
     library_name: Annotated[str, typer.Option("--library-name")] = "gpu",
     expected_plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    run_id: Annotated[UUID | None, typer.Option("--run-id")] = None,
+    work_revision: Annotated[int | None, typer.Option("--work-revision")] = None,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     output_json: Annotated[bool, typer.Option("--json")] = False,
     realm: Annotated[str, typer.Option("--realm", help=REALM_HELP)] = DEFAULT_REALM_SLUG,
@@ -505,12 +507,47 @@ def odi_smart_import_command(
         else:
             if expected_plan_digest is None:
                 raise PolicyViolation("ODI Smart import --plan-digest ister")
+            if run_id is None or work_revision is None:
+                raise PolicyViolation(
+                    "ODI Smart import canonical --run-id ve --work-revision ister"
+                )
+            from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
+
+            runtime = SQLiteLocalRuntimeStore(
+                resolve_home(home) / "state/operational.db", existing_only=True
+            )
+            binding = runtime.resolve_work_binding(
+                run_id=str(run_id),
+                work_revision=work_revision,
+                project_id=plan.body["project_id"],
+                plan_digest=expected_plan_digest,
+            )
             document = import_smart_export(
-                home=resolve_home(home), plan=plan, expected_plan_digest=expected_plan_digest
+                home=resolve_home(home),
+                plan=plan,
+                expected_plan_digest=expected_plan_digest,
+                work_binding=binding,
             )
     except ZekamError as exc:
         raise fail_from(exc) from exc
     _print_json(document)
+
+
+@app.command("odi-smart-source")
+def odi_smart_source_command(
+    reference: Annotated[str, typer.Argument()],
+    home: Annotated[str | None, typer.Option("--home", help=HOME_HELP)] = None,
+) -> None:
+    from zekam.application.odi11g_smart_runtime import read_smart_import_source
+
+    try:
+        _print_json(read_smart_import_source(resolve_home(home), reference))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        from zekam.domain.errors import ValidationFailed
+
+        raise fail_from(ValidationFailed("ODI Smart canonical source okunamadi")) from exc
+    except ZekamError as exc:
+        raise fail_from(exc) from exc
 
 
 @app.command("odi-smart-status")

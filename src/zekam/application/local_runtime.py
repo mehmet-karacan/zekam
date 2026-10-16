@@ -39,6 +39,7 @@ RESERVED_JOB_OPERATIONS = (
     "knowledge.archive",
     "knowledge.restore",
     "project.odi-bind",
+    "project.odi-smart-import",
     "skill.trial",
     "skill.audit.verify",
     "skill.audit.review",

@@ -36,7 +36,8 @@ tekrarlamak yeni dosya yazimi veya recovery-completed durumu uretmez. Completed
 replay de source parsing veya binding yazimi yapmaz. Kaynakta eski silent recovery
 yolu kaldirildi; kullanici verisi ya da DB migration'i bu gelistirmede calistirilmadi.
 
-Smart Export import/sanitized index baglantisi ayri sonraki dilimdir; bu directory
-binding metadata yolunun tek basina ODI indeksini veya WP'yi tamamladigi soylenmez.
+Smart Export import/sanitized index canonical kaynak bagi ayri dilimde eklendi;
+ayrinti `ODI_SMART_CANONICAL_IMPORT.md`. Directory binding metadata yolunun tek
+basina ODI indeksini veya WP'yi tamamladigi soylenmez.
 SQLite/CAS/XML/private file ve CLI regresyon kaynaklari hazir, CALISTIRILMADI.
 Tum testler tum gelistirmeler sonrasindaki final asamadadir.

@@ -53,7 +53,7 @@ def _admit_binding(home, plan):
         snapshot = uow.capture_source_snapshot(
             source_binding_id=source.id,
             revision_ref=plan["source_snapshot_contract"]["revision_ref"],
-            tree_digest=plan["tree_digest"],
+            tree_digest=plan["source_snapshot_contract"]["tree_digest"],
             content_digest=plan["source_snapshot_contract"]["content_digest"],
             config_digest=config.config_digest,
         )
@@ -394,6 +394,7 @@ def test_smart_export_import_is_content_addressed_and_sanitizer_excludes_topolog
     )
     assert dry.exit_code == 0, dry.output
     plan = json.loads(dry.output)
+    binding_run = _admit_binding(home, plan)
     applied = runner.invoke(
         cli.app,
         [
@@ -409,6 +410,7 @@ def test_smart_export_import_is_content_addressed_and_sanitizer_excludes_topolog
             str(home),
             "--plan-digest",
             plan["plan_digest"],
+            *_run_args(binding_run),
             "--uygula",
             "--json",
         ],

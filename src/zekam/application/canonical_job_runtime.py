@@ -147,6 +147,7 @@ def run_canonical_job(
         "publication.review",
         "project.index",
         "project.odi-bind",
+        "project.odi-smart-import",
         "test.measure",
         "test.run",
         "continuity.resume",
