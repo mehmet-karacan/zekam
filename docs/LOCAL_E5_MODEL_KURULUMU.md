@@ -55,3 +55,14 @@ Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
 aktif production index bulunmadi. Bu nedenle ilgisiz SQLite veritabanlarina
 dokunulmadi; yeni production index gelistirme tamamlanip son testler gectikten
 sonra olusturulacaktir.
+
+## Son dogrulama notu
+
+Gercek kurulu modelle yapilan son provider smoke kontrolden gecti: route `local`,
+CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
+batch 6 ms olctu. Tam `pytest -q` kosusu onceki iki observability sozlesme kaydi
+duzeltildikten sonra import asamasina kadar ilerledi, ancak birbirinden fixture
+sembolleri isteyen 6 eski OpenCode/skill test modulu collection asamasinda kaldi.
+Bu engel E5 provider kodundan kaynaklanmiyor. Uretim corpus indexi bu kontrolde
+olusturulmadi; aktif ZEKAM_HOME indexi bulunmadigi icin yeniden indekslenecek hedef
+de yoktu.
