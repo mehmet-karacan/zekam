@@ -377,6 +377,52 @@ def render_architecture_bundle(catalog: dict) -> dict[str, bytes]:
         "architecture.mmd": diagram.encode("utf-8"),
         "traceability.json": canonical_bytes(catalog["source_traceability"]) + b"\n",
     }
+
+    # Miro/GitBook are represented as local, reviewable plans. They never
+    # contain credentials/endpoints and never imply a remote import.
+    def local_target_plan(
+        target: str, input_names: tuple[str, ...], steps: tuple[str, ...]
+    ) -> bytes:
+        body = {
+            "schema": f"zekam-{target}-local-export-plan/v1",
+            "target": target,
+            "catalog_digest": catalog["catalog_digest"],
+            "source_revision": catalog["source_revision"],
+            "inputs": [
+                {"path": name, "digest": digest_of_bytes(files[name])} for name in input_names
+            ],
+            "steps": list(steps),
+            "tool_usage": {
+                "generator": "scripts/export_source_architecture.py",
+                "remote_calls": 0,
+                "credentials_used": False,
+                "publication_calls": 0,
+            },
+            "checks_not_run": [
+                "remote-import-acceptance",
+                "remote-render-acceptance",
+                "publication",
+            ],
+            "version_drift": {
+                "method": "fresh-catalog-and-input-digest-comparison",
+                "on_drift": "regenerate-local-plan",
+            },
+            "local_only": True,
+            "published": False,
+            "grants_authority": False,
+        }
+        return canonical_bytes(body | {"plan_digest": digest(body)}) + b"\n"
+
+    files["miro-plan.json"] = local_target_plan(
+        "miro",
+        ("architecture.mmd",),
+        ("review architecture.mmd locally", "import only after explicit external approval"),
+    )
+    files["gitbook-plan.json"] = local_target_plan(
+        "gitbook",
+        ("architecture.md", "traceability.json"),
+        ("review architecture.md locally", "publish only after explicit external approval"),
+    )
     manifest = {
         "schema": "zekam-architecture-export-manifest/v1",
         "catalog_digest": catalog["catalog_digest"],

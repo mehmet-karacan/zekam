@@ -2,8 +2,9 @@
 
 Bu kaynak dilimi `application/architecture_export.py` ve
 `scripts/export_source_architecture.py` ile tek bir kaynak katalog girdisinden
-yerel Markdown, HTML, Mermaid ve ZIP uretir. Operational authority veya kabul
-raporu degildir. Testler CALISTIRILMADI.
+yerel Markdown, HTML, Mermaid ve ZIP uretir. Miro/GitBook icin remote import
+veya yayin yapmayan yerel planlar da ayni katalogdan uretilir. Operational
+authority veya kabul raporu degildir. Testler CALISTIRILMADI.
 
 ## Giris ve kaynak bagi
 
@@ -38,8 +39,10 @@ Repo icinde gecici/generate rapor birakmaz. Dosyalar:
 | architecture.html | Escaped, script ve remote resource icermeyen yerel belge |
 | architecture.mmd | Canonical WP -> CAP iliski diyagram kaynagi |
 | traceability.json | Explicit task scope -> WP -> test source bagi ve eksikler |
+| miro-plan.json | Yerel Mermaid inceleme/import plani; remote cagrisi yok |
+| gitbook-plan.json | Yerel Markdown/traceability inceleme/yayin plani; remote cagrisi yok |
 | manifest.json | Catalog digest ve diger dosyalarin exact byte hash'leri |
-| architecture.zip | Sabit tarih/sira/izinlerle ayni alti dosyanin yerel paketi |
+| architecture.zip | Sabit tarih/sira/izinlerle ayni sekiz dosyanin yerel paketi |
 
 HTML/Mermaid render motoru veya yeni arac kurulumu gerekmez. Mermaid kaynak
 olarak teslim edilir. GitBook/Miro login, yayin veya uzak API cagrisi yapilmaz;
@@ -50,7 +53,7 @@ bundle yerel export girdisidir, provider'in kabul ettigi import formati iddiasi 
 `python scripts/export_source_architecture.py --verify <mevcut-repo-disi-mutlak-klasor>`
 
 Bu salt okunur yol guncel tracked kaynak katalogunu yeniden kurar ve beklenen
-yedi dosyanin exact bytes'ini bounded olarak diskten okur. Paket manifest'i path,
+dokuz dosyanin exact bytes'ini bounded olarak diskten okur. Paket manifest'i path,
 dosya listesi veya allocation yetkisi vermez. Fazla/eksik dosya, dizin, link/reparse,
 source/HEAD drift veya degisen herhangi bir belge basari sayilmaz. Degistirilen
 dosya icin manifest hash'ini tekrar yazmak paketi gecerli yapmaz. ZIP unzip

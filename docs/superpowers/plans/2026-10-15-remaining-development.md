@@ -311,6 +311,8 @@
 
 - 16 Ekim 2026 WP-04.03 XML parser dilimi: bounded stdlib Expat parser'i DTD/external entity ve yapisal limitleri reddeder; metin birimleri element yolu ve satir locator'i ile normalize edilir. XML uzanti/MIME ve Jira read-only attachment route'u parser router'a baglandi. Test CALISTIRILMADI; belge kalite ve native kabul kapilari acik.
 
+- 16 Ekim 2026 WP-12.05 yerel hedef planlari: Kaynak mimari export'una ayni katalogdan Miro Mermaid ve GitBook Markdown/traceability yerel planlari eklendi. Catalog/source ve input digest'leri, tool usage, yapilmayan kontroller, drift metodu ve remote/yayin false kapilari korunur. Test CALISTIRILMADI; gercek import/yayin ve kabul aciktir.
+
 - Gorev 3 publication CLI composition: config-pinned public trust loader, strict plan/evidence/approval codec, native CLI plan/import/status/revoke/apply ve mutation admission baglandi. Imzali import exact replay idempotent; tarihsel completed apply yeni remote/trust islemi yapmaz. Regresyon kodu hazir, CALISTIRILMADI. Gercek producer enrollment/receipt producer ve native host enforcement kabulleri acik.
 
 - 16 Ekim 2026 yeni hedef active; onceki duraklatilmis hedef degistirilmeden kalan tum kapsam icin yeni sayac baslatildi. Gorev 3 signed SQLite publication ledger v9, gercek source receipt/CAS dogrulamasi ve atomic live-claim consumption eklendi. Migration/backup/CLI db dry-run ve runtime version destekleri baglandi; kullanici DB migration'i yapilmadi. Regresyon kodu hazir, CALISTIRILMADI. Trusted producer provisioning, gercek test/verifier receipt adapter ve publication CLI composition acik.

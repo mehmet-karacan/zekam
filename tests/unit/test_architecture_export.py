@@ -97,6 +97,12 @@ def test_all_views_and_deterministic_zip_share_one_catalog_and_hashes(checkout):
     assert b"WP_02 --> CAP_01" in files["architecture.mmd"]
     assert catalog["catalog_digest"].encode() in files["architecture.md"]
     assert catalog["catalog_digest"].encode() in files["architecture.html"]
+    miro = json.loads(files["miro-plan.json"])
+    gitbook = json.loads(files["gitbook-plan.json"])
+    assert miro["schema"] == "zekam-miro-local-export-plan/v1"
+    assert gitbook["schema"] == "zekam-gitbook-local-export-plan/v1"
+    assert miro["tool_usage"]["remote_calls"] == 0
+    assert gitbook["published"] is False
 
 
 def test_digest_and_source_changes_cannot_silently_reuse_catalog(checkout):
@@ -194,6 +200,8 @@ def test_persisted_readback_is_source_bound_and_never_runtime_acceptance(checkou
         "architecture.mmd",
         "architecture.zip",
         "traceability.json",
+        "miro-plan.json",
+        "gitbook-plan.json",
     ],
 )
 def test_persisted_readback_rejects_every_changed_or_rehashed_bundle_member(

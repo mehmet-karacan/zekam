@@ -2174,6 +2174,11 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
   hazir, test/generator/verify CALISTIRILMADI; WP ve final kabul aciktir.
 
 - [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
+
+  16 Ekim 2026 yerel hedef planlari: Mimari katalogdan `miro-plan.json` ve
+  `gitbook-plan.json` ayni source/catalog digest bagiyla uretilir. Planlar remote
+  cagrisi, credential veya yayin yapmaz; kullanilmayan kontrolleri ve drift'te
+  yeniden uretim kuralini tasir. Gercek import/yayin ve kabul testi aciktir.
 - [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
 
   16 Ekim 2026 kaynak traceability: current WP Girdi/kapsam REQ/CAP kimlikleri
