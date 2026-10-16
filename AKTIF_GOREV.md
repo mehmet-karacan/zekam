@@ -1853,6 +1853,13 @@ native invocation ve kabul kaniti acik. `docs/SKILL_YASAM_DONGUSU_CLI.md`.
 
 ### WP-11 — Operasyon, Rapor, Backup Ve Kurtarma
 
+**16 Ekim 2026 - native scheduler kabulunun bootstrap bagi, test bekliyor:**
+Iki-cevrim kabul kontrolu raw son bootstrap satiri yerine dogrulanmis control
+zinciri/receipt/admission/grant ve guncel supervisor plan/status bagini kullanir.
+Job/receipt/finish/OS zaman sirasi, ayri event record ID ve son head readback'i
+zorunludur. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek Windows native
+kabulu veya herhangi bir WP kapanisi bu kaynak diliminden turetilmez.
+
 **16 Ekim 2026 - kullanim raporu olcum kapsami, test bekliyor:** Eksik store/schema
 ve gecersiz olcumler sifir yerine null/available=false olarak raporlanir.
 Operational toplam yalniz kayitli terminal kapsamindadir; bounded census/model

@@ -25,7 +25,7 @@ from zekam.application.evolution_usage import (
 )
 from zekam.application.opencode_spool import inspect_spool
 from zekam.application.package_acceptance import build_package_manifest
-from zekam.domain.canonical import digest, parse_digest
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.evolution_authority import EVOLUTION_HANDLERS
 from zekam.infrastructure.sqlite.evolution_authority import evolution_authority_schema_digest
@@ -432,18 +432,32 @@ def _native_two_cycle_acceptance(
     if os.name != "nt" or supervisor.get("state") != "matching":
         return base | {"evidence_digest": digest(base)}
     try:
-        expected_executable = build_windows_supervisor_plan(context).executable
+        supervisor_plan = build_windows_supervisor_plan(context)
+        expected_executable = supervisor_plan.executable
+        if supervisor_plan.plan_digest != supervisor.get("plan_digest"):
+            return base | {"evidence_digest": digest(base)}
     except (OSError, ValidationFailed):
         return base | {"evidence_digest": digest(base)}
     improvement_database = context.home / "state" / "improvement.db"
     if not improvement_database.is_file() or not operational_database.is_file():
         return base | {"evidence_digest": digest(base)}
+    from zekam.infrastructure.local_file_security import path_or_parent_is_link_or_reparse
+    from zekam.infrastructure.sqlite.evolution_control import read_control_chain
+
+    if any(
+        path_or_parent_is_link_or_reparse(path)
+        for path in (improvement_database, operational_database)
+    ):
+        invalid = base | {"state": "unavailable", "reason": "store-identity-invalid"}
+        return invalid | {"evidence_digest": digest(invalid)}
     try:
         with sqlite3.connect(
             f"{improvement_database.resolve().as_uri()}?mode=ro", uri=True
         ) as improvement:
+            improvement.execute("begin")
+            control = read_control_chain(improvement)
             bootstrap = improvement.execute(
-                "select occurred_at,body_json from evolution_control_event "
+                "select occurred_at,body_json,event_digest from evolution_control_event "
                 "where reason='bootstrap-complete' order by ordinal desc limit 1"
             ).fetchone()
         if bootstrap is None:
@@ -452,8 +466,30 @@ def _native_two_cycle_acceptance(
         bootstrap_body = json.loads(str(bootstrap[1]))
         settlement = bootstrap_body.get("bootstrap_settlement")
         installed = settlement.get("supervisor") if isinstance(settlement, dict) else None
+        admission = bootstrap_body.get("admission_evidence")
         if (
             bootstrap_at.tzinfo is None
+            or not isinstance(settlement, dict)
+            or set(settlement)
+            != {
+                "schema",
+                "plan_digest",
+                "migration",
+                "grant_digest",
+                "supervisor",
+                "admission_evidence_digest",
+                "provider_calls",
+                "network_scope",
+                "receipt_digest",
+            }
+            or settlement.get("schema") != "zekam-evolution-bootstrap-receipt/v1"
+            or settlement.get("plan_digest") != bootstrap_body.get("enable_plan_digest")
+            or type(settlement.get("provider_calls")) is not int
+            or settlement.get("provider_calls") != 0
+            or settlement.get("network_scope") != "none"
+            or not isinstance(admission, dict)
+            or settlement.get("admission_evidence_digest") != admission.get("evidence_digest")
+            or settlement.get("grant_digest") not in admission.get("grant_digests", ())
             or not isinstance(installed, dict)
             or installed.get("state") not in {"installed", "already-installed"}
             or installed.get("plan_digest") != supervisor.get("plan_digest")
@@ -463,8 +499,11 @@ def _native_two_cycle_acceptance(
         with sqlite3.connect(
             f"{operational_database.resolve().as_uri()}?mode=ro", uri=True
         ) as operational:
+            operational.execute("begin")
             rows = operational.execute(
-                "select s.slot_key,s.schedule_digest,j.id,j.idempotency_key,j.payload_json,"
+                "select s.slot_key,s.schedule_digest,j.id,j.idempotency_key,"
+                "case when length(cast(j.payload_json as blob))<=1048576 "
+                "then j.payload_json else null end,"
                 "j.state,j.terminal_evidence_digest,j.created_at,j.updated_at,c.operation,"
                 "c.effect_digest,c.idempotency_key,r.status,r.evidence_digest,r.created_at,"
                 "(select count(*) from local_effect_claim cx where cx.job_id=j.id),"
@@ -477,7 +516,7 @@ def _native_two_cycle_acceptance(
                 "order by j.created_at desc,j.id desc limit 16",
                 (bootstrap_at.astimezone(dt.UTC).isoformat(),),
             ).fetchall()
-    except (OSError, sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+    except (OSError, sqlite3.Error, ValueError, TypeError, RecursionError, ZekamError):
         unavailable = base | {"state": "unavailable"}
         return unavailable | {"evidence_digest": digest(unavailable)}
 
@@ -504,12 +543,25 @@ def _native_two_cycle_acceptance(
     cycles: dict[dt.datetime, dict[str, object]] = {}
     for row in rows:
         try:
+            if type(row[4]) is not str:
+                continue
             payload = json.loads(str(row[4]))
+            if canonical_json(payload) != row[4]:
+                continue
             effect = payload["effect"]
             scheduled_text = str(effect["scheduled_for"])
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00Z", scheduled_text) is None:
                 continue
             scheduled_for = dt.datetime.fromisoformat(scheduled_text.replace("Z", "+00:00"))
+            created_at, updated_at, receipt_at = (
+                dt.datetime.fromisoformat(str(row[index]).replace("Z", "+00:00"))
+                for index in (7, 8, 14)
+            )
+            if (
+                any(moment.tzinfo is None for moment in (created_at, updated_at, receipt_at))
+                or not bootstrap_at <= scheduled_for <= created_at <= receipt_at <= updated_at
+            ):
+                continue
             terminal_digest = str(row[6])
             parse_digest(terminal_digest)
             schedule_digest = str(effect["schedule_digest"])
@@ -525,7 +577,7 @@ def _native_two_cycle_acceptance(
                     "overlap": "skip",
                 }
             )
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError, ValidationFailed):
+        except (KeyError, TypeError, ValueError, RecursionError, ZekamError):
             continue
         if (
             frozenset(payload) != {"operation", "effect"}
@@ -550,7 +602,7 @@ def _native_two_cycle_acceptance(
         matching_events = [
             event
             for event in successful_events
-            if scheduled_for <= event[0] <= scheduled_for + dt.timedelta(seconds=60)
+            if updated_at <= event[0] <= scheduled_for + dt.timedelta(seconds=60)
         ]
         if len(matching_events) != 1:
             continue
@@ -565,11 +617,25 @@ def _native_two_cycle_acceptance(
     ordered = sorted(cycles)
     pair: tuple[dict[str, object], ...] = ()
     for previous, current in pairwise(ordered):
-        if current - previous == dt.timedelta(minutes=5):
+        if (
+            current - previous == dt.timedelta(minutes=5)
+            and cycles[previous]["task_event_record_id"] != cycles[current]["task_event_record_id"]
+        ):
             pair = (cycles[previous], cycles[current])
     if not pair:
         return base | {"evidence_digest": digest(base)}
-    accepted = base | {"state": "verified", "verified": True, "cycles": pair}
+    current_control = _read_evolution_control(improvement_database)
+    if current_control.get("event_digest") != control["event_digest"]:
+        changed = base | {"state": "unavailable", "reason": "control-head-changed"}
+        return changed | {"evidence_digest": digest(changed)}
+    accepted = base | {
+        "state": "verified",
+        "verified": True,
+        "cycles": pair,
+        "control_head_digest": control["event_digest"],
+        "bootstrap_event_digest": str(bootstrap[2]),
+        "bootstrap_receipt_digest": settlement["receipt_digest"],
+    }
     return accepted | {"evidence_digest": digest(accepted)}
 
 

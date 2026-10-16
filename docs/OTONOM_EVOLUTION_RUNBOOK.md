@@ -48,6 +48,17 @@ Task Scheduler EventID 201 basarisini operational DB'deki exact slot -> job -> t
 `supervisor.state=matching`, `active_grants=1` ve `drifted_grants=0` birlikte gorulmeden OE-08
 kapanmis sayilmaz. Olay okuyucu provider veya ag cagrisi yapmaz.
 
+16 Ekim kaynak gelistirmesinde native kabul, ayni read snapshot'inda dogrulanmis
+control zinciri -> bootstrap event -> exact receipt/admission/grant bagi uzerinden
+okunur. Bootstrap receipt'in supervisor plan/status'u hem guncel plan hem native
+readback ile eslesir. Job olusturma -> terminal receipt -> job finish -> OS EventID
+201 zaman sirasi korunur; timezone'suz veya OS olayindan sonraki terminal kabul
+edilmez. Ardisik cevrimler farkli OS event record ID tasir. Kabul sonucu exact
+control-head, bootstrap-event ve bootstrap-receipt digest'lerini tasir; son head
+readback'i degismisse unavailable kalir. Bu tarihsel iki-cevrim kaniti guncel
+pause/disable veya grant kosullarini gecmez. Regresyon kaynaklari genisletildi,
+CALISTIRILMADI; gercek Windows kabul sonucu uretilmedi.
+
 `zekam evolve pause --uygula` yeni tick admission'ini keser;
 `zekam evolve resume --uygula` yalniz paused durumu acar; `zekam evolve disable --uygula`
 kalici olarak etkileri kapatir ve exact enable plani olmadan yeniden acilmaz.

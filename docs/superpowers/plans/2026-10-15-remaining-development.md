@@ -40,6 +40,8 @@
 
 ## Yurutme kaydi
 
+- Gorev 6 WP-11 native scheduler kabul bagi: raw bootstrap lookup oncesi full control-chain dogrulamasi, exact settlement/admission/grant/supervisor plan/status eslemesi ve son head readback eklendi. Job/receipt/finish/OS zaman sirasi ve iki farkli event record ID zorunlu; accepted evidence exact bootstrap/head digest'lerini tasir. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek native Windows kabul veya WP kapanisi uretilmedi; docs/OTONOM_EVOLUTION_RUNBOOK.md.
+
 - Gorev 6 WP-11 kullanim raporu: eksik operational/evaluation olcumleri sifir yerine unknown/null; recorded terminal scope ve budget availability eklendi. Bounded 10.000 terminal census/model totals ayni read snapshot'inda eslesir. Son 100 evaluation ornegi tum ledger geneli toplam diye sunulmaz; strict bounded body/digest, metrik tipleri ve coverage metadata baglandi. Regresyon kaynaklari hazir, CALISTIRILMADI. Gercek scheduler/kabul ve diger WP kapilari acik; docs/SCHEDULER_VE_RAPORLAR.md.
 
 - Gorev 5/6 WP-10/11 evolution control: status ve append admission ortak bounded full-chain JSON/hash/column/ordinal/predecessor dogrulamasina baglandi. Resume/enable historical evidence butunlugu kontrol edilir; guncel trusted grant verifier korunur. Bozuk/oversize gecmis partial head uretmez; yeni append commit edilmez, runtime degraded/setup durumu running'e donusmez. Regresyon kaynaklari hazir, CALISTIRILMADI. Native kabul, usage olcum dogrulugu ve genel WP kapilari acik; docs/OTONOM_EVOLUTION_RUNBOOK.md.

@@ -25,7 +25,7 @@ from zekam.application.evolution_runtime import (
     build_evolution_report,
     effective_evolution_state,
 )
-from zekam.domain.canonical import digest
+from zekam.domain.canonical import canonical_json, digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.sqlite.evolution_authority import EVOLUTION_AUTHORITY_DDL
 
@@ -222,8 +222,23 @@ def test_effective_evolution_state_has_one_fail_closed_precedence(
     assert effective_evolution_state(plan, report) == expected
 
 
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        None,
+        "body-hash",
+        "settlement-hash",
+        "admission-binding",
+        "supervisor-plan",
+        "future-terminal",
+        "naive-terminal",
+        "reused-event",
+        "duplicate-payload",
+        "control-head-changed",
+    ],
+)
 def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corruption: str | None
 ) -> None:
     home = tmp_path / "home"
     state = home / "state"
@@ -233,23 +248,67 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
     plan_digest = digest("supervisor-plan")
     status_digest = digest("supervisor-status")
     bootstrap_at = "2026-09-07T12:00:00+00:00"
-    bootstrap_body = {
-        "bootstrap_settlement": {
-            "supervisor": {
-                "state": "installed",
-                "plan_digest": plan_digest,
-                "status_digest": status_digest,
-            }
-        }
+    grant_digest = digest("grant")
+    admission = {
+        "task_scope_digest": digest("task"),
+        "config_digest": digest("config"),
+        "implementation_digest": digest("implementation"),
+        "supervisor_status_digest": status_digest,
+        "grant_binding_digest": digest("binding"),
+        "grant_digests": [grant_digest],
+        "recovery_clear": True,
     }
+    admission = admission | {"evidence_digest": digest(admission)}
+    enable_plan = digest("enable-plan")
+    settlement = {
+        "schema": "zekam-evolution-bootstrap-receipt/v1",
+        "plan_digest": enable_plan,
+        "migration": {"state": "already-v5"},
+        "grant_digest": grant_digest,
+        "supervisor": {
+            "state": "installed",
+            "plan_digest": plan_digest,
+            "status_digest": status_digest,
+        },
+        "admission_evidence_digest": (
+            digest("wrong-admission")
+            if corruption == "admission-binding"
+            else admission["evidence_digest"]
+        ),
+        "provider_calls": 0,
+        "network_scope": "none",
+    }
+    settlement = settlement | {"receipt_digest": digest(settlement)}
+    if corruption == "settlement-hash":
+        settlement["receipt_digest"] = digest("wrong-settlement")
+    bootstrap_body = {
+        "schema": "zekam-evolution-control-event/v1",
+        "ordinal": 1,
+        "state": "observing",
+        "previous_event_digest": None,
+        "reason": "bootstrap-complete",
+        "enable_plan_digest": enable_plan,
+        "admission_evidence": admission,
+        "bootstrap_settlement": settlement,
+        "occurred_at": bootstrap_at,
+        "grants_authority": False,
+    }
+    bootstrap_digest = digest(bootstrap_body)
     with sqlite3.connect(improvement) as connection:
         connection.execute(
             "create table evolution_control_event("
-            "ordinal integer,reason text,occurred_at text,body_json text)"
+            "event_digest text,ordinal integer,state text,previous_event_digest text,"
+            "reason text,occurred_at text,body_json text)"
         )
         connection.execute(
-            "insert into evolution_control_event values(1,'bootstrap-complete',?,?)",
-            (bootstrap_at, json.dumps(bootstrap_body)),
+            "insert into evolution_control_event values(?,1,'observing',null,'bootstrap-complete',?,?)",
+            (
+                bootstrap_digest,
+                bootstrap_at,
+                canonical_json(bootstrap_body | {"reason": "changed"})
+                if corruption == "body-hash"
+                else canonical_json(bootstrap_body),
+            ),
         )
     with sqlite3.connect(operational) as connection:
         connection.executescript(
@@ -301,11 +360,17 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
                 (
                     job_id,
                     f"maintenance-reconcile:{schedule_digest}",
-                    json.dumps(payload),
+                    canonical_json(payload)[:-1] + ',"operation":"maintenance.reconcile/v1"}'
+                    if corruption == "duplicate-payload"
+                    else canonical_json(payload),
                     "completed",
                     terminal_digest,
                     f"2026-09-07T12:{minute:02d}:02+00:00",
-                    f"2026-09-07T12:{minute:02d}:03+00:00",
+                    f"2026-09-07T12:{minute:02d}:30+00:00"
+                    if corruption == "future-terminal"
+                    else f"2026-09-07T12:{minute:02d}:03"
+                    if corruption == "naive-terminal"
+                    else f"2026-09-07T12:{minute:02d}:03+00:00",
                 ),
             )
             connection.execute(
@@ -331,9 +396,17 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
     executable = str((tmp_path / "zekam.exe").resolve())
     monkeypatch.setattr(
         "zekam.application.evolution_runtime.build_windows_supervisor_plan",
-        lambda _context: SimpleNamespace(executable=executable),
+        lambda _context: SimpleNamespace(
+            executable=executable,
+            plan_digest=digest("other-plan") if corruption == "supervisor-plan" else plan_digest,
+        ),
     )
     monkeypatch.setattr("zekam.application.evolution_runtime.os.name", "nt")
+    if corruption == "control-head-changed":
+        monkeypatch.setattr(
+            "zekam.application.evolution_runtime._read_evolution_control",
+            lambda _database: {"state": "paused", "event_digest": digest("new-head")},
+        )
     supervisor = {
         "state": "matching",
         "task_name": r"\Zekam\AutonomousEvolution",
@@ -343,7 +416,7 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
     events = tuple(
         {
             "occurred_at": f"2026-09-07T12:{minute:02d}:04Z",
-            "event_record_id": 100 + minute,
+            "event_record_id": 100 if corruption == "reused-event" else 100 + minute,
             "task_name": r"\Zekam\AutonomousEvolution",
             "action_name": executable,
             "result_code": 0,
@@ -358,7 +431,13 @@ def test_native_two_cycle_acceptance_correlates_os_events_and_terminal_jobs(
         events=events,
     )
 
+    if corruption is not None:
+        assert result["verified"] is False
+        assert result["cycles"] == ()
+        return
     assert result["verified"] is True
+    assert result["bootstrap_event_digest"] == bootstrap_digest
+    assert result["bootstrap_receipt_digest"] == settlement["receipt_digest"]
     assert result["state"] == "verified"
     assert len(result["cycles"]) == 2
     assert result["cycles"][1]["scheduled_for"] == "2026-09-07T12:10:00Z"
