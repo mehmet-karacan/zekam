@@ -204,6 +204,15 @@
   ile projection eslesti. Bu read-only paket kanitidir; native/live/release
   disi kapilari kapatmaz.
 
+- 17 Ekim 2026 OpenCode Windows profile izolasyonu: Host `opencode v2.0.30`
+  `debug paths` salt-okunur probunda HOME'in kullanici profilinde kaldigini
+  gosterdi; tarihsel `OPENCODE_TEST_HOME` tek basina yeterli degil. Native batch
+  adapter artik HOME/USERPROFILE/APPDATA/LOCALAPPDATA ve XDG config/data/state/
+  cache koklerini gecici private agaca bagliyor; eski marker geriye uyumluluk
+  icin korunuyor. Bu kaynak gelistirmesi provider cagrisi yapmadan profile/auth
+  sizintisi riskini kapatir; native child/tool-denial ve gercek model kabulü
+  halen calistirilmadi.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm

@@ -27,6 +27,13 @@ deny eder. V2 `experimental.policies` tool.use/integration.use icin deny tasir.
 Snapshots kapatilir. Native credential store OpenCode'un sorumlulugundadir;
 Zekam auth dosyasini okumaz, kopyalamaz veya artifact'e almaz.
 
+Windows V2 binary'leri tarihsel `OPENCODE_TEST_HOME` marker'ini yok sayabildigi
+icin adapter `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, `XDG_STATE_HOME` ve `XDG_CACHE_HOME` alanlarini da gecici,
+private koklere baglar. Boylece native child cagiran kullanicinin profile,
+auth store'una veya cache'ine geri donemez; credential yoksa cagri fail-closed
+kalir.
+
 Bu config OS-level sandbox kaniti degildir. Gercek binary'de tool-denial,
 standalone child cleanup ve provider davranisi final kabulde dogrulanacaktir.
 Protokol degisikliginde version pini ve capability kaniti birlikte yenilenir.

@@ -455,19 +455,26 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             remaining = int(deadline - time.monotonic())
             if remaining < 1:
                 return result("timeout", None, timeout=True)
+            # OpenCode V2 does not consistently honor the historical
+            # ``OPENCODE_TEST_HOME`` marker on Windows. Pin every home/config
+            # root explicitly so a native child cannot fall back to the
+            # caller's profile, auth store, cache, or user-wide config.
+            appdata = private_home / "AppData"
             env = (
+                ("HOME", str(private_home)),
+                ("USERPROFILE", str(private_home)),
+                ("APPDATA", str(appdata / "Roaming")),
+                ("LOCALAPPDATA", str(appdata / "Local")),
+                ("XDG_CONFIG_HOME", str(private_home / ".config")),
+                ("XDG_DATA_HOME", str(temporary / "data")),
+                ("XDG_STATE_HOME", str(temporary / "state")),
+                ("XDG_CACHE_HOME", str(temporary / "cache")),
                 ("OPENCODE_CONFIG_DIR", str(config_dir)),
                 ("OPENCODE_TEST_HOME", str(private_home)),
                 ("OPENCODE_CONFIG_PROJECT_DISABLE", "1"),
                 ("OPENCODE_CONFIG_CONTENT", config_content),
                 ("OPENCODE_DISABLE_MODELS_FETCH", "1"),
             )
-            if not remote:
-                env += (
-                    ("XDG_DATA_HOME", str(temporary / "data")),
-                    ("XDG_STATE_HOME", str(temporary / "state")),
-                    ("XDG_CACHE_HOME", str(temporary / "cache")),
-                )
             output = runner.run(
                 ProcessSpec(
                     argv=(
