@@ -827,3 +827,11 @@
   final testtir; yeni kaynak degisikligi yapilmadi. Skip edilen live/native,
   credential, corpus, bagimsiz verifier, restore/rollback ve release-chain
   kapilari acik kalir. Bu kaynak seti icin pytest/Maven yeniden calistirilmaz.
+
+- 17 Ekim 2026 yerel E5 runtime oturum cache'i: Manifest ve dosya SHA256
+  dogrulamasi sonrasi ONNX Runtime CPU oturumu proses icinde bounded iki anahtarli
+  LRU ile yeniden kullanilir. Cache anahtari model yolu, sabit revision, sequence
+  length ve CPU thread ayarlarini tasir; yeni revision veya ayar ayri oturum acar,
+  cache kullanici verisine yazilmaz. Regresyon kaynagi eklendi, test bu gelistirme
+  diliminde calistirilmadi; final toplu test tum kaynak gelistirmeleri bittikten
+  sonra yeniden tek sefer calistirilacaktir.

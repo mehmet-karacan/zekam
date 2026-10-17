@@ -116,6 +116,66 @@ def test_configuration_enforces_pinned_cpu_batch_contract(tmp_path) -> None:
     assert configuration.passage_prefix == "passage: "
 
 
+def test_runtime_cache_reuses_only_the_verified_cpu_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    class _Options:
+        pass
+
+    class _Session:
+        def get_providers(self) -> list[str]:
+            return ["CPUExecutionProvider"]
+
+        def get_inputs(self) -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(name="input_ids"),
+                SimpleNamespace(name="attention_mask"),
+                SimpleNamespace(name="token_type_ids"),
+            ]
+
+    sessions: list[_Session] = []
+
+    def _new_session(*_args, **_kwargs) -> _Session:
+        session = _Session()
+        sessions.append(session)
+        return session
+
+    class _Ort:
+        SessionOptions = _Options
+        ExecutionMode = SimpleNamespace(ORT_SEQUENTIAL="sequential")
+        GraphOptimizationLevel = SimpleNamespace(ORT_ENABLE_ALL="all")
+        InferenceSession = staticmethod(_new_session)
+        __version__ = "test"
+
+    class _Tokenizer:
+        @staticmethod
+        def from_file(_path: str) -> SimpleNamespace:
+            return SimpleNamespace(enable_truncation=lambda max_length: max_length)
+
+    class _Tokenizers:
+        Tokenizer = _Tokenizer
+
+    def _import(name: str):
+        if name == "numpy":
+            return np
+        if name == "onnxruntime":
+            return _Ort
+        if name == "tokenizers":
+            return _Tokenizers
+        raise AssertionError(name)
+
+    monkeypatch.setattr(subject.importlib, "import_module", _import)
+    subject._runtime_cache.clear()
+    configuration = subject.LocalE5Configuration(tmp_path)
+    model_path = tmp_path / subject.MODEL_FILE
+    first = subject._load_runtime(model_path, configuration)
+    second = subject._load_runtime(model_path, configuration)
+
+    assert first[0] is second[0]
+    assert len(sessions) == 1
+    assert first[2] == "test"
+
+
 def test_manifest_requires_the_complete_pinned_file_set(tmp_path) -> None:
     manifest_path = tmp_path / "install-manifest.json"
     manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")

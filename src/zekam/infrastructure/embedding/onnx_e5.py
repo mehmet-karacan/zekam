@@ -10,7 +10,9 @@ import math
 import os
 import platform
 import stat
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,9 @@ _MAX_REPEAT_DELTA = 1e-6
 _MAX_BATCH_DELTA = 0.02
 _MIN_BATCH_COSINE = 0.995
 _MIN_SEMANTIC_MARGIN = 0.01
+_RUNTIME_CACHE_MAX = 2
+_runtime_cache_lock = threading.Lock()
+_runtime_cache: OrderedDict[tuple[str, str, int, int, int], Any] = OrderedDict()
 _REQUIRED_INSTALL_FILES = (
     "config.json",
     "quant_config.json",
@@ -295,14 +300,33 @@ def _load_runtime(model_path: Path, configuration: LocalE5Configuration) -> tupl
         raise ConfigurationError(
             "Local E5 icin onnxruntime, tokenizers ve numpy kurulumu gerekli"
         ) from exc
-    options = onnxruntime.SessionOptions()
-    options.intra_op_num_threads = configuration.intra_op_num_threads
-    options.inter_op_num_threads = configuration.inter_op_num_threads
-    options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
-    options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-    session = onnxruntime.InferenceSession(
-        str(model_path), sess_options=options, providers=["CPUExecutionProvider"]
+    cache_key = (
+        str(model_path.resolve()),
+        configuration.revision,
+        configuration.max_sequence_length,
+        configuration.intra_op_num_threads,
+        configuration.inter_op_num_threads,
     )
+    # The manifest and every file digest are checked by the caller before this
+    # function.  Reuse only the verified CPU session; keep the cache process
+    # local and bounded so a model/config drift cannot silently reuse a foreign
+    # runtime and multiple revisions cannot grow memory without limit.
+    with _runtime_cache_lock:
+        session = _runtime_cache.get(cache_key)
+        if session is None:
+            options = onnxruntime.SessionOptions()
+            options.intra_op_num_threads = configuration.intra_op_num_threads
+            options.inter_op_num_threads = configuration.inter_op_num_threads
+            options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+            options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+            session = onnxruntime.InferenceSession(
+                str(model_path), sess_options=options, providers=["CPUExecutionProvider"]
+            )
+            _runtime_cache[cache_key] = session
+            while len(_runtime_cache) > _RUNTIME_CACHE_MAX:
+                _runtime_cache.popitem(last=False)
+        else:
+            _runtime_cache.move_to_end(cache_key)
     if session.get_providers() != ["CPUExecutionProvider"]:
         raise ConfigurationError("Local E5 yalniz CPUExecutionProvider kullanmali")
     inputs = {item.name for item in session.get_inputs()}

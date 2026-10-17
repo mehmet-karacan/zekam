@@ -42,6 +42,11 @@ sozlesmesi:
 - 384 boyut, sonlu float32 ve birim norm,
 - 2 ONNX intra-op thread, 1 inter-op thread ve en fazla 4 metinlik batch.
 
+Manifest ve dosya SHA256 dogrulamasi tamamlandiktan sonra ONNX Runtime CPU
+oturumu proses icinde en fazla iki farkli revision/thread kimligiyle sinirli
+olarak yeniden kullanilir. Model yolu, revision veya thread ayari degisirse
+ayri oturum acilir; cache kullanici verisine veya Git'e yazilmaz.
+
 Sinirli provider smoke dogrulamasinda CPU provider saglikli bulundu; 384 boyut,
 semantic margin `0.107487`, batch-sayi tekil farki `0.017548`, batch cosine
 `0.997012` olarak olculdu. Turkce, Ingilizce ve capraz dil teknik sorgu/passage

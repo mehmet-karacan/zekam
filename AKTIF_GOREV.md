@@ -3723,6 +3723,21 @@ Maven yeniden calistirilmayacaktir. Native production provider, signer/
 credential, bagimsiz verifier, restore/rollback ve release-chain kabulleri
 acik tutulur.
 
+### 10.107 17 Ekim 2026 yerel E5 ONNX oturum cache gelistirmesi
+
+Manifest ve dosya SHA256 dogrulamasi tamamlandiktan sonra `onnxruntime` CPU
+InferenceSession artik proses icinde bounded iki anahtarli LRU cache ile yeniden
+kullanilir. Cache anahtari canonical model yolu, sabit revision, sequence length
+ve intra/inter-op thread ayarlarini tasir; model veya ayar kimligi degisince yeni
+oturum acilir. Cache yalniz proses belleğinde tutulur, kullanici verisi veya model
+agirligi Git'e yazilmaz ve CPU provider kontrolu her baglamada yeniden okunur.
+
+Bu gelistirme yerel sorgu/indeks akisi icin tekrarli ONNX oturum kurulum maliyetini
+azaltir. Regresyon testi eklendi ancak bu kaynak diliminde pytest, Maven veya
+provider/model cagrisi calistirilmadi; tum kaynak gelistirmeleri bittikten sonra
+tek final toplu test kosusu yapilacaktir. Native/live kalite, credential, bagimsiz
+verifier, restore/rollback ve release-chain kabul kapilari acik kalir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
