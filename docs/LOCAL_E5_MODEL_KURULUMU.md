@@ -94,16 +94,19 @@ batch 6 ms olculdu. Son salt okunur tekrar dogrulamada ayni model 384 boyutlu
 bir sorgu ve iki belge vektoru uretti; normlar `1.0`, gecikmeler sorgu `3 ms` ve
 belge batch `5 ms`, probe evidence digest'i
 `sha256:094d27798287a164980940ed81771dbc3be32264ec427b96a90958fafe646dde` oldu.
-OpenCode text-only native parseri ve deny-all smoke kaynaklari
-`3fb420b` sonrasinda, tek son toplu `python -m pytest -q --tb=short
---basetemp C:\\temp\\zekam-final-db710cd` kosusu exit code `0` ile sonuclandi:
-`7989 passed, 1409 skipped, 3 warnings` (54:12). Uyarilar
-duplicate ZIP fixture ve iki capability-worker `runpy` RuntimeWarning'idir.
-Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan native
-istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir; remote/live
-provider ve gercek production corpus yeniden indeksleme kosulari bu makinede
-calistirilmadi. Uretim corpus indexi olusturulmadi; canonical home ve legacy
-index adayi bulunmadigi icin silinecek veya yeniden indekslenecek hedef yoktu.
+OpenCode text-only native parseri ve deny-all smoke kaynaklari sonrasinda,
+MacOS release kapsam cikisi iceren tek son toplu `python -m pytest -q --tb=short
+--basetemp C:\\temp\\zekam-final-macos-scope` kosusu `ac9fd05` kaynak setinde
+exit code `1` ile sonuclandi: `3 failed, 7969 passed, 1365 skipped, 3 warnings`
+(1:05:08). Iki hata Windows pipe/selector ve process sonlandirma yolunda,
+ucuncu hata ise `posix-only` registry adinin eski beklentisindeydi. Windows
+pipe okuyucusu, kill fallback'i ve registry beklentisi `e66394b` ile duzeltildi;
+pytest tekrar calistirilmadi. Bu nedenle bu belge temiz final suite kaniti iddia
+etmez. Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan
+native istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir;
+remote/live provider ve gercek production corpus yeniden indeksleme kosulari bu
+makinede calistirilmadi. Uretim corpus indexi olusturulmadi; canonical home ve
+legacy index adayi bulunmadigi icin silinecek veya yeniden indekslenecek hedef yoktu.
 
 Paket kabul betigi de son authority digest'iyle repository disi sonuc olarak
 `status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]` verdi.
@@ -114,8 +117,10 @@ Kontrol; zorunlu dosyalar, aktif gorev projection'i, model envanteri, is grafigi
 schema/YAML, bellek yonlendirme politikasi, Git gecmisi ve secret taramasini
 kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
 
-Session ve qualification cache degisiklikleri sonrasindaki tek final repository
-kosusu `7993 passed, 1409 skipped, 3 warnings` ile exit code `0` verdi; sure
-`3467.40s (0:57:47)`, basetemp `C:\\temp\\zekam-final-188d153` oldu. Bu kanit
-modelin yerel CPU kurulumunu ve cache regressionlarini kapsar; canli production
-corpus yeniden indeksleme, remote provider ve native host kabulunu kapsamaz.
+Session ve qualification cache degisiklikleri onceki kaynak doneminde
+`7993 passed, 1409 skipped, 3 warnings` ile exit code `0` vermisti; bu tarihsel
+kanit `C:\\temp\\zekam-final-188d153` basetemp'inde tutulur. MacOS kapsam cikisi
+ve sonraki Windows process duzeltmeleri bu eski suite kapsaminda degildir. Modelin
+yerel CPU kurulumu dogrulanmis olsa da temiz guncel final suite, canli production
+corpus yeniden indeksleme, remote provider ve native host kabulunu kapsayan kanit
+henuz yoktur.
