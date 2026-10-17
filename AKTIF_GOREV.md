@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.2` — Y-08 Maven sure ve cikti butcesi
+**Belge sürümü:** `3.3` — Y-09 exact bellek duzeltme bagi; arsivleme acik
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-09 temel bellek ve skill. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-09 kalici bellek arsivleme ve duzeltme akisinin kalan baglarini tamamla. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -396,6 +396,25 @@ py_compile/diff/projection kontrolu yapildi. Baseline, gercek Maven/JaCoCo fixtu
 native loop kalite ve plateau kabul kosulari Y-12 final asamasindadir.
 Y-08 checkbox gelistirme teslimidir, test basarisi/Work kapanisi degildir.
 Geri donus: kaynak commitini geri al; production/pom ve basarili testleri koru.
+
+### 0.12 Y-09 kismi gelistirme — 18 Ekim 2026
+
+Mevcut bellek store exact supersession'i desteklerken memory promote CLI bunu
+iletemiyordu. Opsiyonel --supersedes exact predecessor digest'i plan/effect
+kimligine ve activate_memory CAS kapisina baglandi; opsiyon yoksa onceki plan
+bicimi degismez. Onceki kayit ezilmez, yeni revision ve supersedes iliskisi
+uretilir. Duzeltme planinin farkli predecessor ile farkli digest uretmesi ve
+claim/receipt ile revision 2 olmasi icin integration regresyon kaynagi hazirlandi;
+CALISTIRILMADI. Py_compile/diff/projection kontrolu yapildi.
+
+Y-09 HENUZ TAMAM DEGIL: mevcut semantik memory CLI'da kalici arsivleme yolu yok.
+Learning memory_revision candidate unique ve append-only/head-contiguous guard'lari
+vardir; mevcut revision'i yerinde update/delete ederek gecis yapilmayacak.
+Gerekli kalici arsivleme tasarimi, read/search/is_active ve source/provenance
+baglari tamamlanmadan Y-09 checkbox'i kapatilmayacak. Skill mevcut version/
+lifecycle/rollback kaynaklari incelenecek. Sonrasi Y-10, Y-11 ve tek final Y-12.
+Kullanici verisinde migration, memory promotion veya test kosusu yapilmadi.
+Geri donus: bu CLI/belge commitini geri al; mevcut bellek kayitlarini koru.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4482,6 +4501,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 3.1 | 2026-10-18 | Y-07: Work-project evidence salt okunur transactiona baglandi; active Work yuzeyi ve final concurrency regresyonlari guncellendi |
 
 | 3.2 | 2026-10-18 | Y-08: Maven timeout lock/output sinirlari effect oncesine baglandi; gercek Maven ve test kabul Y-12de |
+
+| 3.3 | 2026-10-18 | Y-09 kismi: CLI exact supersession plan/effect bagi; kalici memory arsivleme acik, testler finalde |
 
 ### 15.3 Şimdiki Gerçek Durum
 

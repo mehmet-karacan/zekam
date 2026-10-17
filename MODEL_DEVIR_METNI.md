@@ -1,3 +1,21 @@
+# Guncel devir — Y-09 kismi gelistirme; hedef aktif
+
+Kullanici hedefi Y-12ye kadar devamdir; bitmedi, duraklama veya yeni onay bekleme yok.
+Y-01..08 gelistirme teslimleri kayitli. Y-09 --supersedes CLI bagi eklendi,
+kalici semantik bellek arsivleme HENUZ YOK; Y-09 checkbox acik kalir.
+Mevcut local_learning memory_revision append-only, unique(candidate_digest) ve
+memory_head contiguous/no-delete guardlariyla korunur. Arsivleme icin bu
+korumalari gevsetme, eski revision digest/body'yi yerinde degistirme veya
+receipt'i sahte memory state gibi benimseme. Gerekli store/schema/CLI ve
+read/search/is_active baglarini mevcut mimariyle tamamla; mevcut kullanici DB'ye
+sessiz migration uygulama. Sonra Y-10 operasyon/backup, Y-11 paket/belge,
+Y-12 TUM gelistirmeler bittikten sonra tek final test asamasi.
+Henuz pytest, Maven, embedding veya integration kosusu yapilmadi; yalniz kaynak
+incelemesi, py_compile, diff/projection. Korunan dort untracked girdiyi stage etme.
+Son durum AKTIF_GOREV.md 0.3 ve 0.12; kaynakta commit ve remote HEAD'i yeniden oku.
+
+---
+
 # Guncel devir — Y-08 gelistirmesi
 
 Y-01..08 gelistirme teslimleri kayitli. Siradaki Y-09. Testler Y-12de.

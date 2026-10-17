@@ -527,12 +527,17 @@ def promote_command(
     candidate_id: Annotated[str, typer.Argument()],
     reviewer_ref: Annotated[str, typer.Option("--reviewer-ref")] = "cli-reviewer",
     reason: Annotated[str, typer.Option("--reason")] = "CLI promotion",
+    supersedes: Annotated[
+        str | None, typer.Option("--supersedes", help="Duzeltilecek exact onceki revision digest'i")
+    ] = None,
     apply: Annotated[bool, typer.Option("--uygula")] = False,
     plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
     home: Annotated[str | None, typer.Option("--home")] = None,
 ) -> None:
     """Approved review + active promotion (mutation; claim/receipt ile)."""
     try:
+        if supersedes is not None:
+            parse_digest(supersedes)
         learning, resolved_home = _paths(home)
         candidate_digest = _confirm_candidate(learning, candidate_id)
         candidate = learning.inspect_candidate(candidate_digest)
@@ -549,6 +554,8 @@ def promote_command(
             "apply": False,
             "grants_authority": False,
         }
+        if supersedes is not None:
+            body["supersedes"] = supersedes
         exact_plan_digest = digest(body)
         if not apply:
             _emit(body | {"plan_digest": exact_plan_digest})
@@ -561,6 +568,8 @@ def promote_command(
             "review": review.as_dict(),
             "plan_digest": exact_plan_digest,
         }
+        if supersedes is not None:
+            effect["supersedes"] = supersedes
 
         def apply_effect() -> dict[str, object]:
             moment = dt.datetime.now(dt.UTC)
@@ -569,6 +578,7 @@ def promote_command(
                 candidate_digest,
                 review_digest,
                 now=moment + dt.timedelta(seconds=1),
+                supersedes=supersedes,
             )
             evidence = digest(
                 {

@@ -378,3 +378,39 @@ def test_memory_search_requires_active_records(tmp_path: Path) -> None:
     )
     assert other.exit_code == 0, other.output
     assert json.loads(other.output)["hits"] == []
+
+
+def test_promote_correction_binds_exact_predecessor_into_plan_and_receipt(tmp_path: Path) -> None:
+    from dataclasses import replace
+    from zekam.application.memory_service import ReviewDecision
+
+    home = tmp_path / "home"
+    learning = _store(tmp_path, home)
+    old_candidate = learning.propose_memory(_candidate("before", "Onceki proje tercihi"), source_kind="receipt")
+    old_review = learning.review_memory(
+        old_candidate, ReviewDecision(True, REVIEWER_B, "initial"), now=NOW + dt.timedelta(seconds=1)
+    )
+    predecessor = learning.activate_memory(old_candidate, old_review, now=NOW + dt.timedelta(seconds=2))
+    learning.propose_memory(
+        replace(_candidate("correction", "Duzeltilmis proje tercihi"), observed_at=NOW + dt.timedelta(days=1)),
+        source_kind="receipt",
+    )
+    runner = CliRunner()
+    base = ["memory", "promote", "correction", "--home", str(home), "--supersedes", predecessor]
+    planned = runner.invoke(app, base)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["supersedes"] == predecessor
+    assert len(learning.list_records()) == 1
+    changed = runner.invoke(app, base[:-1] + [digest("foreign-predecessor")])
+    assert changed.exit_code == 0, changed.output
+    assert json.loads(changed.output)["plan_digest"] != plan["plan_digest"]
+    applied = runner.invoke(app, base + ["--uygula", "--plan-digest", plan["plan_digest"]])
+    assert applied.exit_code == 0, applied.output
+    receipt = json.loads(applied.output)
+    assert receipt["state"] == "active"
+    assert "operational_terminal_evidence_digest" in receipt
+    head = learning.active_records()[0]
+    assert head.revision == 2
+    assert head.content == "Duzeltilmis proje tercihi"
+    assert len(learning.list_records()) == 2
