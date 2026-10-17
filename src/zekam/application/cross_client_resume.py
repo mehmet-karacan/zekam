@@ -166,6 +166,8 @@ class CrossClientResumeDispatchService:
         if type(binding) is not LocalJobBinding:
             raise PolicyViolation("Cross-client exact canonical binding required")
         binding.__post_init__()
+        if binding.source_snapshot_id is None:
+            raise PolicyViolation("Cross-client resume requires source snapshot")
         if (
             binding.project_id != snapshot.project_id
             or binding.work_item_id != snapshot.work_item_id
