@@ -113,6 +113,28 @@ def _timestamp(moment: dt.datetime | None = None) -> str:
     return (moment or _now()).isoformat().replace("+00:00", "Z")
 
 
+def _research_source_binding(rag: dict[str, Any], *, project_id: str) -> dict[str, str]:
+    """Read the exact RAG identity needed by a research plan.
+
+    Older or hand-crafted status documents may omit the source identity
+    fields.  Letting those documents reach direct mapping access produced a
+    raw ``KeyError`` and obscured the bounded recovery action.  A research
+    plan must carry a complete source binding, so reject the input with the
+    domain policy error used by the other plan gates.
+    """
+
+    values: dict[str, str] = {}
+    for key in ("source_revision", "tree_digest", "generation_digest"):
+        value = rag.get(key)
+        if type(value) is not str or not value.strip():
+            raise PolicyViolation(f"Research RAG kaynak kimligi eksik: {key}")
+        values[key] = value
+    values["source_identity_digest"] = source_identity_digest(
+        project_id, values["source_revision"], values["tree_digest"]
+    )
+    return values
+
+
 def build_research_run_plan(
     store: OperationalStore,
     home: Path,
@@ -128,12 +150,13 @@ def build_research_run_plan(
     rag = project_rag_status(home, project.slug)
     if rag.get("state") != "ready":
         raise PolicyViolation("Research run hazir project RAG generation ister")
+    source_binding = _research_source_binding(rag, project_id=project.id)
     intent_digest = digest(
         {
             "operation": "research.run",
             "project_id": project.id,
             "question": question,
-            "source_revision": rag["source_revision"],
+            "source_revision": source_binding["source_revision"],
         }
     )
     question_contract = ResearchQuestion(
@@ -142,7 +165,7 @@ def build_research_run_plan(
         project_ref=project.slug,
         work_ref=f"project:{project.id}",
         intent_digest=intent_digest,
-        source_revision=str(rag["source_revision"]),
+        source_revision=source_binding["source_revision"],
         policy=SourcePolicy(
             frozenset({SourceKind.REPOSITORY, SourceKind.IMPORT}),
             project_scope=project.slug,
@@ -163,12 +186,10 @@ def build_research_run_plan(
         "project_slug": project.slug,
         "question": question_contract.body(),
         "question_digest": question_contract.question_digest,
-        "source_revision": rag["source_revision"],
-        "tree_digest": rag["tree_digest"],
-        "source_identity_digest": source_identity_digest(
-            project.id, str(rag["source_revision"]), str(rag["tree_digest"])
-        ),
-        "generation_digest": rag["generation_digest"],
+        "source_revision": source_binding["source_revision"],
+        "tree_digest": source_binding["tree_digest"],
+        "source_identity_digest": source_binding["source_identity_digest"],
+        "generation_digest": source_binding["generation_digest"],
         "retrieval": {
             "maximum_remote_query_operations": 1,
             # Retained for consumers of the v1 plan schema.  New runtimes use
