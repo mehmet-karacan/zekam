@@ -3627,7 +3627,7 @@ end-to-end kalite ve production release zinciri. Bunlar için gerekli canlı
 ortam/credential/corpus kaniti mevcut olmadigindan `not-run` veya acik kabul olarak
 korunur; tamamlanmis gibi isaretlenmez.
 
-Bu readback ve authority/manifest senkronizasyonu docs-only'dir; `85e7e83` sonrasinda
+Bu readback ve authority/manifest senkronizasyonu docs-only'dir; `59ee1ee` sonrasinda
 pytest, Maven veya yeni provider/model cagrisi calistirilmadi.
 
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
@@ -3845,7 +3845,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
 | Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, OpenCode v2.0.30 text-only native parseri, deny-all smoke, paket validator ve runtime reachability doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final-db710cd` `7989 passed, 1409 skipped, 3 warnings` ile temiz; izole Windows wheel kabulü 23/23 geçti; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`, `db710cd`, `3fb420b`, `46531f9`; Miro/GitBook uzak yayını yapılmadı |
+| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`, `db710cd`, `3fb420b`, `46531f9`, `e7d9ac8`, `85e7e83`, `494daf7`, `59ee1ee`; Miro/GitBook uzak yayını yapılmadı |
 
 **Sonraki adım:** Native istemci/host enforcement, signer ve credential sahipliği,
 canlı provider/Oracle/Jira kalite ölçümü, gerçek Maven/coverage ve clean release
