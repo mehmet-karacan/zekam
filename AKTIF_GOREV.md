@@ -3664,6 +3664,19 @@ release kabulleri tamamlanmis sayilmaz. Bu kaynak seti icin pytest ve Maven
 yeniden calistirilmayacak; sonraki adim yalniz read-only paket/manifest ve
 uygun ortamdaki acik kabul kanitlaridir.
 
+### 10.103 17 Ekim 2026 mevcut HEAD read-only runtime denetimi
+
+`609c722` HEAD'inde `python scripts/audit_runtime_reachability.py` salt-okunur
+denetimi `passed=true` verdi: 356 erisilebilir modul, 18 archive-only modul ve
+legacy PostgreSQL data access `false`. Bu denetim test veya provider cagrisi
+degildir; yalniz package/runtime reachability ve yasakli veri erisimi sinirini
+tekrar kanitlar. `%LOCALAPPDATA%/Zekam` altinda yalniz sabitlenmis yerel E5 model
+agaci goruldu; canonical `.zekam` operational home ve legacy production index
+agaci yok. Bu nedenle yeni indeksleme veya silme effect'i baslatilmadi.
+
+Native istemci, credential/signer, canli corpus/provider, bagimsiz verifier,
+restore/rollback ve release-chain kapilari halen `not-run`/acik tutulur.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

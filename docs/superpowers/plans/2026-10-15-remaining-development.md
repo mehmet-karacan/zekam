@@ -808,3 +808,11 @@
   kosusu exit code `0` verdi: `7989 passed, 1409 skipped, 3 warnings`, sure
   `53:03`. Bu kaynak seti icin pytest/Maven tekrar calistirilmayacak; skip edilen
   host/live/native kalite ve credential kapilari acik tutuldu.
+
+- 17 Ekim 2026 mevcut `609c722` HEAD read-only runtime denetimi
+  `python scripts/audit_runtime_reachability.py` ile `passed=true` verdi:
+  356 reachable, 18 archive-only, legacy PostgreSQL data access false. Bu
+  package/runtime auditidir; pytest/Maven/provider degildir. `%LOCALAPPDATA%/Zekam`
+  altinda yalniz pinned E5 model agaci var; canonical operational home ve
+  legacy production index agaci bulunmadigi icin effect baslatilmadi. Native,
+  live, credential, restore ve release kabul kapilari acik tutuldu.
