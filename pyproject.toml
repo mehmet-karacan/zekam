@@ -66,6 +66,9 @@ zekam-background = "zekam.interfaces.cli.background:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/zekam"]
+# Source-linked installs use the existing src layout without the optional
+# editables discovery dependency. Release wheels retain the exclusions below.
+dev-mode-dirs = ["src"]
 # Historical repository-backed compositions stay in the source checkout for
 # regression/reference tests, but are not part of the local-first runtime
 # artifact.  Keep this exact list aligned with scripts/audit_runtime_reachability.py.

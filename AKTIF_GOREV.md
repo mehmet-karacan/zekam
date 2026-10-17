@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.4` — Tek yapilacaklar listesi ve yerel kurulum kapsami
+**Belge sürümü:** `2.5` — Y-01 yerel veri alani ve kaynak bagli CLI kurulumu
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -33,6 +33,11 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 ## 0. Yetki, Aşama Ve Devir Sözleşmesi
 
 ### 0.1 Güncel Kullanıcı Kararı
+
+**18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.
+Kaynak gelistirmesi yeniden acildi; testler Y-12 final asamasinda, her anlamli
+asama Turkce ASCII commit/push ile kaydedilir. Bu belge goal sayacini veya
+operational Work/lease durumunu degistirmez.
 
 **18 Ekim 2026 kapsam sadelestirme karari:** Kullanici kalan gereksiz islerin
 cikarilmasini ve tek yapilacaklar listesi istedi. Guncel teslim kapsami ve sirasi
@@ -118,7 +123,7 @@ claim/receipt ve recovery guvenceleri korunur. MacOS kapsam disidir. Linux icin 
 native kurulum/kabul matrisi bu teslimin kapisi degildir; mevcut portable kod bozulmaz.
 Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 
-- [ ] **Y-01 — Yerel veri kurulumu:** `ZEKAM_HOME=%USERPROFILE%\.zekam` hedefini
+- [x] **Y-01 — Yerel veri kurulumu:** `ZEKAM_HOME=%USERPROFILE%\.zekam` hedefini
   mevcut `application/home.py`, `composition.py`, `fresh_bootstrap.py` ve CLI kurulum
   akisindan cozumle. Mevcut veri/model
   dosyalarini kontrol et; yeniden indirme, mevcut DB'yi sifirlama veya sessizce tasima
@@ -220,8 +225,39 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Kullanici devam dediginde Y-01 ile basla. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-01 kurulumundan sonra Y-02 ince CLI girisini tamamla. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
+
+### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
+
+Baslangicta varsayilan kullanici `.zekam` veri koku ve ZEKAM_HOME override'i yoktu;
+korunacak DB/indeks veya tasinacak aktif state bulunmadi. Mevcut `init` once dry-run,
+ardindan kullanicinin kurulum yetkisiyle atomik bootstrap yapti. Receipt:
+`sha256:ae49ba278bd1a9aaedea77b53850a0d9c4ce2359d3d2cb3c2d40b47179ffd68c`.
+Layout, SQLite operational DB, CAS, config ve backup contract olustu. Network default
+deny, tum user-scope CLI integrations false; global PATH/istemci ayari degismedi.
+
+Kaynak bagli Zekam 0.1.0, `.zekam/yerel/python` altindaki `--system-site-packages`
+venv'e `--no-index --no-deps --no-build-isolation --editable` ile kuruldu. Otomatik
+editable detection eksik `editables` paketinde durdu; kok neden kurulu Hatch
+kaynak kodundan dogrulandi. Karar: `pyproject.toml` icinde `dev-mode-dirs=["src"]`
+ile desteklenen explicit kaynak yolu kullanildi; yeni bagimlilik indirilmedi.
+Bu gelistirme ortamidir; bagimsiz wheel kabulunun veya tam dependency isolation'in
+yerine gecmez. Mevcut sistem Python paketlerini kullanir.
+
+Yerel CLI `resume --json` salt-okunur readback verdi: proje/Work/bound job sayisi
+0, `grants_authority=false`, `read_only=true`. Eski sohbetten proje veya Work
+uretilmedi. Capability etiketleri urun kabul kaniti sayilmadi.
+E5 zaten LOCALAPPDATA/Zekam/models altinda bulundu; installer `--verify` yedi sabit
+dosyayi SHA256/boyutla kontrol etti: verified, missing=[], mismatched=[].
+Agirliklar tasinmadi, yeniden indirilmedi; 2 CPU thread/batch 4 varsayilani korundu.
+Inference, semantic/performance ve pytest kosulari Y-12'ye birakildi.
+
+Bu checkbox kurulum tesliminin kaydidir; kanonik Work kapanisi veya final urun
+basarisi degildir. Geri donus: mevcut receipt/config ve kaynak bagli ortam bilgisi
+kullanilir; yeni kullanici state'i silinmez, `init` sifirlama araci olarak yeniden
+calistirilmaz. Sonraki veri tasimasi once online backup/restore plani ister.
+Korunan dort untracked girdiye dokunulmadi. Sonraki gelistirme Y-02'dir.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4296,6 +4332,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.2 | 2026-10-17 | Kullanıcı checkpoint'i: son HEAD, kapsam denetimleri ve embedding kota düzeltmesi kayda alındı; geliştirme duraklatıldı |
 | 2.3 | 2026-10-17 | MacOS'a bagli dokuz kaynak modul checkout'tan kaldirildi; wheel, manifest ve runtime audit hizalandi; pytest final asamaya birakildi |
 | 2.4 | 2026-10-18 | Kullanici karariyla 59 eski acik satir tek 12 adimlik listeye birlestirildi; yerel kullanici veri hedefi belirlendi; gereksiz orkestrasyon, benchmark, signed publication, evolution ve yayin kapilari kapsamdan cikarildi; tamamlandi sayilmadi |
+| 2.5 | 2026-10-18 | Y-01: varsayilan kullanici home atomik kuruldu, yerel source-linked CLI olusturuldu, mevcut E5 dosyalari indirmesiz SHA256 kontrolunden gecti; testler finalde |
 
 ### 15.3 Şimdiki Gerçek Durum
 

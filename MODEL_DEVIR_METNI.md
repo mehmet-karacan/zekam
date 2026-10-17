@@ -1,3 +1,17 @@
+# Guncel devir — 18 Ekim 2026 Y-01 kurulumu
+
+Kullanici devam talimati verdi. Y-01 kurulum teslimi kaydedildi; siradaki adim Y-02.
+Varsayilan `.zekam` artik layout/SQLite/config/CAS ve bootstrap receipt ile mevcut.
+CLI `.zekam/yerel/python/Scripts/zekam.exe` ile kullanilir; kaynak repoya baglidir,
+mevcut Python paketlerini kullanir. Model LOCALAPPDATA/Zekam/models altinda kalir;
+yeniden indirme veya veri tasima yapilmadi. Dosya SHA256 kontrolu verified;
+inference/pytest final Y-12'ye birakildi. User/global PATH ayari degismedi.
+Gercek proje/Work kaydi henuz yok; sohbetten kayit veya authority uretme.
+Tek guncel liste AKTIF_GOREV.md 0.3; kurulum kaniti 0.4. Init'i reset gibi tekrar
+calistirma; mevcut kullanici verisini ve korunan untracked girdileri koru.
+
+---
+
 # Guncel devir — 18 Ekim 2026 kapsam sadelestirme
 
 Tek guncel yapilacaklar listesi `AKTIF_GOREV.md` bolum 0.3, Y-01..12'dir.

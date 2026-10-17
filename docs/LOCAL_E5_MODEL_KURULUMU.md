@@ -30,6 +30,33 @@ Yardimci mevcut dosyalarin sabit SHA256 degerleri uyusuyorsa indirme yapmaz;
 uyusmayan agirligi sessizce ezmek yerine durur. Gecici dosyalar ayni kullanici
 veri dizininde tutulur ve manifest atomik olarak yayinlanir.
 
+## 18 Ekim 2026 yerel veri ve CLI kurulumu
+
+Operational veri koku artik `%USERPROFILE%\.zekam` altinda mevcut: layout,
+config, `state/operational.db`, CAS ve backup contract atomik `init` ile kuruldu.
+Bu varsayilan yol icin ZEKAM_HOME veya global PATH degisikligi gerekmez.
+Mevcut E5 agirliklari yukaridaki LOCALAPPDATA konumunda yerinde kullanilir;
+installer `--verify` dosya SHA256/boyutlarini yeniden indirmeden dogruladi.
+Bu dosya butunluk kontrolu yeni inference/semantic test kosusu degildir.
+
+Gelistirme CLI'i veri alanindaki kaynak bagli venv'e kuruldu:
+
+```powershell
+# Mevcut kurulu komut; yeniden init/kurulum yapmadan kullanilir.
+& "$env:USERPROFILE\.zekam\yerel\python\Scripts\zekam.exe" resume --json
+```
+
+Ortam mevcut sistem Python bagimliliklarini `--system-site-packages` ile kullanir;
+kaynak ayni gercek checkout'tur. Hatch explicit `dev-mode-dirs=["src"]` sayesinde
+eksik `editables` indirmesi gerekmez. Wheel ve izolasyon kabulu final asamaya aittir.
+Kurulumda CLI salt-okunur resume ile proje/Work kaydi olmadigini bildirdi;
+model inference, uretim indeksleme veya test suite baslatilmadi.
+
+Geri donuste kullanici home'u silinmez veya yeniden bootstrap ile ezilmez.
+Kurulum receipt'i `state/manifests/bootstrap-receipt.json`, geri alma/backup
+sozlesmesi `state/manifests/backup-contract.json` altindadir. Yeni tasima veya
+restore oncesinde mevcut operational state online backup ile korunur.
+
 ## CPU dogrulamasi
 
 Kurulu model ONNX Runtime `CPUExecutionProvider` ile yuklendi. ONNX girisleri
@@ -85,11 +112,11 @@ koleksiyonu yalniz yerel ONNX multilingual-e5-small profiline embedding yolu sun
 MacOS'a ait adapter veya test yolu yoktur.
 
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
-aktif production index bulunmadi. Varsayilan operational home
+aktif production index bulunmadi. O tarihte varsayilan operational home
 `C:\\Users\\mkaracan\\.zekam` mevcut degil; `%LOCALAPPDATA%/Zekam` altinda
 yalniz model kurulumu var ve `layout.json`/BGE index adayi yok. Bu nedenle
-ilgisiz SQLite veritabanlarina dokunulmadi, home bootstrap edilmedi ve yeni
-production index olusturulmadi.
+ilgisiz SQLite veritabanlarina dokunulmadi, o asamada home bootstrap edilmedi ve yeni
+production index olusturulmadi. 18 Ekim Y-01 kurulumu yukarida kayitlidir.
 
 ## Son dogrulama notu
 
