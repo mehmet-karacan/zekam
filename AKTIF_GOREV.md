@@ -3677,6 +3677,19 @@ agaci yok. Bu nedenle yeni indeksleme veya silme effect'i baslatilmadi.
 Native istemci, credential/signer, canli corpus/provider, bagimsiz verifier,
 restore/rollback ve release-chain kapilari halen `not-run`/acik tutulur.
 
+### 10.104 17 Ekim 2026 WP-04.03 generator structural parser dilimi
+
+JavaScript/TypeScript ust seviye `function*` ve aralikli `function *` bildirileri
+artik bounded structural parser tarafindan generator isaretini basliktan atlayarak
+sembol locator'ina baglanir. Boylece generator fonksiyonlari sessizce satir parcasi
+fallback'ine dusmez; dengesiz veya belirsiz kaynaklarda mevcut fail-closed line
+fallback korunur. Indexer profile `v7` olarak sabitlendi ve iki generator regresyon
+senaryosu test kaynagina eklendi.
+
+Bu kaynak diliminde pytest, Maven ve canli provider/model cagrisi yapilmadi. Tek
+toplu final test, tum kaynak gelistirmeleri bittikten sonra calistirilacaktir;
+native AST/Tree-sitter kalite, gercek corpus ve native host kabul kapilari aciktir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

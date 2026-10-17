@@ -95,6 +95,16 @@ def test_python_ast_oversize_and_invalid_source_use_bounded_line_units(
             "add",
         ),
         (
+            "stream.js",
+            "export function* stream(items) { yield* items; }\n",
+            "stream",
+        ),
+        (
+            "async-stream.ts",
+            "export async function *stream(items: string[]) { yield* items; }\n",
+            "stream",
+        ),
+        (
             "Status.java",
             "package app;\npublic enum Status { READY, DONE; }\n",
             "Status",

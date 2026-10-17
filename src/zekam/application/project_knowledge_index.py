@@ -78,7 +78,7 @@ REAL_EMBEDDING_MODEL_REF = LOCAL_E5_MODEL_REF
 REAL_EMBEDDING_DIMENSION = LOCAL_E5_DIMENSION
 E5_QUERY_PREFIX = "query: "
 E5_PASSAGE_PREFIX = "passage: "
-INDEXER_VERSION = "zekam-project-source-indexer/v6"
+INDEXER_VERSION = "zekam-project-source-indexer/v7"
 MAX_CHUNK_TOKENS = 384
 MAX_CHUNK_CHARACTERS = 6000
 MAX_XML_ELEMENTS = 16_384
@@ -776,6 +776,18 @@ def _structural_code_units(
         name_start = match.end()
         while name_start < len(masked) and masked[name_start].isspace():
             name_start += 1
+        # JavaScript/TypeScript generator declarations put an optional `*`
+        # between the `function` keyword and the identifier.  Treat the
+        # marker as part of the declaration header so a generator does not
+        # fall back to unstructured line chunks.
+        if (
+            match.group(1) == "function"
+            and name_start < len(masked)
+            and masked[name_start] == "*"
+        ):
+            name_start += 1
+            while name_start < len(masked) and masked[name_start].isspace():
+                name_start += 1
         name_match = _STRUCTURAL_IDENTIFIER.match(masked, name_start)
         if name_match is None:
             return None

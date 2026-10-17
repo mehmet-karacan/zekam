@@ -689,6 +689,8 @@
 
 - 16 Ekim 2026 WP-04.03 polyglot structural parcasi: bounded declaration parser Kotlin/Groovy/Swift/Rust/PHP `class/interface/struct/trait/object/protocol/extension/actor/impl/module/namespace` ve `fun/fn/func/def` govdelerini sembol locator'ina bagliyor. Belirsiz/dengesiz kaynaklar mevcut bounded line fallback'ine donuyor; indexer profile v6'ya alindi. Test CALISTIRILMADI; AST/Tree-sitter kalite ve native kabul kapilari acik.
 
+- 17 Ekim 2026 WP-04.03 generator sembol ayrimi: JavaScript/TypeScript `function*` ve `function *` govde basliklarindaki opsiyonel generator isareti bounded structural parser tarafindan atlanarak isim locator'ina dahil edildi. Parser profili v7'ye alindi; mevcut dengesiz kaynaklarda line fallback korunur. Test CALISTIRILMADI; AST/Tree-sitter kalite ve native kabul kapilari acik.
+
 - 16 Ekim 2026 source binding metadata readback: `project source` planinda ayni bounded content-free `metadata_inventory_digest` baglandi. Binding path/revision kimligi degismeden ignored/generated metadata snapshot'i plan readback'inde gorunur; partial inventory fail-closed reddedilir. Test CALISTIRILMADI; native source kabul kapisi acik.
 
 - 16 Ekim 2026 WP-07.01..04 execution guard: `work resume`, canonical Work show ve dogal Work readback artik bagli job lease/recovery/binding durumunu ortak salt-okunur projection ile raporlar. Receipt'siz, recovery-required, binding driftli veya eksik readback devam yonlendirmesi yerine recovery/revalidation ister; yeni lease/grant edinimi authority'siz acik bir sonraki adim olarak kalir. Test CALISTIRILMADI; gercek lease/grant yeniden edinimi ve WP kabul kapisi acik.
