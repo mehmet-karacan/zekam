@@ -3605,6 +3605,31 @@ tool-denial enforcement, signer/credential sahipligi, canli provider/Jira/Oracle
 kalitesi, bagimsiz verifier, restore/rollback ve production release zinciri
 acik kabul kapilaridir.
 
+### 10.100 17 Ekim 2026 kalan kabul kapilari readback'i
+
+Kanonik operational home `C:\\Users\\mkaracan\\.zekam` mevcut degil; `C:\\Users\\mkaracan\\AppData\\Local\\Zekam`
+altinda yalniz model klasoru bulunuyor. Bu nedenle operational SQLite, CAS, aktif
+index veya backup/restore hedefi kanitlanamadi; `.zekam` bootstrap edilmedi ve
+herhangi bir kullanici indeksi silinmedi.
+
+WP-09 gercek hedefi olan `C:\\innova\\projeler\\ai-test-engineering\\java-support`
+repository disinda salt okunur incelendi. Mevcut Surefire raporlarinda 16 testten
+15 basarili ve `recordKindRaporlanir` basarisiz; hedef POM'unda JaCoCo eklentisi yok.
+Bu dis proje degistirilmedi, Zekam fixture kaniti gercek hedef kabulü sayilmadi.
+
+Kalan kapilar su sekilde ayridir: (1) WP-02/WP-08 native host shell/tool-denial,
+credential ve signer izolasyonu ile farkli client kabulü; (2) WP-04/WP-05/WP-06
+gercek corpus, Jira/Confluence/Oracle yetkili okuma, incremental index ve semantic
+quality; (3) WP-07/WP-11 gerçek lease/race/crash, operational Work, signed backup,
+restore ve rollback; (4) WP-09 hedef Java projesi, JaCoCo ve bagimsiz verifier;
+(5) WP-10 canli model/tournament ve skill quality; (6) WP-12 gerçek client matrisi,
+end-to-end kalite ve production release zinciri. Bunlar için gerekli canlı
+ortam/credential/corpus kaniti mevcut olmadigindan `not-run` veya acik kabul olarak
+korunur; tamamlanmis gibi isaretlenmez.
+
+Bu readback ve authority/manifest senkronizasyonu docs-only'dir; `85e7e83` sonrasinda
+pytest, Maven veya yeni provider/model cagrisi calistirilmadi.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
