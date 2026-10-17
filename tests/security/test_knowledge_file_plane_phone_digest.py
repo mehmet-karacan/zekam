@@ -51,6 +51,15 @@ def test_digest_and_clean_note_passes_sanity() -> None:
     assert isinstance(result, str) and result
 
 
+def test_uuid_identity_fragments_do_not_look_like_phone_numbers() -> None:
+    payload = (
+        b'project_id: "e0185808-4146-40a7-a3df-70f3c7db8329"\n'
+        b'invocation_id: "64e6e67c-6d1e-4701-9385-7275ef41c4bd"\n'
+    )
+    result = assert_public_safe_projection(payload, relative_path="public/evidence.json")
+    assert isinstance(result, str) and result
+
+
 def test_secret_and_other_pii_behavior_unchanged() -> None:
     """Sanity: a plain secret/password is still rejected (guard scope stays narrow)."""
     with pytest.raises(PolicyViolation, match="secret/PII"):

@@ -153,6 +153,18 @@
   Bu read-only paket kanitidir; native host, credential, live kalite ve release
   kabul kapilarini kapatmaz. Pytest bu adimda calistirilmadi.
 
+- 17 Ekim 2026 son kaynak degisikligi yeniden dogrulamasi: OpenCode cozumleyici ve
+  diger son kaynak degisikliklerinden sonra toplu kapida `7980 passed, 2 failed,
+  1409 skipped, 3 warnings` sonucu alindi. Iki kirmizi kapidan biri paket manifesti
+  digest drift'i, digeri UUID icindeki sayisal parcayi telefon PII'si sanan
+  nondeterministic public-safe projection false positive'iydi. Canonical UUID/digest
+  token kapsami genisletildi, regresyon kaynagi eklendi ve manifest generator ile
+  `sha256:bd5fa5a907428f404dbe8ae0445e59b30d8239bdc9bd08aa44e055344683b02a`
+  degeri sabitlendi. Ilgili regresyon + manifest hedefleri `7 passed` verdi;
+  loop hedefi sonuc satirinda `passed` yazdi ancak Windows fixture kapandiktan sonra
+  process'i acik tuttu, bu nedenle kendi process'i sonlandirildi. Bir sonraki adim
+  kaynak degisikligi yapmadan tek son toplu revalidation'dir.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm

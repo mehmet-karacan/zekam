@@ -58,16 +58,22 @@ _HEX_IDENTITY_TOKEN = re.compile(
 )
 _MAX_NOTE_BYTES = 2 * 1024 * 1024
 
-# Phone PII match is a false positive when it is a contiguous hex segment embedded in a
-# larger hex token (e.g. a numeric substring inside a `sha256:<hex>` digest). Only the
-# phone rule (#1) needs this guard: SECRET_RULES / TCKN / IBAN / Luhn stay untouched.
+# Phone PII match is a false positive when it is embedded in a canonical identity token
+# (for example a UUID fragment or a numeric substring inside a `sha256:<hex>` digest).
+# Only the phone rule (#1) needs this guard: SECRET_RULES / TCKN / IBAN / Luhn stay
+# untouched.
 _HEX_ALPHABET = frozenset("0123456789abcdefABCDEF")
 _HEX_ONLY = re.compile(r"^[0-9a-fA-F]+$")
 _PHONE_RULE_INDEX = 1
 
 
 def _phone_match_is_hex_digest_embedded(text: str, start: int, end: int) -> bool:
-    """True when the phone-like match is part of a hex-dense token (digest substring)."""
+    """True when the phone-like match is part of a canonical identity token."""
+    if any(
+        token.start() <= start and end <= token.end()
+        for token in _HEX_IDENTITY_TOKEN.finditer(text)
+    ):
+        return True
     if not _HEX_ONLY.match(text[start:end]):
         return False
     left = text[start - 1] if start > 0 else ""
