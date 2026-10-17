@@ -1,11 +1,10 @@
 """Fail-closed audit for the local-first shipped runtime graph.
 
-The PostgreSQL-era implementations and the retired macOS continuity adapters
-remain source-controlled reference material until their regression coverage is
-retired. They are intentionally absent from the wheel and must not be reachable
-from a supported public runtime composition root. The active release target is
-Windows/Linux; historical platform adapters and their dormant v4 compositions
-are outside that runtime graph.
+The PostgreSQL-era implementations remain source-controlled reference material
+until their regression coverage is retired. They are intentionally absent from
+the wheel and must not be reachable from a supported public runtime composition
+root. The active release target is Windows/Linux; the retired macOS adapters and
+their dormant v4 compositions are removed from the checkout entirely.
 """
 
 from __future__ import annotations
@@ -49,15 +48,6 @@ ARCHIVE_ONLY_SOURCE_PATHS = (
     "src/zekam/application/run_reconciliation.py",
     "src/zekam/application/work_graph.py",
     "src/zekam/application/worker.py",
-    "src/zekam/application/local_continuity_v4_compaction.py",
-    "src/zekam/application/local_continuity_v4_ingress.py",
-    "src/zekam/infrastructure/clients/codex_macos_0151_lifecycle.py",
-    "src/zekam/infrastructure/clients/codex_macos_0151_precompaction_client.py",
-    "src/zekam/infrastructure/local_continuity_v4_composition.py",
-    "src/zekam/infrastructure/embedding/infinity_bge.py",
-    "src/zekam/infrastructure/macos_precompaction_supervisor.py",
-    "src/zekam/infrastructure/sqlite/local_continuity_v4_compaction.py",
-    "src/zekam/infrastructure/sqlite/local_continuity_v4_ingress.py",
 )
 
 PUBLIC_RUNTIME_ROOTS = (

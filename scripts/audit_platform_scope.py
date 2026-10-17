@@ -9,9 +9,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "zekam-platform-scope-audit/v1"
+SCHEMA = "zekam-platform-scope-audit/v2"
 MAX_FILE_BYTES = 4 * 1024 * 1024
-ARCHIVE_ONLY_MACOS_SOURCES = frozenset(
+REMOVED_MACOS_SOURCES = frozenset(
     {
         "src/zekam/application/local_continuity_v4_compaction.py",
         "src/zekam/application/local_continuity_v4_ingress.py",
@@ -93,13 +93,18 @@ def audit(repository: Path) -> dict[str, Any]:
             "test_file_count": 0,
             "forbidden_test_count": 0,
             "forbidden_scope_file_count": 0,
-            "archive_only_macos_source_count": 0,
+            "removed_macos_source_count": 0,
+            "macos_source_present_count": 0,
             "grants_authority": False,
         }
 
-    for source in sorted(ARCHIVE_ONLY_MACOS_SOURCES):
-        if source not in exclusions:
-            findings.append(f"macos-source-not-archive-only:{source}")
+    macos_source_present_count = 0
+    for source in sorted(REMOVED_MACOS_SOURCES):
+        if (repository / source).exists():
+            macos_source_present_count += 1
+            findings.append(f"macos-source-present:{source}")
+        if source in exclusions:
+            findings.append(f"macos-source-stale-wheel-exclusion:{source}")
 
     test_paths = tuple(
         path
@@ -150,7 +155,8 @@ def audit(repository: Path) -> dict[str, Any]:
         "test_file_count": len(test_paths),
         "forbidden_test_count": forbidden_test_count,
         "forbidden_scope_file_count": forbidden_scope_file_count,
-        "archive_only_macos_source_count": len(ARCHIVE_ONLY_MACOS_SOURCES),
+        "removed_macos_source_count": len(REMOVED_MACOS_SOURCES),
+        "macos_source_present_count": macos_source_present_count,
         "grants_authority": False,
     }
 

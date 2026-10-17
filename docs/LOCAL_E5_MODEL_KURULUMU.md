@@ -80,9 +80,9 @@ dizinine dokunulmaz. Proje RAG ve continuity yollari eski BGE ayarini veya
 indeksini artik okumaz; yerel E5 profili disinda bir ayar fail-closed reddedilir.
 
 MacOS/Infinity BGE provider'i, MacOS'a bagli Codex v4 ingress ve bunlara ait test
-yuzeyleri aktif release'den cikarildi. Kaynak checkout'undaki eski adapterler yalniz
-tarihsel read-compatibility icin archive-only tutulur; Windows/Linux wheel'i ve test
-koleksiyonu yerel ONNX multilingual-e5-small profili disinda embedding yolu sunmaz.
+yuzeyleri kaynak checkout'undan tamamen kaldirildi. Windows/Linux wheel'i ve test
+koleksiyonu yalniz yerel ONNX multilingual-e5-small profiline embedding yolu sunar;
+MacOS'a ait adapter veya test yolu yoktur.
 
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
 aktif production index bulunmadi. Varsayilan operational home
@@ -99,19 +99,17 @@ batch 6 ms olculdu. Son salt okunur tekrar dogrulamada ayni model 384 boyutlu
 bir sorgu ve iki belge vektoru uretti; normlar `1.0`, gecikmeler sorgu `3 ms` ve
 belge batch `5 ms`, probe evidence digest'i
 `sha256:094d27798287a164980940ed81771dbc3be32264ec427b96a90958fafe646dde` oldu.
-OpenCode text-only native parseri ve deny-all smoke kaynaklari sonrasinda,
-MacOS release kapsam cikisi iceren tek son toplu `python -m pytest -q --tb=short
---basetemp C:\\temp\\zekam-final-macos-scope` kosusu `ac9fd05` kaynak setinde
-exit code `1` ile sonuclandi: `3 failed, 7969 passed, 1365 skipped, 3 warnings`
-(1:05:08). Iki hata Windows pipe/selector ve process sonlandirma yolunda,
-ucuncu hata ise `posix-only` registry adinin eski beklentisindeydi. Windows
-pipe okuyucusu, kill fallback'i ve registry beklentisi `e66394b` ile duzeltildi;
-pytest tekrar calistirilmadi. Bu nedenle bu belge temiz final suite kaniti iddia
-etmez. Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan
-native istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir;
-remote/live provider ve gercek production corpus yeniden indeksleme kosulari bu
-makinede calistirilmadi. Uretim corpus indexi olusturulmadi; canonical home ve
-legacy index adayi bulunmadigi icin silinecek veya yeniden indekslenecek hedef yoktu.
+OpenCode text-only native parseri ve deny-all smoke kaynaklari sonrasinda yapilan
+`ac9fd05` tarihsel suite kosusunda MacOS kapsam cikisi zaten yoktu; kosu `3 failed,
+7969 passed, 1365 skipped, 3 warnings` ile sonuclandi. Bu tarihsel sonuc temiz
+final suite kaniti degildir ve yeniden kosulmayacaktir. Sonraki Windows process ve
+registry duzeltmeleri kaynakta tutuldu; guncel final kosu gelistirmelerin sonunda
+yalniz Windows/Linux kapsaminda tek kez yapilacaktir. Skip'ler Windows'ta
+kullanilamayan symlink/POSIX izinleri, kurulu olmayan native istemci veya gercek
+kullanici corpus'u gibi host sinirlarina aittir; remote/live provider ve gercek
+production corpus yeniden indeksleme kosulari bu makinede calistirilmadi. Uretim
+corpus indexi olusturulmadi; canonical home ve legacy index adayi bulunmadigi icin
+silinecek veya yeniden indekslenecek hedef yoktu.
 
 Paket kabul betigi de son authority digest'iyle repository disi sonuc olarak
 `status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]` verdi.
@@ -124,8 +122,7 @@ kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
 
 Session ve qualification cache degisiklikleri onceki kaynak doneminde
 `7993 passed, 1409 skipped, 3 warnings` ile exit code `0` vermisti; bu tarihsel
-kanit `C:\\temp\\zekam-final-188d153` basetemp'inde tutulur. MacOS kapsam cikisi
-ve sonraki Windows process duzeltmeleri bu eski suite kapsaminda degildir. Modelin
-yerel CPU kurulumu dogrulanmis olsa da temiz guncel final suite, canli production
+kanit `C:\\temp\\zekam-final-188d153` basetemp'inde tutulur. Modelin yerel CPU
+kurulumu dogrulanmis olsa da temiz guncel final suite, canli production
 corpus yeniden indeksleme, remote provider ve native host kabulunu kapsayan kanit
 henuz yoktur.

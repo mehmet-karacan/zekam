@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.2` — Checkpoint ve gelistirme duraklatma kaydi
+**Belge sürümü:** `2.3` — MacOS kaynak cikisi ve manifest hizasi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3937,6 +3937,21 @@ gelistirmeleri uygulanacak, her dilim Turkce ASCII commit/push ile kapatilacak v
 testler yalniz tum gelistirmelerin sonunda tek final Windows/Linux suite'inde
 calistirilacak. Korunan untracked dosyalara dokunulmadi.
 
+### 10.122 17 Ekim 2026 MacOS kaynaklarinin tam cikisi
+
+Kullanici talebine uygun olarak MacOS'a bagli dokuz kaynak modul checkout'tan
+silindi: Codex 0.151 lifecycle/precompaction, Infinity BGE, MacOS supervisor
+ve v4 ingress/compaction/composition. Hatch wheel exclusion, package acceptance
+ve runtime reachability listeleri 18 legacy PostgreSQL/reference module ile
+hizalandi; stale MacOS wheel exclusion kalmadi.
+`scripts/audit_platform_scope.py --repository .` sonucu schema v2,
+`passed=true`, `removed_macos_source_count=9`, `macos_source_present_count=0`,
+`forbidden_test_count=0`, `forbidden_scope_file_count=0`, `findings=[]` verdi.
+Runtime audit `passed=true`, `archive_only_module_count=18`,
+`reachable_module_count=355`, `legacy_postgresql_data_accessed=false` verdi.
+Package manifest yeniden uretildi. Pytest calistirilmadi; final Windows/Linux
+suite gelistirmelerin sonunda kosulacak.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -4143,6 +4158,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.0 | 2026-10-17 | MacOS kapsamı kaldırıldı; tek final suite sonucu ve Windows process/registry takip düzeltmeleri kayda alındı; temiz suite kanıtı tekrar çalıştırılmadan açık bırakıldı |
 | 2.1 | 2026-10-17 | Aktif MacOS/CI/benchmark kapsam drift kapısı genişletildi; testler final aşamaya bırakıldı |
 | 2.2 | 2026-10-17 | Kullanıcı checkpoint'i: son HEAD, kapsam denetimleri ve embedding kota düzeltmesi kayda alındı; geliştirme duraklatıldı |
+| 2.3 | 2026-10-17 | MacOS'a bagli dokuz kaynak modul checkout'tan kaldirildi; wheel, manifest ve runtime audit hizalandi; pytest final asamaya birakildi |
 
 ### 15.3 Şimdiki Gerçek Durum
 
