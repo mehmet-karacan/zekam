@@ -41,6 +41,7 @@ from zekam.application.local_runtime_service import (
     LocalRuntimeService,
 )
 from zekam.application.memory_service import NativeMemoryEngine, ReviewDecision
+from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.memory import MemoryClass, MemoryKey, MemoryQuery, MemoryScope
@@ -294,6 +295,7 @@ def inspect_command(
             "created_at": record["created_at"],
             "memory_class": record["memory_class"],
             "review_digest": record.get("review_digest"),
+            "archive_digest": record.get("archive_digest"),
             "body": _sanitize_body(record["body"], full_body=full),
             "read_only": True,
             "redaction_modes": modes,
@@ -423,6 +425,87 @@ def hygiene_command(
 
 
 # -- Mutation (claim/receipt) -------------------------------------------------
+
+
+@app.command("prepare")
+def prepare_command(
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Plan or explicitly apply the backup-protected learning v2-to-v3 upgrade."""
+    try:
+        learning, resolved_home = _paths(home)
+        backup = resolved_home / "backups" / "learning-v2-before-v3.db"
+        plan = learning.migration_plan_v3(backup)
+        if not apply:
+            _emit(plan)
+            return
+        if plan_digest is None:
+            raise PolicyViolation("Memory prepare exact --plan-digest required")
+        effect = {"schema": "zekam-learning-migration-effect/v3", "plan_digest": plan_digest,
+                  "backup_ref": plan["backup_ref"]}
+        _emit(_run_claimed_effect(
+            learning.operational_path, resolved_home, operation="memory.prepare-v3",
+            effect=effect, idempotency_key=f"memory-prepare-v3:{plan_digest}",
+            apply_effect=lambda: learning.migrate_v2_to_v3(backup, authorized_plan_digest=plan_digest),
+            replay_effect=lambda: learning.migrate_v2_to_v3(backup, authorized_plan_digest=plan_digest),
+        ))
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
+@app.command("archive")
+def archive_command(
+    memory_id: Annotated[str, typer.Argument()],
+    actor_ref: Annotated[str, typer.Option("--actor-ref")] = "cli-user",
+    reason: Annotated[str, typer.Option("--reason")] = "Explicit user archival",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Archive the exact current revision without deleting its source or history."""
+    try:
+        if (
+            not actor_ref.strip() or len(actor_ref.encode("utf-8")) > 256
+            or not reason.strip() or len(reason.encode("utf-8")) > 1024
+            or scan_text(actor_ref + "\n" + reason, relative_path="memory-archive.txt")
+        ):
+            raise PolicyViolation("Memory archival metadata must be bounded and secret-free")
+        learning, resolved_home = _paths(home)
+        learning.require_memory_archival()
+        current = learning.record_by_memory_id(memory_id)
+        if current is None:
+            raise PolicyViolation("Memory archival current revision missing")
+        expected = str(current["revision_digest"])
+        body = {
+            "schema": "zekam-memory-archive-plan/v1", "memory_id": memory_id,
+            "expected_revision_digest": expected, "actor_ref": actor_ref, "reason": reason,
+            "apply": False, "grants_authority": False,
+        }
+        exact = digest(body)
+        if not apply:
+            _emit({**body, "plan_digest": exact})
+            return
+        if plan_digest != exact:
+            raise PolicyViolation("Memory archive exact --plan-digest required; current head drift")
+
+        def effect() -> dict[str, object]:
+            archived = learning.archive_memory(
+                memory_id, expected, actor_ref=actor_ref, reason=reason, now=dt.datetime.now(dt.UTC),
+            )
+            return {**archived, "receipt_digest": archived["archive_digest"]}
+
+        result = _run_claimed_effect(
+            learning.operational_path, resolved_home, operation="memory.archive",
+            effect={**body, "schema": "zekam-memory-archive-effect/v1", "plan_digest": exact},
+            idempotency_key=f"memory-archive:{exact}", apply_effect=effect, replay_effect=effect,
+        )
+        _emit({**result, "plan_digest": exact, "grants_authority": False})
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
 
 
 @app.command("review")

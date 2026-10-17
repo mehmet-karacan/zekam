@@ -1,3 +1,14 @@
+# Guncel devir — Y-09 gelistirme teslimi
+
+Y-01..09 kaynak teslimleri kayitli; siradaki Y-10, sonra Y-11 ve Y-12.
+Archive append-only learning v3, memory prepare explicit v2->v3 kaynagi eklendi.
+Kullanici DB'si halen v2; test veya runtime migration YAPILMADI. Migration/rollback
+ve archive/replay/regresyon kabul Y-12de. V1/V2 schema pinlerini veya append-only
+head guardlarini gevsetme. Onceki notlar tarihsel; aktif liste AKTIF_GOREV.md 0.3,
+son durum 0.13. Korunan dort untracked girdiyi otomatik stage etme.
+
+---
+
 # Guncel devir — Y-09 kismi gelistirme; hedef aktif
 
 Kullanici hedefi Y-12ye kadar devamdir; bitmedi, duraklama veya yeni onay bekleme yok.

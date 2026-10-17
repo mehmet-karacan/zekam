@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.3` — Y-09 exact bellek duzeltme bagi; arsivleme acik
+**Belge sürümü:** `3.4` — Y-09 kalici arsivleme ve v3 gecis kaynagi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -172,7 +172,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   tek akista baglansin; production/pom veya basarili test silinerek coverage artirilmasin.
   Cikis: anlamli test degisikligi ve kanitli olcum ureten akis; bu urunun Maven denemesi
   de 12. adimdaki final dogrulama asamasinda yapilir.
-- [ ] **Y-09 — Temel bellek ve skill:** `memory_service.py`, `memory_control.py`, mevcut
+- [x] **Y-09 — Temel bellek ve skill:** `memory_service.py`, `memory_control.py`, mevcut
   skill CLI ve SQLite skill store yolunda kaydet/oku/duzelt/arsivle, scope/provenance ve
   surum/rollback baglarini tamamla. Mevcut fikir kayit akisi korunur. Memory/skill execution
   izni sayilmaz. Cikis: kullanici/proje bilgisi ve onayli skill yasam dongusu calisir;
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-09 kalici bellek arsivleme ve duzeltme akisinin kalan baglarini tamamla. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-10 durum raporu ve backup. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -415,6 +415,32 @@ baglari tamamlanmadan Y-09 checkbox'i kapatilmayacak. Skill mevcut version/
 lifecycle/rollback kaynaklari incelenecek. Sonrasi Y-10, Y-11 ve tek final Y-12.
 Kullanici verisinde migration, memory promotion veya test kosusu yapilmadi.
 Geri donus: bu CLI/belge commitini geri al; mevcut bellek kayitlarini koru.
+
+### 0.13 Y-09 gelistirme teslimi — 18 Ekim 2026
+
+0.12'deki archive eksigi kaynakta tamamlandi. Ayni learning DB'ye append-only
+memory_archival tablosu ve exact-head insert/no-update/no-delete guard'lari
+eklendi; onceki candidate/review/revision/head degistirilmez. Search/active/is_active,
+inspect/status/revision listesi etkili archived durumunu canonical event'ten okur.
+Memory archive dry-run/exact plan ve mevcut claim/receipt yolundadir; stale head,
+metadata drift, secret metadata ve farkli effect replay'i reddedilir.
+
+Yeni home learning v3 olur. Eski v2 fingerprint sabit pin ile korunur; v2 okuma ve
+skill islevleri desteklenir. v1->v2 mevcut migration hedefi v2 olarak kalir.
+Yeni memory prepare v2->v3 icin exact path/content digest ve online backup ister;
+source writer lock altinda additive SQL, logical parity/integrity/FK kontrolleri
+vardir. Otomatik upgrade yoktur. Kullanici home'undaki learning.db halen v2'dir;
+bu tur migration veya archive effect uygulanmadi. Runtime migration son test
+sonuclarina gore Y-12de yapilacak; DoD yalniz kaynak varligindan uretilmeyecek.
+
+Skill version/lifecycle/rollback mevcut kaynakla korunur; yeni evolution veya
+promotion platformu eklenmedi. Archive history/no-active-search, stale-head ve
+v2 backup/migration/replay icin yeni integration regresyonu hazirlandi. V2
+migration testinin fingerprint'i kendi v2 pin'ine baglandi; unknown version testi
+999 ile surumden bagimsiz kaldi. Testler CALISTIRILMADI; py_compile/diff ve
+projection kontrolu yapildi. Y-09 isareti gelistirme teslimidir; bagimsiz inceleme,
+migration ve runtime kabul Y-12de bekler. Geri donus: kaynak commitini geri al;
+ileride migrate edilen DB'yi silme, yedegi ayri hedefe restore ile degerlendir.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4503,6 +4529,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 3.2 | 2026-10-18 | Y-08: Maven timeout lock/output sinirlari effect oncesine baglandi; gercek Maven ve test kabul Y-12de |
 
 | 3.3 | 2026-10-18 | Y-09 kismi: CLI exact supersession plan/effect bagi; kalici memory arsivleme acik, testler finalde |
+
+| 3.4 | 2026-10-18 | Y-09 kaynak teslimi: append-only memory archival, effective read/search ve yedekli explicit v3 gecisi; test/migration kabul finalde |
 
 ### 15.3 Şimdiki Gerçek Durum
 

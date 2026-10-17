@@ -29,6 +29,7 @@ from zekam.infrastructure.local_file_security import (
 from zekam.infrastructure.sqlite.local_learning import (
     SCHEMA_DIGEST,
     SCHEMA_VERSION,
+    SCHEMA_V2_DIGEST,
     _required_v2_indexes_present,
     _schema_digest,
 )
@@ -251,8 +252,8 @@ class SQLiteSkillLifecycle:
         ).fetchone()
         if (
             row is None
-            or tuple(row) != (SCHEMA_VERSION, SCHEMA_DIGEST)
-            or _schema_digest(db) != SCHEMA_DIGEST
+            or tuple(row) not in {(2, SCHEMA_V2_DIGEST), (SCHEMA_VERSION, SCHEMA_DIGEST)}
+            or _schema_digest(db) != row[1]
             or not _required_v2_indexes_present(db)
         ):
             db.close()

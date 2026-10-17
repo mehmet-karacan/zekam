@@ -23,7 +23,7 @@ from zekam.domain.personal_skill import (
 from zekam.infrastructure.local_file_security import restrict_private_file, restrict_private_tree
 from zekam.infrastructure.sqlite.local_learning import (
     _SCHEMA_V1,
-    SCHEMA_DIGEST,
+    SCHEMA_V2_DIGEST as SCHEMA_DIGEST,
     SCHEMA_V1_DIGEST,
     SQLiteLocalLearning,
 )

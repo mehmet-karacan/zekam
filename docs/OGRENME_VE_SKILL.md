@@ -62,3 +62,32 @@ Her çalışma bağlam manifest'i için token maliyeti, kullanılan kanıt sayı
 
 `RouteFeedback` doğrulanmış başarı oranı, ortalama token maliyeti ve kanıt
 yoğunluğu (kanıt/kilotoken) üretir.
+
+
+## Yerel bellek duzeltme ve arsivleme — Y-09
+
+Native ajan kullanicinin bellek isteginde kaydi ve revision'i mevcut `memory
+inspect`/`candidates` ciktisindan cozer; kullanicidan digest veya JSON istemez.
+Duzeltme yeni aday/review ve `memory promote --supersedes <onceki-revision>` ile
+exact onceki revision'a baglanir. Kayitlar ezilmez; gecmis ve provenance korunur.
+Arsivleme `memory archive <memory-id>` salt-okunur planindan alinan exact digest
+ile `--uygula --plan-digest` kullanir; claim/receipt uretir. Arsiv kaydi v3 learning
+DB'de append-only'dir. Ayni revision ayni actor/reason ile tekrar uygulanirsa yeni
+kayit uretilmez; stale head veya farkli replay metadata'si reddedilir.
+
+Arsivlenmis revision `search`/`active_records`/`is_active` sonucunda aktif degildir;
+inspect, status ve revision listesi archived durumunu ve archive_digest bagini
+korur. Eski candidate, review, revision ve head baytlari silinmez veya degismez.
+Yeni bir onayli supersession kendi yeni revision'iyle aktif olabilir.
+
+Mevcut learning v2 icin `memory prepare` yalniz plan uretir. Acikca uygulaninca
+v2->v3, exact hedef kimligi/icerik digest'i ve SQLite online backup ile yapilir;
+oncesi verinin logical paritesi ve integrity/FK sonuclari okunur. V1 kullanicisi
+once mevcut `skill prepare` v1->v2 yolunu kullanir. Yukseltme arka planda veya
+`status`/`search` sirasinda uygulanmaz; yedek ezilmez, yabanci hedef benimsenmez.
+Yeni home v3 baslar; v2 bellek/skill okumasi ve mevcut islevleri korunur, archive
+icin explicit prepare gerekir. Geri donus yedegi ayri yeni hedefe restore ile
+planlanir; guncel kullanici DB'si yerinde silinmez.
+
+Bu Y-09 kaynak teslimidir; regresyon, migration, archive/replay ve tam native
+kabul kosulari Y-12 final asamasindadir. Otomatik evolution/radar acilmadi.

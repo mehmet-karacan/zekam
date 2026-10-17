@@ -22,6 +22,7 @@ from typing import Any, final
 from zoneinfo import ZoneInfo
 
 from zekam.application.memory_service import ReviewDecision
+from zekam.application.secret_detection import scan_text
 from zekam.application.skill_runtime import (
     SKILL_EXECUTE_OPERATION,
     SKILL_VERIFY_HANDLER,
@@ -44,8 +45,9 @@ from zekam.infrastructure.local_file_security import (
 from zekam.infrastructure.local_runtime_effects import LocalJournalEffectExecutor
 from zekam.infrastructure.sqlite.operational_schema import status as operational_status
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SCHEMA_V1_DIGEST = "sha256:4d5d9f79cf576a2385179198045d0bd91972c86d9ab996d57cd68eb181d0f038"
+SCHEMA_V2_DIGEST = "sha256:b0fd3cbb2cdc71a1feaf7b484e1545d933a668f6fc3d87d93a4708f93b9e5cae"
 MAX_BODY_BYTES = 32_768
 _SOURCE_KINDS = frozenset({"receipt", "test", "citation", "observation-summary"})
 _DAILY_SOURCES = {
@@ -316,6 +318,27 @@ for _table in (
         "begin select raise(abort,'append-only'); end;\n"
     )
 _SCHEMA += _MIGRATION_V2
+_SCHEMA_V2 = _SCHEMA
+_V3_STATEMENTS = (
+    """create table memory_archival(
+ archive_digest text primary key,memory_id text not null,
+ revision_digest text not null unique references memory_revision,
+ actor_ref text not null,reason text not null,created_at text not null,body_json text not null,
+ check(json_valid(body_json) and length(cast(body_json as blob)) between 2 and 32768)
+) strict;""",
+    """create trigger memory_archival_insert_guard before insert on memory_archival
+when not exists(select 1 from memory_head h join memory_revision r
+ on r.revision_digest=h.revision_digest where h.memory_id=new.memory_id
+ and h.revision_digest=new.revision_digest and r.state='active'
+ and new.created_at>=r.created_at)
+begin select raise(abort,'memory archival requires current active head'); end;""",
+    """create trigger memory_archival_no_update before update on memory_archival
+begin select raise(abort,'append-only'); end;""",
+    """create trigger memory_archival_no_delete before delete on memory_archival
+begin select raise(abort,'append-only'); end;""",
+)
+_MIGRATION_V3 = "\n".join(_V3_STATEMENTS)
+_SCHEMA += "\n" + _MIGRATION_V3
 
 
 def _time(value: dt.datetime) -> str:
@@ -435,7 +458,69 @@ with closing(sqlite3.connect(":memory:")) as _schema_db:
     if _schema_digest(_schema_db) != SCHEMA_V1_DIGEST:
         raise RuntimeError("Local learning v1 schema digest drift")
     _schema_db.executescript(_MIGRATION_V2)
+    if _schema_digest(_schema_db) != SCHEMA_V2_DIGEST:
+        raise RuntimeError("Local learning v2 schema digest drift")
+    _schema_db.executescript(_MIGRATION_V3)
     SCHEMA_DIGEST = _schema_digest(_schema_db)
+
+
+def _assert_learning_schema(db: sqlite3.Connection) -> int:
+    row = db.execute("select version,schema_digest from learning_schema where singleton=1").fetchone()
+    if (
+        row is None
+        or tuple(row) not in {(2, SCHEMA_V2_DIGEST), (SCHEMA_VERSION, SCHEMA_DIGEST)}
+        or _schema_digest(db) != row[1]
+        or not _required_v2_indexes_present(db)
+    ):
+        raise PolicyViolation("WP-09 local schema drift")
+    return int(row[0])
+
+
+def _archival_records(db: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    if _assert_learning_schema(db) == 2:
+        return {}
+    rows = db.execute(
+        "select a.*,r.memory_id source_memory_id,r.created_at source_created_at "
+        "from memory_archival a join memory_revision r on r.revision_digest=a.revision_digest "
+        "order by a.revision_digest limit 4097"
+    ).fetchall()
+    if len(rows) > 4096:
+        raise PolicyViolation("Memory archival read bound exceeded")
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        try:
+            body = json.loads(row["body_json"])
+        except (TypeError, ValueError) as exc:
+            raise PolicyViolation("Memory archival body malformed") from exc
+        expected = {
+            "schema": "zekam-memory-archival/v1", "state": "archived",
+            **{key: row[key] for key in ("memory_id", "revision_digest", "actor_ref", "reason", "created_at")},
+        }
+        if (
+            body != expected or canonical_json(body) != row["body_json"]
+            or digest(body) != row["archive_digest"]
+            or row["memory_id"] != row["source_memory_id"]
+            or _parse_time(row["created_at"]) < _parse_time(row["source_created_at"])
+        ):
+            raise PolicyViolation("Memory archival canonical binding drift")
+        result[str(row["revision_digest"])] = {**body, "archive_digest": row["archive_digest"]}
+    return result
+
+
+def _pre_v3_content_digest(db: sqlite3.Connection) -> str:
+    hasher = hashlib.sha256()
+    tables = db.execute(
+        "select name from sqlite_master where type='table' and name not like 'sqlite_%' "
+        "and name not in ('learning_schema','memory_archival') order by name"
+    ).fetchall()
+    for row in tables:
+        table = str(row[0]).replace('"', '""')
+        columns = [str(item[1]) for item in db.execute(f'pragma table_info("{table}")')]
+        ordering = ",".join('"' + name.replace('"', '""') + '"' for name in columns)
+        hasher.update(canonical_json({"table": table, "columns": columns}).encode("utf-8"))
+        for record in db.execute(f'select * from "{table}" order by {ordering}'):
+            hasher.update(b"\n" + canonical_json(list(record)).encode("utf-8"))
+    return "sha256:" + hasher.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -786,7 +871,7 @@ class SQLiteLocalLearning:
         source = (int(row[0]), str(row[1]), observed)
         if source not in {
             (1, SCHEMA_V1_DIGEST, SCHEMA_V1_DIGEST),
-            (SCHEMA_VERSION, SCHEMA_DIGEST, SCHEMA_DIGEST),
+            (2, SCHEMA_V2_DIGEST, SCHEMA_V2_DIGEST),
         }:
             raise PolicyViolation("Learning migration unknown schema fingerprint")
         if backup_content_digest is not None and backup_content_digest != source_content_digest:
@@ -796,8 +881,8 @@ class SQLiteLocalLearning:
             "source_version": source[0],
             "source_schema_digest": source[1],
             "source_content_digest": source_content_digest,
-            "target_version": SCHEMA_VERSION,
-            "target_schema_digest": SCHEMA_DIGEST,
+            "target_version": 2,
+            "target_schema_digest": SCHEMA_V2_DIGEST,
             "migration_required": source[0] == 1,
             "database_ref": "ZEKAM_HOME/state/learning.db",
             "backup_ref": f"ZEKAM_HOME/backups/{backup_path.name}",
@@ -876,7 +961,7 @@ class SQLiteLocalLearning:
                     db.executescript("begin immediate;\n" + _MIGRATION_V2)
                     db.execute(
                         "update learning_schema set version=?,schema_digest=? where singleton=1",
-                        (SCHEMA_VERSION, SCHEMA_DIGEST),
+                        (2, SCHEMA_V2_DIGEST),
                     )
                     db.commit()
                 except Exception:
@@ -891,7 +976,7 @@ class SQLiteLocalLearning:
             "schema": "zekam-learning-migration-receipt/v2",
             "plan_digest": authorized_plan_digest,
             "source_schema_digest": SCHEMA_V1_DIGEST,
-            "target_schema_digest": SCHEMA_DIGEST,
+            "target_schema_digest": SCHEMA_V2_DIGEST,
             "backup_ref": plan["backup_ref"],
             "integrity": integrity,
             "foreign_key_check": "ok",
@@ -908,6 +993,90 @@ class SQLiteLocalLearning:
             )
         return receipt | {"receipt_digest": digest(receipt)}
 
+    def migration_plan_v3(self, backup_path: Path) -> dict[str, Any]:
+        """Plan the additive archival schema; v2 data is bound without exposing it."""
+
+        if (
+            type(backup_path) is not type(Path()) or not backup_path.is_absolute()
+            or backup_path == self.path or path_or_parent_is_link_or_reparse(backup_path)
+        ):
+            raise ValidationFailed("Learning v3 backup target exact distinct absolute file required")
+        with closing(self._connect_readonly()) as db:
+            version = _assert_learning_schema(db)
+            content = _pre_v3_content_digest(db)
+        if backup_path.exists():
+            if not private_regular(backup_path):
+                raise PolicyViolation("Learning v3 backup private identity required")
+            with closing(sqlite3.connect(f"{backup_path.as_uri()}?mode=ro", uri=True)) as db:
+                row = db.execute("select version,schema_digest from learning_schema").fetchone()
+                if (
+                    row != (2, SCHEMA_V2_DIGEST) or _schema_digest(db) != SCHEMA_V2_DIGEST
+                    or _pre_v3_content_digest(db) != content
+                    or db.execute("pragma integrity_check").fetchone()[0] != "ok"
+                    or db.execute("pragma foreign_key_check").fetchone() is not None
+                ):
+                    raise PolicyViolation("Learning v3 backup/source content drift")
+        body = {
+            "schema": "zekam-learning-migration-plan/v3", "source_version": version,
+            "source_schema_digest": SCHEMA_V2_DIGEST if version == 2 else SCHEMA_DIGEST,
+            "target_version": 3, "target_schema_digest": SCHEMA_DIGEST,
+            "source_content_digest": content, "migration_required": version == 2,
+            "database_identity_digest": digest(os.path.normcase(str(self.path.resolve(strict=True)))),
+            "backup_identity_digest": digest(os.path.normcase(str(backup_path.resolve(strict=False)))),
+            "backup_ref": "ZEKAM_HOME/backups/" + backup_path.name,
+            "provider_calls": 0, "grants_authority": False,
+        }
+        return {**body, "plan_digest": digest(body)}
+
+    def migrate_v2_to_v3(self, backup_path: Path, *, authorized_plan_digest: str) -> dict[str, Any]:
+        plan = self.migration_plan_v3(backup_path)
+        original = {key: value for key, value in plan.items() if key != "plan_digest"}
+        original.update(source_version=2, source_schema_digest=SCHEMA_V2_DIGEST, migration_required=True)
+        if digest(original) != authorized_plan_digest:
+            raise PolicyViolation("Learning v3 migration exact plan digest required")
+        if not plan["migration_required"] and not backup_path.is_file():
+            raise PolicyViolation("Learning v3 completed replay requires original backup")
+        if plan["migration_required"]:
+            with closing(self._connect()) as db:
+                db.execute("begin immediate")
+                if _assert_learning_schema(db) != 2 or _pre_v3_content_digest(db) != plan["source_content_digest"]:
+                    raise PolicyViolation("Learning v3 migration source drift")
+                if not backup_path.exists():
+                    created_parent = not backup_path.parent.exists()
+                    backup_path.parent.mkdir(parents=True, exist_ok=True)
+                    if created_parent:
+                        restrict_private_tree(backup_path.parent)
+                    if not private_directory(backup_path.parent):
+                        raise PolicyViolation("Learning v3 backup parent must be private")
+                    with backup_path.open("xb"):
+                        pass
+                    restrict_private_file(backup_path)
+                    with closing(self._connect_readonly()) as source, closing(sqlite3.connect(backup_path)) as target:
+                        source.backup(target)
+                        target.commit()
+                # Re-read the bound backup before executing additive SQL under the writer lock.
+                checked = self.migration_plan_v3(backup_path)
+                if checked["plan_digest"] != plan["plan_digest"]:
+                    raise PolicyViolation("Learning v3 migration backup readback drift")
+                for statement in _V3_STATEMENTS:
+                    db.execute(statement)
+                db.execute("update learning_schema set version=3,schema_digest=? where singleton=1", (SCHEMA_DIGEST,))
+                if (
+                    _assert_learning_schema(db) != 3
+                    or _pre_v3_content_digest(db) != plan["source_content_digest"]
+                    or db.execute("pragma integrity_check").fetchone()[0] != "ok"
+                    or db.execute("pragma foreign_key_check").fetchone() is not None
+                ):
+                    raise PolicyViolation("Learning v3 migration parity/integrity drift")
+                db.commit()
+        body = {
+            "schema": "zekam-learning-migration-receipt/v3", "plan_digest": authorized_plan_digest,
+            "source_schema_digest": SCHEMA_V2_DIGEST, "target_schema_digest": SCHEMA_DIGEST,
+            "source_content_digest": plan["source_content_digest"], "backup_ref": plan["backup_ref"],
+            "integrity": "ok", "foreign_key_check": "ok", "provider_calls": 0, "grants_authority": False,
+        }
+        return {**body, "receipt_digest": digest(body)}
+
     # -- Salt okunur memory yuzeyi (Dalga 2) ------------------------------------
     # Bu metodlar yalniz okur; hicbir kayit silinmez, guncellenmez ya da
     # promote edilmez. Mutation yalniz propose/review/activate uzerinden gecer.
@@ -918,6 +1087,12 @@ class SQLiteLocalLearning:
         db.row_factory = sqlite3.Row
         db.execute("pragma foreign_keys=on")
         db.execute("pragma query_only=on")
+        try:
+            _assert_learning_schema(db)
+            db.execute("begin")
+        except Exception:
+            db.close()
+            raise
         return db
 
     def memory_status(self) -> dict[str, object]:
@@ -927,6 +1102,8 @@ class SQLiteLocalLearning:
             if db.execute("pragma integrity_check").fetchone()[0] != "ok":
                 raise PolicyViolation("WP-09 SQLite memory integrity drift")
         with closing(self._connect_readonly()) as db:
+            schema_version = _assert_learning_schema(db)
+            archived = _archival_records(db)
             counts: dict[str, int] = {}
             for table in (
                 "memory_candidate",
@@ -938,10 +1115,15 @@ class SQLiteLocalLearning:
                 counts[table] = int(db.execute(f"select count(*) from {table}").fetchone()[0])
             by_state: dict[str, int] = {}
             for row in db.execute(
-                "select state,count(*) as n from memory_revision group by state"
+                "select revision_digest,state from memory_revision"
             ).fetchall():
-                by_state[str(row["state"])] = int(row["n"])
-        return {"counts": counts, "revision_states": by_state}
+                state = "archived" if row["revision_digest"] in archived else str(row["state"])
+                by_state[state] = by_state.get(state, 0) + 1
+            counts["memory_archival"] = len(archived)
+        return {
+            "counts": counts, "revision_states": by_state,
+            "schema_version": schema_version, "archival_available": schema_version == 3,
+        }
 
     def candidate_digest_by_id(self, candidate_id: str) -> str | None:
         """Exact aday kimliginden candidate digest'i doner; yoksa None."""
@@ -1019,6 +1201,7 @@ class SQLiteLocalLearning:
         opak body_json tam metni degil, gerekli sinirli gorsele donusturulur.
         """
         with closing(self._connect_readonly()) as db:
+            archived = _archival_records(db)
             rows = db.execute(
                 "select r.revision_digest,r.memory_id,r.revision,r.state,"
                 "r.created_at,r.body_json,c.memory_class,c.author_ref "
@@ -1034,7 +1217,7 @@ class SQLiteLocalLearning:
                     "revision_digest": str(row["revision_digest"]),
                     "memory_id": str(row["memory_id"]),
                     "revision": int(row["revision"]),
-                    "state": str(row["state"]),
+                    "state": "archived" if row["revision_digest"] in archived else str(row["state"]),
                     "created_at": str(row["created_at"]),
                     "memory_class": str(row["memory_class"]),
                     "author_ref": str(row["author_ref"]),
@@ -1048,6 +1231,7 @@ class SQLiteLocalLearning:
         if not memory_id.strip() or memory_id != memory_id.strip():
             raise ValidationFailed("Memory id bos veya padded olamaz")
         with closing(self._connect_readonly()) as db:
+            archived = _archival_records(db)
             row = db.execute(
                 "select r.revision_digest,r.memory_id,r.revision,r.state,"
                 "r.created_at,r.review_digest,c.memory_class,c.body_json "
@@ -1063,7 +1247,8 @@ class SQLiteLocalLearning:
             "revision_digest": str(row["revision_digest"]),
             "memory_id": str(row["memory_id"]),
             "revision": int(row["revision"]),
-            "state": str(row["state"]),
+            "state": "archived" if row["revision_digest"] in archived else str(row["state"]),
+            "archive_digest": archived.get(str(row["revision_digest"]), {}).get("archive_digest"),
             "created_at": str(row["created_at"]),
             "review_digest": str(row["review_digest"]),
             "memory_class": str(row["memory_class"]),
@@ -1114,8 +1299,12 @@ class SQLiteLocalLearning:
 
     def is_active(self, memory_id: str) -> bool:
         with closing(self._connect_readonly()) as db:
-            row = db.execute("select 1 from memory_head where memory_id=?", (memory_id,)).fetchone()
-        return row is not None
+            archived = _archival_records(db)
+            row = db.execute(
+                "select h.revision_digest,r.state from memory_head h join memory_revision r "
+                "on r.revision_digest=h.revision_digest where h.memory_id=?", (memory_id,)
+            ).fetchone()
+        return row is not None and row[1] == "active" and row[0] not in archived
 
     def active_records(self) -> tuple[Any, ...]:
         """Aktif head revision'lari ``MemoryRecord`` olarak yeniden kurar.
@@ -1135,8 +1324,9 @@ class SQLiteLocalLearning:
         )
 
         with closing(self._connect_readonly()) as db:
+            archived = _archival_records(db)
             rows = db.execute(
-                "select h.memory_id,r.revision,r.state,r.created_at,"
+                "select h.memory_id,h.revision_digest,r.revision,r.state,r.created_at,"
                 "c.memory_class,c.author_ref,c.body_json,c.observed_at,"
                 "rv.reviewer_ref "
                 "from memory_head h "
@@ -1146,6 +1336,8 @@ class SQLiteLocalLearning:
             ).fetchall()
         records: list[MemoryRecord] = []
         for row in rows:
+            if row["state"] != "active" or row["revision_digest"] in archived:
+                continue
             body = json.loads(str(row["body_json"]))
             key_doc = body.get("key")
             if not isinstance(key_doc, dict):
@@ -1186,6 +1378,53 @@ class SQLiteLocalLearning:
             )
         return tuple(records)
 
+    def require_memory_archival(self) -> None:
+        with closing(self._connect_readonly()) as db:
+            if _assert_learning_schema(db) != 3:
+                raise PolicyViolation("Memory archival requires explicit memory prepare v3")
+
+    def archive_memory(
+        self, memory_id: str, expected_revision_digest: str, *, actor_ref: str,
+        reason: str, now: dt.datetime,
+    ) -> dict[str, Any]:
+        """Append an exact-head archival event; retain every candidate/revision byte."""
+
+        _text(memory_id, "memory identity", maximum=256)
+        _text(actor_ref, "archival actor", maximum=256)
+        _text(reason, "archival reason", maximum=1024)
+        parse_digest(expected_revision_digest)
+        if scan_text(actor_ref + "\n" + reason, relative_path="memory-archive.txt"):
+            raise PolicyViolation("Memory archival metadata must not contain secrets")
+        timestamp = _time(now)
+        with closing(self._connect()) as db:
+            if _assert_learning_schema(db) != 3:
+                raise PolicyViolation("Memory archival requires explicit memory prepare v3")
+            db.execute("begin immediate")
+            head = db.execute(
+                "select r.* from memory_head h join memory_revision r on "
+                "r.revision_digest=h.revision_digest where h.memory_id=?", (memory_id,)
+            ).fetchone()
+            if head is None or head["revision_digest"] != expected_revision_digest:
+                raise PolicyViolation("Memory archival current head drift")
+            previous = _archival_records(db).get(expected_revision_digest)
+            if previous is not None:
+                if previous["actor_ref"] != actor_ref or previous["reason"] != reason:
+                    raise PolicyViolation("Memory archival replay metadata drift")
+                return previous
+            if head["state"] != "active" or timestamp < head["created_at"]:
+                raise PolicyViolation("Memory archival requires current active revision and time")
+            body = {
+                "schema": "zekam-memory-archival/v1", "state": "archived",
+                "memory_id": memory_id, "revision_digest": expected_revision_digest,
+                "actor_ref": actor_ref, "reason": reason, "created_at": timestamp,
+            }
+            raw, value = _body(body)
+            db.execute("insert into memory_archival values(?,?,?,?,?,?,?)", (
+                value, memory_id, expected_revision_digest, actor_ref, reason, timestamp, raw,
+            ))
+            db.commit()
+        return {**body, "archive_digest": value}
+
     def _file_ok(self) -> None:
         if not private_regular(self.path):
             raise PolicyViolation("WP-09 private SQLite identity required")
@@ -1196,17 +1435,11 @@ class SQLiteLocalLearning:
         db.row_factory = sqlite3.Row
         db.execute("pragma foreign_keys=on")
         db.execute("pragma busy_timeout=5000")
-        row = db.execute(
-            "select version,schema_digest from learning_schema where singleton=1"
-        ).fetchone()
-        if (
-            row is None
-            or row[0] != SCHEMA_VERSION
-            or row[1] != SCHEMA_DIGEST
-            or _schema_digest(db) != SCHEMA_DIGEST
-        ):
+        try:
+            _assert_learning_schema(db)
+        except Exception:
             db.close()
-            raise PolicyViolation("WP-09 local schema drift")
+            raise
         return db
 
     def audit(self) -> dict[str, int]:
@@ -1232,6 +1465,9 @@ class SQLiteLocalLearning:
         with closing(self._connect()) as db:
             db.execute("pragma query_only=on")
             db.execute("begin")
+            if _assert_learning_schema(db) == 3:
+                digest_columns["memory_archival"] = "archive_digest"
+                _archival_records(db)
             if db.execute("pragma integrity_check").fetchone()[0] != "ok":
                 raise PolicyViolation("WP-09 SQLite integrity drift")
             if db.execute("pragma foreign_key_check").fetchone() is not None:
