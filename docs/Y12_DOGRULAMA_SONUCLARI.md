@@ -92,6 +92,11 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
   (false flag serialize edilmez). Discovery + project plan tekrarinda
   121 passed / 3 platform skip. Kalici schema veya kullanici verisi degismedi.
 
+- Encoding duzeltmesi sonrasi yeni collection yine 9362 case uretti.
+  Run2/run3b/run4 JUnit birlesiminde tam biten dosyalardan 5961 case kanitli;
+  kalan 3401 case run5'te exact declaration/sayi/source-hash eslesti. Degisen
+  project_knowledge_index ve source_discovery test modulleri tekrar dahil edildi.
+
 ## Bagimsizlik ve kalan is
 
 `1739a5f..c4a1e5e` kaynak araligi ayri gpt-6-astra reviewer tarafindan incelendi.
@@ -143,3 +148,6 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `remaining-scope-check-run4.json` | `sha256:a690813dc5debc4b7fc497c04561ad4bc9111c7b1006320e61e84dc0b3240278` |
 | `junit-run4.xml` | `sha256:34b23a5033bea81591d815e809e14df7094808a652ae7e5ce12d33163ce5311b` |
 | `encoding-fix-junit.xml` | `sha256:c67213d2ead981717bc40c39c4010c1e1de6ff52edf0a67be73f55e5bafc4e34` |
+| `test-census-post-encoding.json` | `sha256:7f1658c6c3d53858169ce2aff2bd07872bcb5cd92cb3c5b6d26417e957611e97` |
+| `test-continuation-plan-run5.json` | `sha256:7aa923a8df9e211f55302ed3d8199052342f69e02211dc5f8b541198be4155ed` |
+| `remaining-scope-check-run5.json` | `sha256:2eae5edc0ef4e7d75f412c2bd07bb162a71fba840e478fe6d33af7cf276f2c0d` |
