@@ -134,6 +134,9 @@ def _result(staged: KnowledgeGeneration) -> dict[str, Any]:
         "generation_digest": staged.generation_digest,
         "source_revision": staged.source_revision,
         "tree_digest": staged.tree_digest,
+        "source_identity_digest": runtime.source_identity_digest(
+            PROJECT_ID, staged.source_revision, staged.tree_digest
+        ),
         "chunk_count": staged.chunk_count,
     }
 
