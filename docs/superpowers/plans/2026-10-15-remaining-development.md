@@ -769,3 +769,27 @@
   wrapper/here-string bypass, genel native transport enforcement, credential
   provisioning ve bagimsiz verifier kabul kapilari acik kalir. Pytest
   calistirilmadi.
+
+- 17 Ekim 2026 son kaynak revizyonu final testi: `3fb420b` HEAD'inde,
+  OpenCode text-only parser ve deny-all smoke kaynaklari dahil edildikten sonra
+  tek toplu `python -m pytest -q --tb=short --basetemp
+  C:\\temp\\zekam-final-db710cd` kosusu exit code 0 verdi: `7989 passed,
+  1409 skipped, 3 warnings`, sure `54:12`. Uyarilar duplicate ZIP girdisi ve
+  iki capability-worker `runpy` RuntimeWarning'idir. Skip'ler Windows symlink/
+  POSIX, kurulu olmayan eski native istemciler, gercek Akilli Kasa corpus'u,
+  OCR, local BGE ve explicit live provider kapilaridir. Bu son yerel suite
+  kanitidir; native production provider, signer/credential, bagimsiz verifier,
+  restore/rollback ve release-chain kabulleri acik kalir. Bu kaynak seti icin
+  pytest yeniden calistirilmayacak.
+
+- 17 Ekim 2026 son paket readback'i: Temiz `git archive` checkout'undan uretilen
+  Windows wheel, izole venv ve public package index ile `status=passed`, 23/23
+  kontrol verdi. Manifest `sha256:10ed0bd1ff1dddbb57557ccef19a80201cd90da9bf0190b2aa347be90d1db86f`,
+  artifact `sha256:4660768ac7a3861dd372f665b6d7cdcbb3e7b6ad8dc1a276acd843f8e6a20bea`,
+  run `sha256:cd30418f311d67e3f5d436b72ecd52671506af57277da88b17c79367ad6e0675`,
+  platform `windows-amd64`, Python `3.13.15`. Ayrica package validator
+  `status=passed` (23 dosya, 20 model, 18 faz/108 is, 42 schema, 83 DoD,
+  git_security findings bos) ve runtime reachability `passed=true` (356
+  reachable, 18 archive-only, legacy PostgreSQL data access false) verdi.
+  Bu read-only release kaniti native production/provider ve signed release
+  zincirinin tum kapilarini kapatmaz.

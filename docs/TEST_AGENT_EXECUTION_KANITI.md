@@ -53,21 +53,15 @@ Host key confinement ve native worker kabul kapilari da aciktir.
 Replay fixture'i native execution'a yukseltmeme, terminal ref propagation,
 legacy hydration, missing artifact, rehashed request/dispatch/context drift,
 acceptance subject, upstream alias ve registry dependency regresyon kaynaklari
-eklendi. Gercek model/provider cagrisi veya native kabul yapilmadi; testler final
-toplu asamaya ertelendi, CALISTIRILMADI.
+eklendi. Gercek production model/provider cagrisi yapilmadi; sentetik loopback
+native kabul ve deny-all tool smoke'u ayri kanit olarak kaydedildi.
 
 ## Final yerel test kaniti
 
-17 Ekim 2026 native OpenCode loopback smoke'unda `opencode v2.0.30`
-adapter'in text-only event fallback'i gercek child process, CAS stdin ve
-artifact yazimi ile `outcome=success` verdi. Bu kaynak degisikligi final pytest
-kosusundan sonra yapildigi icin asagidaki pytest sayilari onceki kaynak
-revizyonunun kanitidir; parser degisikligi icin yeni final kosusu gelistirme
-tamamen durduktan sonra yapilmalidir.
-
-17 Ekim 2026'da kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
-sonrasinda tek toplu pytest kosusu exit code 0 ile tamamlandi:
-`7987 passed, 1409 skipped, 3 warnings` (54:33). Bu kosu yerel regresyon
-kapisini kapatir; native host/tool-denial, signer/credential, bagimsiz kalite,
-gercek provider/model ve restore kabulunu kanitlamaz. Yeni kaynak degisikligi
-yapilmadikca pytest yeniden kosulmayacaktir.
+17 Ekim 2026'da kaynak revizyonu `3fb420b4e64d3e2be709848ffe6650f1f3f96a78`
+sonrasinda, OpenCode text-only parser ve deny-all smoke degisiklikleri dahil
+edilerek tek toplu pytest kosusu exit code 0 ile tamamlandi:
+`7989 passed, 1409 skipped, 3 warnings` (54:12). Bu kosu yerel regresyon
+kapisini kapatir; gercek production model/provider kalitesi, signer/credential,
+bagimsiz kalite, restore/rollback ve release zincirinin tum native kabullarini
+kanitlamaz. Kaynak degisikligi olmadikca pytest yeniden kosulmayacaktir.
