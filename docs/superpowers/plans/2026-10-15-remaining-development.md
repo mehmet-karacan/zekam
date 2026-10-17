@@ -55,6 +55,17 @@
   kapisini gunceller; native host, signer/credential, live kalite ve bagimsiz review
   kabul kapilarini kapatmaz. Test bu kaynak degisikligi icin yeniden calistirilmayacak.
 
+- 17 Ekim 2026 guncel wheel kabul: HEAD `46316444c00099f2f100b655958231ae1ab2dcce`
+  uzerinden uretilen wheel, ayri gecici ortamda `scripts/package_smoke.py` ile
+  `status=passed` verdi. `artifact.resources`, 15 public CLI, native SQLite/DuckDB,
+  project ve OpenCode bootstrap dahil 23/23 kontrol basarili; artifact manifest
+  digest'i `sha256:d54b33822bee968892dae310a45114cba397dcb372394a0e309862fa0f480338`,
+  kosu digest'i `sha256:f1eee0cbde4a74ef9f65622e4f4b828330a5b7e03324c2c578ff48a7770f1aca`.
+  Bu kabul mevcut Windows checkout wheel'inin temiz kurulumunu kanitlar; pytest bu
+  adimda calistirilmadi. Git-archive temiz checkout probu, korunan untracked
+  `natural_request_rag.py` ve Windows satir sonu farkinin tracked release manifestine
+  sizdigini gosterdigi icin ayri release-parite acigi olarak acik tutuldu.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
