@@ -79,6 +79,14 @@
   Provider/model cagrisi yapilmadi; native event/tool-denial/credential ve
   gercek child kabul kapilari acik kaldi.
 
+- 17 Ekim 2026 legacy index purge read-only denemesi: `project
+  purge-legacy-index --json` varsayilan canonical home `C:\\Users\\mkaracan\\.zekam`
+  bulunamadigi icin `FileNotFoundError` ile fail-closed durdu. Bilinen
+  `C:\\Users\\mkaracan\\AppData\\Local\\Zekam` kokunde yalniz model kurulumu
+  var; `layout.json` veya production BGE index adayi yok. Kullanici home'u
+  bootstrap edilmedi ve dosya silinmedi; exact operational home/cleanup
+  receipt'i olmadan legacy purge veya yeni indeks olusturma iddiasi yok.
+
 - 17 Ekim 2026 WP-05.03 embedded generation batch siniri: `build_embedded_project_generation`
   artik canonical 4'lu local E5 batch, token/payload sinirlari, bounded transient retry,
   cancellation, toplam deadline ve provider-call quota'yi provider etkisi sonrasi
