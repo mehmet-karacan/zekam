@@ -234,7 +234,7 @@ def test_checkpoint_on_one_host_resumes_on_another_with_same_verified_state(worl
     assert latest["agent"] == "claude-code"
     assert latest["completed"] == "Hedef sinifin olcumu alindi"
     assert latest["next_safe_action"] == "CalculatorBranchTest ekle ve yeniden olc"
-    assert packet["next_safe_action"] == "CalculatorBranchTest ekle ve yeniden olc"
+    assert packet["next_safe_action"] == "Kanonik Work/Run bagini yeniden dogrula; yeni lease ve grant edin."
     # Tek store: yeni bir session/checkpoint dizini olusmadi.
     created = sorted(path.name for path in lifecycle_root(world.home).iterdir())
     assert all(name.endswith(".json") or name.startswith(".") for name in created)

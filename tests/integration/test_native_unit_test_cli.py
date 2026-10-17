@@ -247,7 +247,12 @@ def test_explicit_opencode_batch_path_keeps_its_prerequisite(env: Env, tmp_path:
         UnitTestRuntimeBinding(opencode_executable=tmp_path / "yok.exe", **kwargs)
     executable = tmp_path / "opencode.exe"
     executable.write_bytes(b"fixture")
-    binding = UnitTestRuntimeBinding(opencode_executable=executable, **kwargs)
+    binding = UnitTestRuntimeBinding(
+        opencode_executable=executable,
+        model_id="fixture/builder-model",
+        verifier_model_id="fixture/verifier-model",
+        **kwargs,
+    )
     request = env.request()
     store = SQLiteOperationalStore(env.database)
     with store.unit_of_work() as uow:
