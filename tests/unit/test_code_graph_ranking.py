@@ -31,6 +31,7 @@ from zekam.application.embedded_project_rag import (
 )
 from zekam.application.embedding_provider import EmbeddingPolicy
 from zekam.application.knowledge_index import KnowledgeIndexRecord
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.code_graph import (
     GraphConfidence,
@@ -441,7 +442,9 @@ def _graph_off_rag(
     tmp_path: Path,
 ) -> tuple[SQLiteKnowledgeIndex, QueryProvider, EmbeddedProjectRAG]:
     provider = QueryProvider()
-    index = SQLiteKnowledgeIndex(tmp_path / "knowledge.sqlite3", create=True)
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "knowledge.sqlite3", create=True, dimension=LOCAL_E5_DIMENSION
+    )
     records = tuple(
         KnowledgeIndexRecord(
             chunk_id=f"chunk-{i}",
@@ -456,6 +459,7 @@ def _graph_off_rag(
             ),
             chunk_order=i,
             vector=_vector(),
+            vector_dimension=LOCAL_E5_DIMENSION,
         )
         for i in range(3)
     )
