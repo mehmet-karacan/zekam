@@ -852,3 +852,13 @@
   yeni kaynak degisikligi yapilmadi. Skip edilen live/native, credential, corpus,
   bagimsiz verifier, restore/rollback ve release-chain kapilari acik kalir. Bu
   kaynak seti icin pytest/Maven yeniden calistirilmaz.
+
+- 17 Ekim 2026 kaynak seti read-only tutarlilik kaniti: Yeni test kosusu yapmadan
+  `python scripts/audit_runtime_reachability.py` exit code `0` ile `passed=true`
+  verdi (`356` reachable, `18` archive-only, legacy PostgreSQL data access
+  `false`, finding yok). `python scripts/generate_package_manifest.py --check`
+  ve `python scripts/generate_benchmark_catalog.py --check` de exit code `0`
+  verdi. Bunlar package/projection kaynak kontrolleridir; pytest/Maven/provider
+  veya native/live kabul yerine gecmez. Mevcut kaynak seti icin yeni pytest/Maven
+  kosusu yapilmayacak; native, credential, corpus, bagimsiz verifier,
+  restore/rollback ve release-chain kapilari acik kalir.
