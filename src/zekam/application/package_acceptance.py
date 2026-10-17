@@ -47,6 +47,9 @@ ARCHIVE_ONLY_WHEEL_PATHS = frozenset(
         "application/run_reconciliation.py",
         "application/work_graph.py",
         "application/worker.py",
+        "infrastructure/clients/codex_macos_0151_lifecycle.py",
+        "infrastructure/clients/codex_macos_0151_precompaction_client.py",
+        "infrastructure/macos_precompaction_supervisor.py",
     }
 )
 

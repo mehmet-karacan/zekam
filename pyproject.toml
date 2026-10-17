@@ -88,6 +88,9 @@ exclude = [
     "/src/zekam/application/run_reconciliation.py",
     "/src/zekam/application/work_graph.py",
     "/src/zekam/application/worker.py",
+    "/src/zekam/infrastructure/clients/codex_macos_0151_lifecycle.py",
+    "/src/zekam/infrastructure/clients/codex_macos_0151_precompaction_client.py",
+    "/src/zekam/infrastructure/macos_precompaction_supervisor.py",
 ]
 
 [tool.hatch.build]

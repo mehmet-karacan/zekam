@@ -1,10 +1,10 @@
 """Fail-closed audit for the local-first shipped runtime graph.
 
-The PostgreSQL-era implementations remain source-controlled reference material
-until their regression coverage is retired. They are intentionally absent from
-the wheel and must not be reachable from a supported public runtime composition
-root. The active release target is Windows/Linux; historical platform adapters
-are outside that runtime graph.
+The PostgreSQL-era implementations and the retired macOS continuity adapters
+remain source-controlled reference material until their regression coverage is
+retired. They are intentionally absent from the wheel and must not be reachable
+from a supported public runtime composition root. The active release target is
+Windows/Linux; historical platform adapters are outside that runtime graph.
 """
 
 from __future__ import annotations
@@ -48,6 +48,9 @@ ARCHIVE_ONLY_SOURCE_PATHS = (
     "src/zekam/application/run_reconciliation.py",
     "src/zekam/application/work_graph.py",
     "src/zekam/application/worker.py",
+    "src/zekam/infrastructure/clients/codex_macos_0151_lifecycle.py",
+    "src/zekam/infrastructure/clients/codex_macos_0151_precompaction_client.py",
+    "src/zekam/infrastructure/macos_precompaction_supervisor.py",
 )
 
 PUBLIC_RUNTIME_ROOTS = (
