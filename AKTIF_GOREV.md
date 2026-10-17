@@ -1899,7 +1899,10 @@ overflow, timeout, cancel ve Ctrl+C owned child group/Job ve pipe temizligine
 baglandi. Terminal parent'in acik pipe birakan descendants'i kesilir; inherited
 group oldurulmez. Client JSON exit iddiasi gozlenen status'u asamaz; strict
 UTF-8/JSON ve truncated reddi eklendi. Regresyon kodu hazir, CALISTIRILMADI.
-Explicit OpenCode batch'in gercek native run/event/CAS adapter baglantisi acik;
+`compose_agent_gateway` explicit OpenCode batch yolunu gercek native
+run/event/CAS adapter'ine bagliyor; bu kaynak baglantisi kapanmis durumdadir.
+Regresyon kaynaklari bu turda calistirilmadi. Kalan kapilar kurulu hostta
+tool-denial enforcement, credential/provisioning ve bagimsiz verifier kabuludur;
 `docs/PROCESS_AKIS_SINIRLARI.md`. WP-09 kapanmadi.
 
 ### WP-10 — Bellek, Skill, Fikir, Radar Ve Ölçülü Gelişim
@@ -3689,6 +3692,18 @@ senaryosu test kaynagina eklendi.
 Bu kaynak diliminde pytest, Maven ve canli provider/model cagrisi yapilmadi. Tek
 toplu final test, tum kaynak gelistirmeleri bittikten sonra calistirilacaktir;
 native AST/Tree-sitter kalite, gercek corpus ve native host kabul kapilari aciktir.
+
+### 10.105 17 Ekim 2026 WP-09 native batch kaynak baglanti readback'i
+
+`compose_agent_gateway` ile `unit_test_runtime.py` artik explicit
+`opencode_batch_adapter` uzerinden V2 `run --standalone --format json`, CAS
+stdin, exact version probe, izole config/home ve artifact-only sonuc akisina
+baglidir. Gorev planindaki eski generic digest-flag kaynak acigi guncel kaynakla
+uyusmuyordu ve kapatildi. Bu readback canli tool-denial enforcement, credential
+provisioning, bagimsiz verifier veya end-to-end native kabul kaniti degildir.
+
+Bu docs-only duzeltmede pytest, Maven ve provider/model cagrisi yapilmadi; final
+test tum kaynak gelistirmeleri durduktan sonra tek sefer calistirilacaktir.
 
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
