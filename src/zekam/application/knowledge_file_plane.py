@@ -142,15 +142,24 @@ def _valid_iban(candidate: str) -> bool:
 
 
 def _contains_sensitive_number(text: str) -> bool:
-    if any(_valid_tckn(match.group(0)) for match in _TCKN_CANDIDATE.finditer(text)):
-        return True
-    if any(_valid_iban(match.group(0)) for match in _IBAN_CANDIDATE.finditer(text)):
-        return True
-    for match in _CARD_CANDIDATE.finditer(text):
-        if any(
+    def inside_hex_identity(match: re.Match[str]) -> bool:
+        return any(
             token.start() <= match.start() and match.end() <= token.end()
             for token in _HEX_IDENTITY_TOKEN.finditer(text)
-        ):
+        )
+
+    if any(
+        _valid_tckn(match.group(0)) and not inside_hex_identity(match)
+        for match in _TCKN_CANDIDATE.finditer(text)
+    ):
+        return True
+    if any(
+        _valid_iban(match.group(0)) and not inside_hex_identity(match)
+        for match in _IBAN_CANDIDATE.finditer(text)
+    ):
+        return True
+    for match in _CARD_CANDIDATE.finditer(text):
+        if inside_hex_identity(match):
             continue
         if _valid_luhn(re.sub(r"[ -]", "", match.group(0))):
             return True
