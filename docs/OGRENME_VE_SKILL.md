@@ -68,6 +68,20 @@ yoğunluğu (kanıt/kilotoken) üretir.
 
 Native ajan kullanicinin bellek isteginde kaydi ve revision'i mevcut `memory
 inspect`/`candidates` ciktisindan cozer; kullanicidan digest veya JSON istemez.
+Yeni bilgi `memory propose "kisa bilgi"` ile planlanir; ajan donen exact plan
+digest'iyle `--uygula --plan-digest` adimini uygular. Varsayilan sinif preference,
+kapsam global-user'dir; `--class semantic|procedural` ve kayitli `--project`
+secilebilir. `--realm` ve `--author-ref` bounded slug kimlikleridir. Secret ve
+4000 karakteri asan icerik effect olusmadan reddedilir.
+
+Bu yol bos learning store'unda once `memory.observe` terminal claim/receipt'i
+uretir; operational payload yalniz content digest ve kapsam metadata'si tasir.
+Sonra `memory.propose` ayri claim/receipt altinda exact gozlem kanitini okuyarak
+adayi saklar. Uydurma/eksik gozlem receipt'i, baska icerik veya kapsam kabul
+edilmez. Kullanici bilgisinin dogrulugu veya aktif bellek oldugu iddia edilmez;
+review/promote ayri adimdir. Iki asama arasinda kesinti olursa tamamlanmis
+gozlem tekrar kullanilir; belirsiz runtime effect recovery gerektirir.
+Salt-okunur plan ve tekrarlanan tamamlanmis proposal yeni aday uretmez.
 Duzeltme yeni aday/review ve `memory promote --supersedes <onceki-revision>` ile
 exact onceki revision'a baglanir. Kayitlar ezilmez; gecmis ve provenance korunur.
 Arsivleme `memory archive <memory-id>` salt-okunur planindan alinan exact digest

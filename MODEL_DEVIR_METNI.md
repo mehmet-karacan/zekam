@@ -1,3 +1,27 @@
+# Guncel devir - Y-09 yerel aday olusturma gelistirmesi
+
+memory propose yerel terminal memory.observe kanitini uretip memory.propose
+claim/receipt altinda SQLite adayi kaydeder. Bos learning store'unda close
+session gerektirmez; eski receipt kaynaklari mevcut WP-08 kapisini korur.
+Gozlem content digest/key/class/author/candidate kimligine exact baglidir;
+terminal olmayan/uydurma/kapsami farkli kanit kabul edilmez. Operational job
+payload'ina ham bellek icerigi girmez. Plan salt okunur, exact apply zorunlu,
+replay ayni candidate ve iki terminal job'u yeniden kullanir. Proje verilirse
+kayitli proje kontrol edilir. Review/promote ve supersedes ayri adimdir.
+Promote artik review sonrasi gercek zamani kullanir; +1 saniye gelecek zaman
+uretip hizli ardil adayi stale saydirmaz.
+
+Regresyon kaynaklari: tests/integration/test_memory_proposal_cli.py; fresh home,
+plan/no-effect, wrong digest, apply/replay, raw-content-free job, reviewed
+correction, forged observation ve invalid-input kontrolleri hazirlandi.
+Testler HENUZ CALISTIRILMADI. Kullanici DB migrationi veya gercek memory adayi
+yazilmadi. Kaynak incelemesindeki uc uygulama eksigi icin duzeltmeler kayitli;
+siradaki asama Y-12: tum testler, Windows wheel/E5/Maven/backup restore kabul.
+Onceden dirty Maven fixture izolasyonu final test harness'iyle alinacak;
+dort korunan untracked girdi sahiplenilmeyecek.
+
+---
+
 # Guncel devir - Y-09/Y-10 schema uyumluluk duzeltmesi
 
 Kaynak incelemesindeki v2 backup ve v3 skill prepare bulgulari duzeltildi.

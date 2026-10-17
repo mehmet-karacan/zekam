@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Any, final
 from zoneinfo import ZoneInfo
 
-from zekam.application.memory_service import ReviewDecision
+from zekam.application.memory_service import (
+    ReviewDecision, memory_observation_effect, memory_observation_evidence,
+)
 from zekam.application.secret_detection import scan_text
 from zekam.application.skill_runtime import (
     SKILL_EXECUTE_OPERATION,
@@ -728,6 +730,27 @@ class SQLiteLocalLearning:
                 ).fetchone()
                 if row is None:
                     raise PolicyViolation("Memory evidence is not a terminal WP-08 close receipt")
+
+    def _observation_evidence(self, candidate: MemoryCandidate) -> None:
+        expected = memory_observation_evidence(candidate)
+        if candidate.evidence != (expected,):
+            raise PolicyViolation("Memory observation evidence binding invalid")
+        effect = memory_observation_effect(candidate)
+        with closing(self._operational()) as db:
+            rows = db.execute(
+                "select j.payload_json,r.created_at from local_effect_receipt r "
+                "join local_effect_claim c on c.id=r.claim_id "
+                "join local_job j on j.id=c.job_id "
+                "where c.operation='memory.observe' and c.effect_digest=? "
+                "and r.evidence_digest=? and r.status='completed' "
+                "and j.state='completed' and j.terminal_evidence_digest=r.evidence_digest "
+                "limit 2",
+                (digest(effect), expected.digest_value),
+            ).fetchall()
+        if len(rows) != 1 or json.loads(rows[0]["payload_json"]) != {
+            "operation": "memory.observe", "effect": effect,
+        } or candidate.observed_at.astimezone(dt.UTC) < _parse_time(rows[0]["created_at"]):
+            raise PolicyViolation("Memory observation requires exact terminal runtime receipt")
 
     def _failure_evidence(self, occurrence: FailureOccurrence) -> None:
         effect = digest(
@@ -1526,7 +1549,10 @@ class SQLiteLocalLearning:
         candidate.__post_init__()
         if not candidate.evidence:
             raise PolicyViolation("Memory candidate requires durable evidence")
-        self._close_evidence(candidate)
+        if source_kind == "observation-summary" and any(item.kind == "observation" for item in candidate.evidence):
+            self._observation_evidence(candidate)
+        else:
+            self._close_evidence(candidate)
         body = {
             **candidate.as_dict(),
             "schema": "zekam-local-memory-candidate/v1",

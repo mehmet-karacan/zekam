@@ -6,6 +6,7 @@ Yedi islem:
 - ``inspect``     - tek memory'nin icerigi/evidence/revision (read-only, secret redaction)
 - ``search``      - semantic memory aramasi (read-only)
 - ``candidates``  - candidate memory'leri listele (read-only)
+- ``propose``     - yerel terminal gozlem kanitiyla aday kaydet (mutation; claim/receipt)
 - ``review``      - candidate review (mutation; claim/receipt)
 - ``promote``     - review + activate promotion (mutation; claim/receipt)
 - ``hygiene``     - duplicate/stale/conflict/supersession/orphan tespiti (read-only)
@@ -26,6 +27,7 @@ import datetime as dt
 import json
 import os
 import re
+from dataclasses import replace
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -40,11 +42,14 @@ from zekam.application.local_runtime_service import (
     LocalEffectResult,
     LocalRuntimeService,
 )
-from zekam.application.memory_service import NativeMemoryEngine, ReviewDecision
+from zekam.application.memory_service import (
+    NativeMemoryEngine, ReviewDecision, memory_observation_effect, memory_observation_evidence,
+)
 from zekam.application.secret_detection import scan_text
 from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import PolicyViolation, ValidationFailed, ZekamError
-from zekam.domain.memory import MemoryClass, MemoryKey, MemoryQuery, MemoryScope
+from zekam.domain.memory import MAX_MEMORY_CHARS, MemoryCandidate, MemoryClass, MemoryKey, MemoryQuery, MemoryScope
+from zekam.domain.identifiers import validate_slug
 from zekam.infrastructure.local_runtime_effects import LocalJournalOutboxPublisher
 from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning
 from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
@@ -508,6 +513,78 @@ def archive_command(
         raise typer.Exit(70) from exc
 
 
+@app.command("propose")
+def propose_command(
+    content: Annotated[str, typer.Argument(help="Hatirlanacak kisa, secret icermeyen bilgi")],
+    memory_class: Annotated[MemoryClass, typer.Option("--class")] = MemoryClass.PREFERENCE,
+    project: Annotated[str | None, typer.Option("--project")] = None,
+    realm: Annotated[str, typer.Option("--realm")] = "varsayilan",
+    author_ref: Annotated[str, typer.Option("--author-ref")] = "cli-user",
+    apply: Annotated[bool, typer.Option("--uygula")] = False,
+    plan_digest: Annotated[str | None, typer.Option("--plan-digest")] = None,
+    home: Annotated[str | None, typer.Option("--home")] = None,
+) -> None:
+    """Yerel kanita bagli aday kaydet; aktiflestirmek icin ayri review/promote gerekir."""
+    try:
+        if memory_class not in {MemoryClass.PREFERENCE, MemoryClass.SEMANTIC, MemoryClass.PROCEDURAL}:
+            raise ValidationFailed("Memory propose preference/semantic/procedural sinifi ister")
+        if not content.strip() or len(content) > MAX_MEMORY_CHARS:
+            raise ValidationFailed("Memory propose bounded non-empty content ister")
+        validate_slug(realm)
+        validate_slug(author_ref)
+        if project is not None:
+            validate_slug(project)
+        if scan_text(content, relative_path="memory-proposal.txt"):
+            raise PolicyViolation("Memory propose secret benzeri icerigi reddeder")
+        learning, resolved_home = _paths(home)
+        learning.schema_status()
+        if project is not None:
+            from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+
+            with SQLiteOperationalStore(learning.operational_path).read_only_unit_of_work() as uow:
+                if project not in {item.slug for item in uow.list_projects(include_archived=False)}:
+                    raise PolicyViolation("Memory propose kayitli proje ister")
+        key = MemoryKey(MemoryScope.PROJECT if project else MemoryScope.GLOBAL_USER, realm, project_ref=project)
+        identity = {"key": key.as_dict(), "memory_class": str(memory_class), "content_digest": digest(content), "author_ref": author_ref}
+        candidate = MemoryCandidate(
+            "candidate-" + digest(identity).removeprefix("sha256:"),
+            key, memory_class, content, author_ref, dt.datetime.now(dt.UTC),
+        )
+        observation = memory_observation_evidence(candidate)
+        candidate = replace(candidate, evidence=(observation,))
+        body = {**memory_observation_effect(candidate), "schema": "zekam-memory-propose-plan/v1",
+                "observation_digest": observation.digest_value, "state": "candidate", "grants_authority": False}
+        exact = digest(body)
+        if not apply:
+            _emit({**body, "plan_digest": exact})
+            return
+        if plan_digest != exact:
+            raise PolicyViolation("Memory propose exact --plan-digest ister")
+        observed = _run_claimed_effect(
+            learning.operational_path, resolved_home, operation="memory.observe",
+            effect=memory_observation_effect(candidate), idempotency_key=f"memory-observe:{exact}",
+            apply_effect=lambda: {"receipt_digest": observation.digest_value},
+            replay_effect=lambda: {"receipt_digest": observation.digest_value},
+        )
+
+        def persist() -> dict[str, object]:
+            current = replace(candidate, observed_at=dt.datetime.now(dt.UTC))
+            value = learning.propose_memory(current, source_kind="observation-summary")
+            evidence = digest({"schema": "zekam-memory-proposed/v1", "plan_digest": exact, "candidate_digest": value})
+            return {"candidate_id": candidate.candidate_id, "candidate_digest": value, "receipt_digest": evidence}
+
+        result = _run_claimed_effect(
+            learning.operational_path, resolved_home, operation="memory.propose",
+            effect={"schema": "zekam-memory-propose-effect/v1", "plan_digest": exact, "observation_digest": observation.digest_value},
+            idempotency_key=f"memory-propose:{exact}", apply_effect=persist, replay_effect=persist,
+        )
+        _emit({"schema": "zekam-memory-propose-receipt/v1", **result, "plan_digest": exact,
+               "observation_job_id": observed["operational_job_id"], "state": "candidate", "grants_authority": False})
+    except ZekamError as exc:
+        typer.echo(f"Hata: {exc}", err=True)
+        raise typer.Exit(70) from exc
+
+
 @app.command("review")
 def review_command(
     candidate_id: Annotated[str, typer.Argument()],
@@ -660,7 +737,7 @@ def promote_command(
             revision_digest = learning.activate_memory(
                 candidate_digest,
                 review_digest,
-                now=moment + dt.timedelta(seconds=1),
+                now=dt.datetime.now(dt.UTC),
                 supersedes=supersedes,
             )
             evidence = digest(

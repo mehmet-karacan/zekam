@@ -21,6 +21,7 @@ from zekam.domain.memory import (
     HygieneFinding,
     HygieneReport,
     MemoryCandidate,
+    MemoryEvidence,
     MemoryClass,
     MemoryHit,
     MemoryQuery,
@@ -37,6 +38,28 @@ MINIMUM_FAILURE_OBSERVATIONS = 2
 
 #: Kullanilmayan kayit esigi (gun).
 UNUSED_AFTER_DAYS = 180
+
+
+def memory_observation_effect(candidate: MemoryCandidate) -> dict[str, Any]:
+    """Bind a local observation without copying memory prose into runtime logs."""
+    return {
+        "schema": "zekam-memory-observe-effect/v1",
+        "candidate_id": candidate.candidate_id,
+        "key": candidate.key.as_dict(),
+        "memory_class": str(candidate.memory_class),
+        "content_digest": digest(candidate.content),
+        "author_ref": candidate.author_ref,
+        "occurrence_key": candidate.occurrence_key,
+        "observation_count": candidate.observation_count,
+    }
+
+
+def memory_observation_evidence(candidate: MemoryCandidate) -> MemoryEvidence:
+    effect_digest = digest(memory_observation_effect(candidate))
+    return MemoryEvidence(
+        "observation", f"memory-observation/{effect_digest}",
+        digest({"schema": "zekam-memory-observed/v1", "effect_digest": effect_digest}),
+    )
 
 
 @dataclass(frozen=True, slots=True)
