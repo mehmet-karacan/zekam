@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `1.0` — v0.5 talep defterinden tek ana göreve geçiş  
+**Belge sürümü:** `1.6` — v0.5 talep defterinden tek ana göreve geçiş
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3536,6 +3536,24 @@ Bu kanit yerel paket ve executable cozumlemesini guclendirir; native lifecycle,
 tool-denial, signer/credential, canli provider/Jira/Oracle kalite, bagimsiz
 verifier, restore ve clean release kabul kapilarini kapatmaz.
 
+### 10.96 17 Ekim 2026 son final test yeniden dogrulamasi
+
+`5e3e375` kaynak duzeltmesi ve manifest senkronizasyonu sonrasinda, kaynak
+degisikligi yapmadan tek son toplu `python -m pytest -q --tb=short
+--basetemp C:\temp\zekam-final4` kosusu exit code `0` ile tamamlandi:
+`7983 passed, 1409 skipped, 3 warnings`, sure `1:13:42`. UUID kimlik
+parcalarinin telefon PII regex'ine yanlis takilmasi ve paket manifest digest
+drift'i bu kosuda yeniden ortaya cikmadi. Bu sonuc yerel test kapisini
+`verified-for-tested-scope` olarak kapatir.
+
+Skip'ler Windows symlink/POSIX ACL yetkisi, kurulu olmayan sabit native istemci,
+gercek kullanici corpus'u, OCR, local BGE, live provider ve explicit remote
+olcum kosullariyla sinirlidir; bunlar basari sayilmaz. Native host/tool-denial,
+signer/credential, bagimsiz verifier, canli Jira/Oracle/provider kalite,
+restore/rollback ve clean release kapilari acik kalir. Yeni test kosusu
+baslatilmadi; sonraki adim yalniz bu acik kabul kapilarinin uygun ortamda
+kanitlanmasidir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -3735,6 +3753,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.3 | 2026-10-17 | WP-02..12 kaynak dilimleri, yerel E5 geçişi, fixture uyumluluğu ve paket manifesti güncellendi; tam suite final kapısına taşındı |
 | 1.4 | 2026-10-17 | Final suite `7980 passed, 1409 skipped, 3 warnings` ile temizlendi; native, credential, live kalite ve release kabul kapıları açık bırakıldı |
 | 1.5 | 2026-10-17 | Paket kabulü ve OpenCode global npm executable çözümlemesi kanıtlandı; native ve canlı kabul kapıları açık bırakıldı |
+| 1.6 | 2026-10-17 | Son kaynak düzeltmesi sonrası final suite `7983 passed, 1409 skipped, 3 warnings` ile yeniden temizlendi; açık native, canlı ve release kapıları korundu |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -3745,9 +3764,9 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
-| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; final `python -m pytest -q` `7980 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
+| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final4` `7983 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`; Miro/GitBook uzak yayını yapılmadı |
+| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`; Miro/GitBook uzak yayını yapılmadı |
 
 **Sonraki adım:** Native istemci/host enforcement, signer ve credential sahipliği,
 canlı provider/Oracle/Jira kalite ölçümü, gerçek Maven/coverage ve clean release

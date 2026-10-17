@@ -165,6 +165,17 @@
   process'i acik tuttu, bu nedenle kendi process'i sonlandirildi. Bir sonraki adim
   kaynak degisikligi yapmadan tek son toplu revalidation'dir.
 
+- 17 Ekim 2026 final revalidation: `5e3e375` sonrasinda kaynak degisikligi
+  yapilmadan tek toplu `python -m pytest -q --tb=short --basetemp
+  C:\temp\zekam-final4` kosusu exit code `0` ile tamamlandi. Sonuc:
+  `7983 passed, 1409 skipped, 3 warnings`, sure `1:13:42`. UUID public-safe
+  projection false positive duzeltmesi ve paket manifest digest senkronizasyonu
+  temiz kapandi. Yerel test kapisi `verified-for-tested-scope` olarak kaydedildi;
+  Windows/POSIX, native istemci, gercek corpus, OCR, local BGE ve live provider
+  skip'leri ile native/tool-denial, signer/credential, bagimsiz verifier,
+  restore/rollback ve clean release kabul kapilari acik kaldi. Testler bu son
+  revalidation sonrasinda tekrar calistirilmayacak.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm
