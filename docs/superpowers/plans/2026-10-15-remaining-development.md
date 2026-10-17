@@ -176,6 +176,26 @@
   restore/rollback ve clean release kabul kapilari acik kaldi. Testler bu son
   revalidation sonrasinda tekrar calistirilmayacak.
 
+- 17 Ekim 2026 clean wheel kabulu: Ilk wheel smoke, `PACKAGE_RELEASE_MANIFEST`
+  digest'inin AKTIF_GOREV.md guncellemesi sonrasinda stale kaldigini yakaladi;
+  wheel kaynak demeti `sha256:6f6724d959ad6d0305472bc7ebee5b9740956c4fc51f32789e233566ff1cac12`
+  ile yeniden uretildi. Generator sonrasi wheel yeniden kuruldu ve repository
+  disi izole Windows kabul kosusu `status=passed`, 23/23 check, Python 3.13.15,
+  `run_digest=sha256:f57c9eab5ee132ccabe6bf1b14b8efae303de0d53bdc76e4c0570b0c48411b34`,
+  artifact `sha256:1fa39540e5228e496d66d477cd182c8d9f48cc714e7acea19a7f5b8f05ddf801`
+  ile tamamlandi. Bu release wheel kapisini dar kapsamda kapatir; native host,
+  live provider, signer/credential, bagimsiz verifier, restore ve production
+  release zinciri kabul kapilari ayri acik kalir.
+
+- 17 Ekim 2026 final clean wheel kaniti: 10.97 aktif gorev ve yeni authority
+  projection'i paket icerigine alindiktan sonra manifest generator tekrar
+  calistirildi; `package_source_bundle_digest` `sha256:239240e1beca0292dd6f76754850428b99f912371a5e2859fabd9ac69975d8f0`
+  oldu. Son wheel izole Windows kabulunde `status=passed`, 23/23 check,
+  `run_digest=sha256:c26a088bc424a5631000da8c611337571976d1963e5a52d8a6f4fcaf79fc31fb`,
+  artifact `sha256:89ffc73a990cdd4f04823337ae902f67e613505ecf5aa6a4134196b7b117bc3e`,
+  platform `windows-amd64`, Python `3.13.15` verdi. Bu, onceki stale
+  manifest hatasinin son paket subject'inde kapanmasidir.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm

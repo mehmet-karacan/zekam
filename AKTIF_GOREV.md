@@ -3554,6 +3554,19 @@ restore/rollback ve clean release kapilari acik kalir. Yeni test kosusu
 baslatilmadi; sonraki adim yalniz bu acik kabul kapilarinin uygun ortamda
 kanitlanmasidir.
 
+### 10.97 17 Ekim 2026 clean wheel ve izole paket kabulü
+
+`AKTIF_GOREV.md` guncellemesi sonrasinda eski package manifest digest'i wheel
+kabulunde fail-closed yakalandi. Generator ile `package_source_bundle_digest`
+olarak yeniden üretildi. Repository disi wheel yeniden kuruldu ve izole Windows
+paket kabulü 23/23 kontrol ile `status=passed` verdi; değişmez run ve artifact
+digest'leri planın yürütme kaydında tutuldu.
+
+Bu kanıt temiz wheel, kurulum, CLI, SQLite/vec/DuckDB native storage ve bounded
+proje/doctor kontrollerini kapsar. Native canlı istemci/tool-denial, signer ve
+credential sahipliği, canlı provider/Jira/Oracle kalite, bağımsız verifier,
+restore/rollback ve production release zinciri hâlâ ayrı kabul kapılarıdır.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -3754,6 +3767,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.4 | 2026-10-17 | Final suite `7980 passed, 1409 skipped, 3 warnings` ile temizlendi; native, credential, live kalite ve release kabul kapıları açık bırakıldı |
 | 1.5 | 2026-10-17 | Paket kabulü ve OpenCode global npm executable çözümlemesi kanıtlandı; native ve canlı kabul kapıları açık bırakıldı |
 | 1.6 | 2026-10-17 | Son kaynak düzeltmesi sonrası final suite `7983 passed, 1409 skipped, 3 warnings` ile yeniden temizlendi; açık native, canlı ve release kapıları korundu |
+| 1.7 | 2026-10-17 | Stale package manifest düzeltildi; izole Windows wheel kabulü 23/23 geçti; native, canlı ve bağımsız doğrulama kapıları açık bırakıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -3764,7 +3778,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
-| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final4` `7983 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
+| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final4` `7983 passed, 1409 skipped, 3 warnings` ile temiz; izole Windows wheel kabulü 23/23 geçti; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
 | Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`; Miro/GitBook uzak yayını yapılmadı |
 
