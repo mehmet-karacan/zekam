@@ -210,8 +210,23 @@
   adapter artik HOME/USERPROFILE/APPDATA/LOCALAPPDATA ve XDG config/data/state/
   cache koklerini gecici private agaca bagliyor; eski marker geriye uyumluluk
   icin korunuyor. Bu kaynak gelistirmesi provider cagrisi yapmadan profile/auth
-  sizintisi riskini kapatir; native child/tool-denial ve gercek model kabulü
+  sizintisi riskini kapatir; native child/tool-denial ve gercek model kabulu
   halen calistirilmadi.
+
+- 17 Ekim 2026 cbdf2d4 clean wheel yeniden kabulü: Windows private profil
+  izolasyonu kaynak demetine alindiktan sonra repository disi wheel smoke
+  `status=passed`, 23/23 check ile tamamlandi. `run_digest=sha256:8bc3dbabff99457479007f1cff16d67b23970d7481c3c612f2601b53b5dd8bd9`,
+  artifact `sha256:2ad3e19443618f80c055f4e9caa0aa5a618de056961da7fafe15aee11982e1d4`,
+  platform `windows-amd64`, Python `3.13.15`. Native host, credential,
+  provider ve release-chain kabul kapilari acik kalir.
+
+- 17 Ekim 2026 cbdf2d4 package validator readback: `scripts/paket_dogrula.py`
+  sonucu repository disi yolda `status=passed`; 23 zorunlu dosya, 20 model,
+  18 faz/108 is, 42 schema, 83 Global DoD, 10.523 history blob ve
+  `git_security.findings=[]` ile tamamlandi. Authority digest
+  `sha256:33823274c1f0b22c43b39108523469ea935e1882d4cdba849fb48ba3646b5ccf`
+  ile projection eslesti; warnings/errors bos. Bu read-only kanit native/live
+  ve bagimsiz kabul kapilarini kapatmaz.
 
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
