@@ -3630,6 +3630,21 @@ korunur; tamamlanmis gibi isaretlenmez.
 Bu readback ve authority/manifest senkronizasyonu docs-only'dir; `59ee1ee` sonrasinda
 pytest, Maven veya yeni provider/model cagrisi calistirilmadi.
 
+### 10.101 17 Ekim 2026 WP-02.01 staged entry rollback gelistirmesi
+
+Proje-yerel `CLAUDE.md`/`GEMINI.md` ince giris apply akisinda hedefler artik once
+ayni dizinde fsync'li gecici dosyalara hazirlaniyor. Her atomic replace oncesi
+plan snapshot'i yeniden okunuyor; sonraki hedefte drift veya OS/ACL/I-O hatasi
+olursa onceki replace'ler yalniz halen planlanan govdeyi tasiyorsa eski baytlarina
+geri aliniyor. Disaridan gelen yeni drift'in uzerine yazilmiyor; rollback readback'i
+kanitlanamazsa basari receipt'i uretilmiyor. Bu, preflight sonrasindaki coklu hedef
+partial-write riskini daraltir; native host shell/tool-denial ve gercek client
+kabulunu tek basina kapatmaz.
+
+AST parse kontrolu yapildi; pytest, Maven ve canli provider/model cagrisi bu
+gelistirme diliminde calistirilmadi. Sonraki adim kalan kaynak gelistirmelerini
+tamamlamak, ardindan tek final toplu test ve kabul kapilarini calistirmaktir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

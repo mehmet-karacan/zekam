@@ -583,6 +583,71 @@ def plan_project_local_entry(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _ProjectEntrySnapshot:
+    """One staged target and its exact pre-apply bytes."""
+
+    item: ProjectLocalEntryFilePlan
+    existed: bool
+    original: bytes | None
+    temporary: Path
+
+
+def _read_project_entry_bytes(path: Path) -> bytes:
+    """Read a bounded UTF-8 entry without newline normalization."""
+
+    metadata = path.stat(follow_symlinks=False)
+    if metadata.st_size > MAX_INSTRUCTION_FILE_BYTES:
+        raise ConfigurationError("Project entry dosyasi boyut siniri asildi")
+    with path.open("rb") as stream:
+        payload = stream.read(MAX_INSTRUCTION_FILE_BYTES + 1)
+    if len(payload) > MAX_INSTRUCTION_FILE_BYTES:
+        raise ConfigurationError("Project entry dosyasi boyut siniri asildi")
+    return payload
+
+
+def _stage_project_entry(path: Path, content: str) -> Path:
+    """Write one fsync'ed temporary file beside its target."""
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return temporary
+
+
+def _rollback_project_entry(project_root: Path, snapshot: _ProjectEntrySnapshot) -> None:
+    """Restore one target only when its current bytes still match our write."""
+
+    path = snapshot.item.path
+    _assert_project_local_target(project_root, path)
+    current = _read_project_entry_bytes(path) if path.exists() else None
+    expected = snapshot.item.content.encode("utf-8")
+    # Replace failure can be ambiguous on a hostile/failed filesystem. If the
+    # old bytes are still present, there is nothing to restore.
+    if current == snapshot.original:
+        return
+    if current != expected:
+        raise ConfigurationError("Project entry rollback disi drift nedeniyle reddedildi")
+    if snapshot.original is None:
+        path.unlink(missing_ok=True)
+        return
+    original = snapshot.original.decode("utf-8")
+    temporary = _stage_project_entry(path, original)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
     """Salt planlanmis proje-yerel ince giris hedeflerini yazar.
 
@@ -591,10 +656,11 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
     (no-partial-write): plan sonrasi drift olan herhangi bir hedef, ILK hedef
     bile yazilmadan tum planin red edilmesini saglar.
 
-    Not: preflight + per-file write akisi tam transaction atomisitesi degildir;
-    yazma sirasindaki OS hatasi (disk dolusu, ACL, I/O) onceki hedefleri geri
-    almaz. Fail-closed readback drift hata verir; OS hata icin rollback garanti
-    edilmez.
+    Yazimlar once staging alaninda hazirlanir. Hedeflerden biri yer degistirdikten
+    sonra OS/ACL/I-O hatasi olursa, bu apply cagrisi icindeki onceki degisiklikler
+    yalniz hedef halen planlanan govdeyi tasiyorsa eski baytlara geri alinir;
+    disaridan gelen yeni drift'in uzerine yazilmaz. Geri alma da kanitlanamazsa
+    islem hata verir ve basari receipt'i uretilemez.
     """
 
     if plan.conflicts:
@@ -606,26 +672,53 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
     # mevcut durumu yeniden dogrulanir. Boylece siradaki (sonraki) dosya drift
     # olsa bile ilki yazilip partial state uretilmez.
     _preflight_project_local_entry(plan)
-    for item in plan.files:
-        if item.action == "unchanged":
-            continue
-        item.path.parent.mkdir(parents=True, exist_ok=True)
-        _assert_project_local_target(plan.project_root, item.path)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{item.path.name}.", dir=item.path.parent
-        )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(item.content.encode("utf-8"))
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(item.path)
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
-        if read_instruction_text(item.path) != item.content:
-            raise ConfigurationError("Project entry readback drift")
+    staged: list[_ProjectEntrySnapshot] = []
+    committed: list[_ProjectEntrySnapshot] = []
+    try:
+        # Once hedeflerin eski baytlarini ve yeni iceriklerini once hazirla.
+        # Hicbir replace baslamadan onceki hata dosya sisteminde iz birakmaz.
+        for item in plan.files:
+            if item.action == "unchanged":
+                continue
+            item.path.parent.mkdir(parents=True, exist_ok=True)
+            _assert_project_local_target(plan.project_root, item.path)
+            existed = item.path.exists()
+            original = _read_project_entry_bytes(item.path) if existed else None
+            temporary = _stage_project_entry(item.path, item.content)
+            staged.append(_ProjectEntrySnapshot(item, existed, original, temporary))
+
+        # Replace atomik olsa da birden cok hedef tek OS transaction'i degildir.
+        # Her replace oncesi snapshot driftini yeniden oku; sonraki hedefteki
+        # hatada daha once degisenleri guvenli geri al.
+        for snapshot in staged:
+            item = snapshot.item
+            _assert_project_local_target(plan.project_root, item.path)
+            current = (
+                _read_project_entry_bytes(item.path) if item.path.exists() else None
+            )
+            if current != snapshot.original:
+                raise ConfigurationError(
+                    "Project entry plani apply sirasinda dosya drift nedeniyle stale"
+                )
+            # Record the target before replace: a failed OS call may have an
+            # unknown effect and must still enter the conservative rollback path.
+            committed.append(snapshot)
+            snapshot.temporary.replace(item.path)
+            if _read_project_entry_bytes(item.path) != item.content.encode("utf-8"):
+                raise ConfigurationError("Project entry readback drift")
+    except BaseException as exc:
+        rollback_errors: list[BaseException] = []
+        for snapshot in reversed(committed):
+            try:
+                _rollback_project_entry(plan.project_root, snapshot)
+            except BaseException as rollback_error:
+                rollback_errors.append(rollback_error)
+        if rollback_errors:
+            raise ConfigurationError("Project entry rollback readback basarisiz") from rollback_errors[0]
+        raise
+    finally:
+        for snapshot in staged:
+            snapshot.temporary.unlink(missing_ok=True)
 
 
 def _preflight_project_local_entry(plan: ProjectLocalEntryPlan) -> None:

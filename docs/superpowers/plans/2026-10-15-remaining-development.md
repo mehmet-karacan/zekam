@@ -793,3 +793,11 @@
   reachable, 18 archive-only, legacy PostgreSQL data access false) verdi.
   Bu read-only release kaniti native production/provider ve signed release
   zincirinin tum kapilarini kapatmaz.
+
+- 17 Ekim 2026 WP-02.01 staged entry rollback gelistirmesi: Proje-yerel ince
+  giris hedefleri once ayni dizinde fsync'li gecici dosyalara hazirlaniyor;
+  replace oncesi exact snapshot drifti yeniden okunuyor. Sonraki hedefte OS/ACL/
+  I-O veya readback hatasi olursa onceki replace'ler yalniz beklenen govde hala
+  mevcutsa eski baytlarina geri aliniyor; dis driftin uzerine yazilmiyor. AST
+  parse kontrolu yapildi, pytest/Maven/provider calistirilmadi. Kaynak degisikligi
+  final toplu test asamasina kadar acik kabul edilerek tutulacak.
