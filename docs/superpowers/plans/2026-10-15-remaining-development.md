@@ -45,7 +45,7 @@
   cancellation, toplam deadline ve provider-call quota'yi provider etkisi sonrasi
   generation yayinlamadan once uygular. Vektorler tamamlanmadan `KnowledgeGeneration`
   yazilmaz; partial/unknown sonuc fail-closed kalir. Paket manifesti yenilendi, import
-  denetimi yapildi; pytest final asamasina birakildi. Commit bu dilimin sonunda alinacak.
+  denetimi yapildi; pytest final asamasina birakildi. Commit: `5870efb`.
 
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
