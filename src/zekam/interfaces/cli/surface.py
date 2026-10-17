@@ -23,22 +23,29 @@ console = Console()
 
 
 def registered_commands(application: typer.Typer) -> tuple[str, ...]:
-    """Kayitli komutlari '<grup> <komut>' bicimde toplar."""
+    """Kayitli komutlari '<grup> <komut>' bicimde toplar.
+
+    Typer nested group'lari tek seviyeli bir liste olarak kaydeder. ``git
+    publication`` gibi iki seviyeli yuzeylerde onceki tek-seviye tarama,
+    publication komutlarini sozlesmede yokmus gibi raporluyordu. Agaci
+    recursively gezerek her komutun canonical yolunu toplariz.
+    """
 
     found: list[str] = []
-    for command in application.registered_commands:
-        name = command.name or (command.callback.__name__ if command.callback else None)
-        if name:
-            found.append(name)
-    for group in application.registered_groups:
-        prefix = group.name or (group.typer_instance.info.name if group.typer_instance else None)
-        instance = group.typer_instance
-        if prefix is None or instance is None:
-            continue
+
+    def walk(instance: typer.Typer, prefix: tuple[str, ...] = ()) -> None:
         for command in instance.registered_commands:
             name = command.name or (command.callback.__name__ if command.callback else None)
             if name:
-                found.append(f"{prefix} {name}")
+                found.append(" ".join((*prefix, name)))
+        for group in instance.registered_groups:
+            child = group.typer_instance
+            name = group.name or (child.info.name if child else None)
+            if child is None or name is None:
+                continue
+            walk(child, (*prefix, name))
+
+    walk(application)
     return tuple(sorted(set(found)))
 
 
