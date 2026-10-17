@@ -760,3 +760,12 @@
   calistirilmadi; final suite bu kaynak degisikligi tamamen durduktan sonra
   bir kez calistirilacak. Gercek model kalitesi, tool-denial tetikleme,
   signer/credential ve bagimsiz verifier kabul kapilari acik.
+
+- 17 Ekim 2026 native tool-denial smoke: Ayni gecici deny-all loopback
+  profilinde sentetik model `bash` tool call'i dondurdu; OpenCode komutu
+  calistirmadan `tool_use` hata olayi ve `Tools are disabled after the maximum
+  agent steps` metniyle exit 0 verdi. Bu exact profil/steps siniri icin no-effect
+  kanitidir; adapter effectful event'i basari olarak kabul etmez. Shell
+  wrapper/here-string bypass, genel native transport enforcement, credential
+  provisioning ve bagimsiz verifier kabul kapilari acik kalir. Pytest
+  calistirilmadi.

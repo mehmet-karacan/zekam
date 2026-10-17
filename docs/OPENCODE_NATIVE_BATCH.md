@@ -126,6 +126,13 @@ Bu sentetik loopback kaniti native child/event/CAS bagini gosterir; gercek
 model kalitesi, tool-denial'in model tarafindan tetiklenmesi, credential
 provisioning, bagimsiz verifier veya production release kabulunu gostermez.
 
+Ayni gecici deny-all profilinde sentetik saglayici bir `bash` tool call'i
+dondugunde OpenCode, komutu calistirmadan `tool_use` olayinda
+`Tools are disabled after the maximum agent steps` hatasi uretip exit 0 verdi.
+Adapter bu effectful olayi basari olarak kabul etmez. Bu, tam olarak bu
+profil/steps sinirinin dar tool-denial kanitidir; shell wrapper/here-string
+bypass'lari, genel native enforcement ve bagimsiz verifier kabulunu kapsamaz.
+
 Birincil kaynak: https://github.com/anomalyco/opencode/tree/v2/packages/cli/src/run
 ve ayni repodaki packages/cli/src/server-process.ts, packages/schema/src/config,
 packages/core/src/config.ts. V2 policy alani experimental.policies'dir;

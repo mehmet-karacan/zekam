@@ -58,7 +58,10 @@ OpenAI-compatible endpoint ile adapter uzerinden calistirildi. Gercek
 akisi stable session/message/part kimligiyle ve process exit 0 siniriyla kabul
 edecek fallback'i tasir. CAS artifact ve execution binding yazimi basarili
 oldu. Bu smoke provider kalitesini, tool-denial'i veya credential provisioning'i
-dogrulamaz; onlar ayri kabul kapilaridir.
+tek basina dogrulamaz; ayni profilde sentetik `bash` tool call'i komutu
+calistirmadan `tool_use` hata olayi ile reddedildi. Bu dar deny-all smoke'u
+genel shell transport enforcement veya credential provisioning kabulunun yerine
+gecmez.
 
 ## Acik native adapter baglantisi
 
