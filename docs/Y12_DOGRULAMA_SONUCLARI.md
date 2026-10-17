@@ -151,3 +151,19 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `test-census-post-encoding.json` | `sha256:7f1658c6c3d53858169ce2aff2bd07872bcb5cd92cb3c5b6d26417e957611e97` |
 | `test-continuation-plan-run5.json` | `sha256:7aa923a8df9e211f55302ed3d8199052342f69e02211dc5f8b541198be4155ed` |
 | `remaining-scope-check-run5.json` | `sha256:2eae5edc0ef4e7d75f412c2bd07bb162a71fba840e478fe6d33af7cf276f2c0d` |
+
+
+## Run5 terminal ve RAG kanal izi duzeltmesi
+
+Run5: 394 passed, 2 skipped, 1 failed (112.78 sn). Gercek proje answer-key
+kontrolu, reference/neighbor expansion ile eklenen citation'in ilk sorgu kanal
+listesinde bulunmamasinda StopIteration veriyordu. Kanal sirasi yalniz gercek
+ilk sorgu hit'lerinden alinir; baglam kaynagi korunur, olmayan rank uydurulmaz.
+Iki yeni regresyon eski kodda ayni hatayi yeniden uretti. Duzeltmeden sonra
+etkilenen embedded RAG modulu ve basarisiz answer-key kontrolu 48/48 gecti.
+Gecmis basarili testler korunur; sonraki devam dosya degil test case duzeyinde
+kalanlari secer. Y12 henuz kapanmadi; final wheel/gate ve kalan test kaniti acik.
+
+- `junit-run5.xml` SHA256: `sha256:57eaf1ec2c9d0386071e8684d83eb6085195cf9d79bf699e859cf543177669ca`.
+
+- `rank-fix-junit.xml` SHA256: `sha256:c5a0d108f9473fbb311168ae74193e5c09df4ceadbf33211f3d1653a6681ad71`.

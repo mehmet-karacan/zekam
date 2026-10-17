@@ -1,3 +1,20 @@
+# Guncel devir - Y12 run5 terminal, RAG rank fix dogrulandi
+
+Session75353 TERMINAL exit1; yeniden poll etme. Run5 394passed/2skip/1fail.
+Reference/neighbor expansion citation'i ilk sorgu kanal listesinde yokken
+StopIteration veriyordu. Kanal sirasi yalniz gercek hit'lerden aliniyor;
+olmayan rank uydurulmuyor. Iki yeni regresyon once fail, fix sonrasi ilgili
+iki RAG test modulu48/48passed (rank-fix-junit.xml). Tum suite'i yeniden baslatma.
+Kullanici gecen ayni testlerin yeniden kosulmamasini acikca istedi. Yeni guarded
+runner, JUnit union'da gecmis case'leri declaration+param ordinal ile deselect
+etmeli; yarida kalmis dosyanin gecen case'lerini de tekrarlamamali.
+Sonraki: yeni census (9364 case beklenir), run2+run3b+run4+run5+rank-fix
+kanitlarini uzlastir, yalniz kalan case'leri kos. Main guard'i koru. Final
+current-source wheel/gates halen acik. Dort untracked kullanici girdisini koru.
+Y12 ve goal aktif, bitmedi. Kanitlar C:/temp/zekam-y12-e3741df altinda.
+
+---
+
 # Guncel devir - Y12 run5 AKTIF, kalan3401 case
 
 Canli exec session75353; suite-run5.log, junit-run5.xml, pytest-run5.

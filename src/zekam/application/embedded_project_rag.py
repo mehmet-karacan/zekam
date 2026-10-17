@@ -1297,17 +1297,13 @@ class EmbeddedProjectRAG:
             fused_rank = next(
                 rank for rank, hit in enumerate(hits, start=1) if hit.chunk_id == citation.chunk_id
             )
+            # Reference/neighbor expansion can add a citation absent from the
+            # original query's channel results. Keep its source evidence without
+            # inventing an original-query rank for that contextual lookup.
             channel_ranks = {
-                channel.value: next(
-                    item.rank
-                    for item in (
-                        *backend.last_exact,
-                        *backend.last_lexical,
-                        *backend.last_dense,
-                    )
-                    if item.chunk_id == citation.chunk_id and item.channel is channel
-                )
-                for channel in fused_hit.channels
+                item.channel.value: item.rank
+                for item in (*backend.last_exact, *backend.last_lexical, *backend.last_dense)
+                if item.chunk_id == citation.chunk_id and item.channel in fused_hit.channels
             }
             citations.append(
                 {

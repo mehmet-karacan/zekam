@@ -15,6 +15,7 @@ from zekam.application.embedded_project_rag import (
     MAX_ANSWER_EXCERPT_CHARS,
     MAX_QUERY_BYTES,
     EmbeddedProjectRAG,
+    EmbeddedProjectSearchBackend,
     build_embedded_project_generation,
 )
 from zekam.application.embedding_provider import (
@@ -1107,6 +1108,47 @@ def test_r04_member_question_adds_following_chunks_of_the_named_class(tmp_path: 
         assert {"same-0", "same-1"} <= excerpt_ids
         assert "start-job-manually" in " ".join(item["text"] for item in result["answer_excerpts"])
         assert "same-1" in result["reference_expansion"]
+    finally:
+        index.close()
+
+
+@pytest.mark.parametrize("expansion", ["reference", "neighbor"])
+def test_expanded_citation_has_no_invented_original_query_rank(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expansion: str
+) -> None:
+    provider = QueryProvider()
+    if expansion == "reference":
+        index, rag = _rag_multi(tmp_path, provider, text_a=_JOB_CONFIG, text_b=_FLOW_CONFIG)
+        seed, expanded = "chunk-a", "chunk-b"
+        question = "HakedisHesaplamaJob hangi step'leri hangi sirayla calistirir?"
+    else:
+        index, rag = _rag_same_file(tmp_path, provider, (_CONTROLLER_PART_1, _CONTROLLER_PART_2))
+        seed, expanded = "same-0", "same-1"
+        question = "BatchJobController hangi HTTP endpoint'lerini sunar?"
+
+    def seed_only(method: Callable[..., Any], attribute: str) -> Callable[..., Any]:
+        def search(backend: EmbeddedProjectSearchBackend, *args: Any, **kwargs: Any) -> Any:
+            hits = tuple(hit for hit in method(backend, *args, **kwargs) if hit.chunk_id == seed)
+            setattr(backend, attribute, hits)
+            return hits
+
+        return search
+
+    for channel in ("exact", "lexical", "dense"):
+        monkeypatch.setattr(
+            EmbeddedProjectSearchBackend,
+            channel,
+            seed_only(getattr(EmbeddedProjectSearchBackend, channel), f"last_{channel}"),
+        )
+    try:
+        result = _query(rag, question)
+        assert expanded in result["reference_expansion"]
+        citation = next(item for item in result["citations"] if item["chunk_id"] == expanded)
+        assert citation["project_scope"] == PROJECT
+        assert citation["source_revision"] == REVISION
+        assert citation["rank_trace"]["channel_ranks"] == {}
+        assert citation["rank_trace"]["exact_match"] is False
+        assert citation["rank_trace"]["fused_rank"] > 0
     finally:
         index.close()
 
