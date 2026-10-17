@@ -32,6 +32,7 @@ FORBIDDEN_TEST_IMPORTS = (
     "macos_precompaction_supervisor",
     "infrastructure.embedding.infinity_bge",
 )
+FORBIDDEN_SCOPE_MARKERS = ("macos", "mac os", "darwin", "osx")
 
 
 def _tracked_paths(repository: Path) -> tuple[Path, ...]:
@@ -91,6 +92,7 @@ def audit(repository: Path) -> dict[str, Any]:
             "findings": [str(exc)],
             "test_file_count": 0,
             "forbidden_test_count": 0,
+            "forbidden_scope_file_count": 0,
             "archive_only_macos_source_count": 0,
             "grants_authority": False,
         }
@@ -105,10 +107,20 @@ def audit(repository: Path) -> dict[str, Any]:
         if "tests" in path.relative_to(repository).parts and path.suffix.casefold() == ".py"
     )
     forbidden_test_count = 0
-    for path in test_paths:
+    forbidden_scope_file_count = 0
+    for path in tracked:
         relative = path.relative_to(repository).as_posix()
+        parts = path.relative_to(repository).parts
+        is_test = "tests" in parts
+        is_ci_or_benchmark = ".github" in parts or "benchmarks" in parts
+        if not (is_test or is_ci_or_benchmark):
+            continue
+        # Binary test fixtures are inventory entries, not executable test scope;
+        # inspect only Python tests while still scanning all CI/benchmark text.
+        if is_test and path.suffix.casefold() != ".py":
+            continue
         folded = relative.casefold()
-        if any(part in folded for part in FORBIDDEN_TEST_PATH_PARTS):
+        if is_test and any(part in folded for part in FORBIDDEN_TEST_PATH_PARTS):
             forbidden_test_count += 1
             findings.append(f"macos-test-path:{relative}")
         try:
@@ -116,10 +128,20 @@ def audit(repository: Path) -> dict[str, Any]:
         except (OSError, UnicodeError, RuntimeError) as exc:
             findings.append(f"test-read-failed:{relative}:{type(exc).__name__}")
             continue
-        for marker in FORBIDDEN_TEST_IMPORTS:
-            if marker in body:
-                forbidden_test_count += 1
-                findings.append(f"macos-test-import:{relative}:{marker}")
+        body_folded = body.casefold()
+        for marker in FORBIDDEN_SCOPE_MARKERS:
+            if marker in body_folded:
+                forbidden_scope_file_count += 1
+                if is_test:
+                    forbidden_test_count += 1
+                    findings.append(f"macos-test-marker:{relative}:{marker}")
+                else:
+                    findings.append(f"macos-ci-marker:{relative}:{marker}")
+        if is_test:
+            for marker in FORBIDDEN_TEST_IMPORTS:
+                if marker in body:
+                    forbidden_test_count += 1
+                    findings.append(f"macos-test-import:{relative}:{marker}")
 
     return {
         "schema": SCHEMA,
@@ -127,6 +149,7 @@ def audit(repository: Path) -> dict[str, Any]:
         "findings": sorted(set(findings)),
         "test_file_count": len(test_paths),
         "forbidden_test_count": forbidden_test_count,
+        "forbidden_scope_file_count": forbidden_scope_file_count,
         "archive_only_macos_source_count": len(ARCHIVE_ONLY_MACOS_SOURCES),
         "grants_authority": False,
     }
