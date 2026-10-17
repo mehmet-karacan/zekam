@@ -55,6 +55,12 @@
   AST/diff kontrolleri yapildi, pytest calistirilmadi. Commitler: `419dd03`,
   `40d4029`.
 
+- 17 Ekim 2026 canonical fixture hizalamasi: research CLI fixture'i zorunlu
+  `tree_digest` source identity alanini tasiyor; operasyonel SQLite schema
+  status fixture'i v9 head ve desteklenen head listesiyle eslendi. Kaynak
+  degisikligi yapilmadi, AST/diff kontrolu yapilacak, pytest final kapisina
+  kadar calistirilmayacak.
+
 - 17 Ekim 2026 yerel E5 runtime guvenligi: kurulum manifesti artik sabitlenen
   yedi dosyanin tamamini source revision, boyut, SHA256 ve upstream SHA bagiyla
   yeniden okur; model agirligi beklenen SHA256 ile tekrar eslesir. Model yolu

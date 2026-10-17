@@ -49,6 +49,7 @@ def _home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, binding_schema: bo
             "state": "ready",
             "generation_digest": digest("generation"),
             "source_revision": digest("revision"),
+            "tree_digest": digest("tree"),
         },
     )
     return layout.root
