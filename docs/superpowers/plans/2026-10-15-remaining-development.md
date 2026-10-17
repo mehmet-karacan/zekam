@@ -67,6 +67,12 @@
   uretiyor. AST/diff ve manifest kontrolden gecirilecek, pytest final kapisina
   kadar calistirilmayacak.
 
+- 17 Ekim 2026 RAG route kapisi: dis CLI route okuyucusu da canonical local
+  multilingual-e5-small profilini dogrulamadan remote veya legacy route
+  dondurmuyor. Bozuk ayar provider cagrisi veya indeks yolu baslamadan bounded
+  configuration hatasiyla kesiliyor. AST/diff ve manifest kontrolu yapildi;
+  pytest final kapisina kadar calistirilmayacak.
+
 - 17 Ekim 2026 yerel E5 runtime guvenligi: kurulum manifesti artik sabitlenen
   yedi dosyanin tamamini source revision, boyut, SHA256 ve upstream SHA bagiyla
   yeniden okur; model agirligi beklenen SHA256 ile tekrar eslesir. Model yolu

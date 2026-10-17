@@ -1395,9 +1395,11 @@ def _build_local_query_embedding(knowledge: KnowledgeSettings | None = None) -> 
 
 
 def project_embedding_route(home: Path) -> EmbeddingRoute:
-    """Resolve the explicit, secret-free project embedding route."""
+    """Resolve the sole production project route: local multilingual E5."""
 
-    return load_settings(home=home.resolve(strict=True)).knowledge.embedding_route
+    knowledge = load_settings(home=home.resolve(strict=True)).knowledge
+    _assert_canonical_knowledge_profile(knowledge)
+    return EmbeddingRoute.LOCAL
 
 
 def _assert_canonical_knowledge_profile(knowledge: KnowledgeSettings) -> None:
