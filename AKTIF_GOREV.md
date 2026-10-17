@@ -3865,6 +3865,18 @@ platform registry beklentisi `posix-only` olarak hizalandi. Bu takip duzeltmeler
 `py_compile`, manifest uretimi ve `git diff --check` basarili oldu; kullanici talebi
 geregi pytest tekrar calistirilmadi. Bu nedenle temiz final suite kaniti henuz yoktur.
 
+### 10.116 17 Ekim 2026 Kanonik mimari export disk readback'i
+
+Test calistirmadan, WP-12.04/05 kaynak ureticisi yeni repository-disi hedefte bir kez
+calistirildi ve hemen salt okunur `--verify` readback'i yapildi. Export ve readback ayni
+`catalog_digest` degerini (`sha256:a65d909e2e3054c67595b5425f74e5ba40e937d1dda609a7a702b9a641b33a05`)
+ve `file_readback_verified=true` sonucunu verdi. Dokuz dosyanin manifest digest'leri
+readback ile eslesti; `published=false`, `acceptance_verified=false` ve
+`grants_authority=false` korunarak bu cikti runtime veya release kabul kaniti sayilmadi.
+Repository icine gecici artifact yazilmadi. Bu kanit kaynak export/readback dilimini
+ilerletir; final suite, native kabul, bagimsiz verifier ve release zinciri kapilarini
+acik birakir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

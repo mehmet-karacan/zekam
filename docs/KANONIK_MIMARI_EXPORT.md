@@ -104,3 +104,13 @@ Final test asamasinda deterministic bytes/ZIP/hash, declaration identity, escape
 HTML, duplicate/historical task, unknown CAP/WP ve concurrent source drift
 regresyonlari calistirilacak. Gercek paket/source export ve bundle link/hash kabul
 kontrolu final kapida yapilacak. Bu asamada generator veya test kosusu yapilmadi.
+
+## 17 Ekim 2026 kaynak readback kaydi
+
+Generator yeni repository-disi bir hedefte calistirildi ve ayni hedefe hemen
+`--verify` readback uygulandi. Iki cikti da `catalog_digest` olarak
+`sha256:a65d909e2e3054c67595b5425f74e5ba40e937d1dda609a7a702b9a641b33a05` ve
+`file_readback_verified=true` verdi. Dokuz manifest dosyasinin byte digest'i
+eslesti; `published`, `acceptance_verified` ve `grants_authority` false kaldi.
+Bu kayit generator/readback calismasinin gercek kanitidir; final test, native kabul,
+bagimsiz verifier veya uzak yayin kaniti degildir.
