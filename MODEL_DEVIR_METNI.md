@@ -1,3 +1,26 @@
+# Guncel devir - Y-12 son artifact ve test takip noktasi
+
+Sonuclar tek raporda: docs/Y12_DOGRULAMA_SONUCLARI.md (SURUYOR).
+Maven gercek rapor 3/3, dual project index 4/4, checkpoint/devam 32/32 gecti.
+Final wheel (e00648d kaynak, ctime fix dahil) temiz kurulum 11/11 gecti.
+Gercek wheel cold/unchanged/delta onbellek davranisi gecti; TR+EN kaynaklarla
+iki dilde kaynakli yanit ve plain kaynak etiketi gecti. TR-only corpus'un
+English low-evidence negatif ornegi raporda korunur; policy esigi gevsetilmedi.
+Guncel kullanici learning-v3 full backup/verify/ayri hedef restore de gecti.
+
+ESKI exec session 84317 bilerek sonlandirildi: e3741df kodunu import etmisken
+39359a4 source fix gelmisti, final kabul olamazdi. Terminal readback exit1.
+YENI ve AKTIF tam Windows fail-fast kosu: exec session 61976, suite-run2.log,
+junit-run2.xml, pytest-run2. Bu handle'i once poll et; timeout nedeniyle
+tekrar baslatma. Source kod bu kosu basladiktan sonra degismedi.
+Checkpoint target session21931 ve final-wheel session61082 terminal success;
+RAG language session6934 terminal success; negatif ilk performance session17259
+exit1 (English abstention) ve olumlu cache olcumleri raporda acikca ayridir.
+Tum artifactler C:/temp/zekam-y12-e3741df altinda; model/kullanici anahtari yoktur.
+Dort korunan untracked girdi korunur. Goal aktif, Y-12 henuz BITMEDI.
+
+---
+
 # Guncel devir - Y-12 gercek kullanici recovery kaniti
 
 Mevcut kullanici home'u icin gercek v2 full backup create/verify/restore GECTI.
