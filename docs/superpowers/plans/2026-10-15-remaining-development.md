@@ -802,3 +802,9 @@
   uzerine yazilmiyor. Conflict tasiyan plan hicbir hedefi yazmiyor. AST parse
   kontrolu yapildi, pytest/Maven/provider calistirilmadi. Kaynak degisikligi
   final toplu test asamasina kadar acik kabul edilerek tutulacak.
+
+- 17 Ekim 2026 son kaynak gelistirmesi `5958031` sonrasinda tek final
+  `PYTHONPATH=src python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final-5958031`
+  kosusu exit code `0` verdi: `7989 passed, 1409 skipped, 3 warnings`, sure
+  `53:03`. Bu kaynak seti icin pytest/Maven tekrar calistirilmayacak; skip edilen
+  host/live/native kalite ve credential kapilari acik tutuldu.
