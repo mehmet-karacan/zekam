@@ -3896,7 +3896,8 @@ kanitlarinin yerine gecmez.
 
 MacOS'a bagli Infinity/BGE-M3 provider modulu wheel'den archive-only olarak dislandi.
 Ona ait `test_local_bge_provider.py`, karma WP-16 testindeki BGE alt senaryolari ve
-bu senaryolara ait platform skip kayitlari kaynak test koleksiyonundan kaldirildi.
+`test_local_continuity_v4_ingress.py` ile bu senaryolara ait platform skip kayitlari
+kaynak test koleksiyonundan kaldirildi.
 Yerel E5 disindaki eski profil adlarini reddeden config/RAG uyumluluk kontrolleri
 tarihsel migration korumasi olarak tutuldu; yeni MacOS testi eklenmedi. Bu degisiklik
 icin pytest calistirilmadi; sonraki tek final Windows/Linux suite'inde bu testlerin

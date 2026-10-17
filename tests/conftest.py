@@ -21,7 +21,6 @@ from zekam.application.home import HomeLayout
 # Legacy POSIX continuity slices are retained for historical recovery work but
 # are outside the Windows release test surface and are never collected.
 collect_ignore: list[str] = [
-    "unit/test_local_continuity_v4_ingress.py",
     "unit/test_wp16_continuity_spool_exact_missing_coverage.py",
 ]
 
