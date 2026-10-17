@@ -128,6 +128,11 @@ def test_opencode_resolution_prefers_config_then_path(monkeypatch: pytest.Monkey
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/local/bin/opencode")
     assert cli._opencode_executable(cast(Any, context)) == Path("/usr/local/bin/opencode")
     monkeypatch.setattr(shutil, "which", lambda _: None)
+    monkeypatch.setattr(
+        cli,
+        "resolve_opencode_executable",
+        lambda: (_ for _ in ()).throw(cli.ZekamError("missing")),
+    )
     assert cli._opencode_executable(cast(Any, context)) is None
 
 

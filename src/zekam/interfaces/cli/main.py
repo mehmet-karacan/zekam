@@ -67,6 +67,7 @@ from zekam.domain.identity import PRODUCT
 from zekam.domain.intake import normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
 from zekam.domain.work import OPEN_STATES
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 from zekam.infrastructure.local_core_services import LocalCoreServices
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
 from zekam.infrastructure.sqlite.operational_schema import SQLiteOperationalSchema
@@ -1407,7 +1408,12 @@ def _opencode_executable(context: ApplicationContext) -> Path | None:
         if client.name.casefold() == "opencode":
             return client.executable
     discovered = shutil.which("opencode")
-    return Path(discovered).resolve() if discovered else None
+    if discovered:
+        return Path(discovered).resolve()
+    try:
+        return resolve_opencode_executable()
+    except (OSError, ZekamError):
+        return None
 
 
 _SEVERITY_STYLES: dict[Severity, str] = {

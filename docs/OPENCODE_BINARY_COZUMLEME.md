@@ -19,6 +19,8 @@ Arastirma ve explicit test gelistirme CLI yollarinin executable secimi ortak
 17 Ekim 2026 host incelemesinde kurulu direct paket `@opencode/cli` 2.0.30 idi;
 `opencode.exe --version` salt okunur okumasi `opencode v2.0.30` dondu.
 Shim PATH'te gorunmedigi icin yeni global npm fallback'i bu kurulumu bulur.
+Doctor/CLI executable gorunumu de ayni resolver'i kullanir; PATH ve config
+disinda ayrik, daha gevsek bir arama yapilmaz.
 16 Ekim 2026 kaynak incelemesinde kurulu paket `@opencode/cli` 2.0.29 idi.
 `run --help` salt okunur ciktisi `run --format json`, `--standalone`,
 `--model`, `--agent` arayuzunu gosterdi. Bu okuma model cagrisi degildir.

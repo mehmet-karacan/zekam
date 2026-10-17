@@ -161,6 +161,12 @@
   genisletildi. Test kaynaklari eklendi, pytest CALISTIRILMADI. Native lifecycle,
   tool-denial ve provider kabul kaniti bu kaynak degisikligiyle otomatik kapanmaz.
 
+- 17 Ekim 2026 CLI discovery bagi: Doctor/CLI executable readback'i de ortak
+  `resolve_opencode_executable` resolver'ina baglandi; PATH yokken global npm
+  direct binary'si ile farkli bir arama yolu olusmasi engellendi. Fixture
+  ortaminda resolver hatasi acikca simule ediliyor. Pytest CALISTIRILMADI;
+  native lifecycle ve tool-denial kabul kapilari acik.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari

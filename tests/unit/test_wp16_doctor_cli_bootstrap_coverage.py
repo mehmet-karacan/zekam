@@ -382,6 +382,11 @@ def test_cli_helpers_project_selection_executable_and_version(
 ) -> None:
     context = cast(Any, SimpleNamespace(settings=SimpleNamespace(clients=()), core_path=tmp_path))
     monkeypatch.setattr(cast(Any, cli).shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        cast(Any, cli),
+        "resolve_opencode_executable",
+        lambda: (_ for _ in ()).throw(cli.ZekamError("missing")),
+    )
     assert cli._opencode_executable(context) is None
     executable = tmp_path / "opencode"
     executable.write_bytes(b"local")
