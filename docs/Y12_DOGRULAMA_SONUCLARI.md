@@ -24,7 +24,7 @@ pakete veya test kabul kapsaminda sahiplenilmedi.
 | Learning-v2 kullanici yedegi | PASSED | 8 dosyali bundle create/verify ve mevcut home'a dokunmadan yeni hedefe restore |
 | Learning-v2 -> v3 | PASSED | Canonical memory prepare terminal receipt; integrity/FK ok; eski tablolarin logical content paritesi ve schema3/all_ready readback |
 | Learning-v3 kullanici yedegi | PASSED | Guncel kullanici bundle create/verify ve ayri yeni hedefe restore |
-| Kaynak manifest/catalog/platform/reachability | PASSED | Dordunun exit code'u 0; kaynak degisikliklerinden sonra son teslimde yeniden kontrol edilecek |
+| Paket/kaynak kapilari | PASSED | Paket yapisi + tam Git security history, manifest, catalog, platform ve son wheel runtime reachability gecti; bulgu sonrasi exact fixture history kaydiyla tekrar dogrulandi |
 | Tum ilgili Windows testleri | RUNNING | Guncel kaynakla run2, ilk hatada durur; hata varsa giderilip etkilenen kontroller yeniden kosulacak |
 | Canli Oracle/Jira/Confluence/ODI sistemi | NOT-RUN | Bu final kabulde kurum verisi/credential'i veya canli kurum servisi kullanilmadi; fixture/source kapsamiyla karistirilmaz |
 | MacOS / yeni Linux native kabul matrisi | OUT-OF-SCOPE | Onayli 0.3 kapsam karari |
@@ -49,6 +49,12 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
 - Ilk kullanici backup hedefinin parent ACL'i private olmadigi icin yazmadan
   reddedildi. Yalniz yeni ozel backup parent'i private yapildi; mevcut veri veya
   sistem geneli izinler degistirilmedi. Yeni hedefte verify/restore gecti.
+
+- Son paket kontrolu ilk denemede history secret-pattern bulgusu verdi.
+  FakeMaven redaksiyon canary'sinin ayni dosya/rule/fingerprint kaydi current
+  icin zaten reviewed idi; yalniz exact history kaydi eksikti. Gercek credential
+  degildi. History istisnasi eklenince tam tarama PASSED, history_complete=true,
+  errors=[]; allowlist sozlesme kontrolleri 2/2 gecti. Global kural kapatilmadi.
 
 ## Bagimsizlik ve kalan is
 
@@ -85,3 +91,7 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `user-v3-backup-verify.log` | `sha256:a14e629ca6c2a5b506db92a4b39073bd86357dc182a050777949d25ab6e68316` |
 | `user-v3-backup-restore.log` | `sha256:60b11d04aafcbaeb0b36c85b0cc756c6946ff9811b891bbdb0f293b9732bb3b5` |
 | `source-gates.json` | `sha256:5788596f632eed1286ca445fc404a0a3a967b5ef21d81a94773e88098025647e` |
+| `package-validation-final.json` | `sha256:75269c14b08528c07adac13dbd8f7e2e8e0e878a8bde96f42653483c17340995` |
+| `package-validation-fixture-reviewed.json` | `sha256:52018c5efaf63d4ab51eb64b4a6ac9d857bbd40ba6e22a9e691c69f81263fe7b` |
+| `security-policy-junit.xml` | `sha256:4a788e0b511facf66e2d145bf66adc5a8eefb3a5c649123132d71113f142f1d2` |
+| `runtime-reachability-final.log` | `sha256:f0bfd9b4315ad2f07466aa1b69c6a6622d5118fa000287bb295fec41d158f117` |

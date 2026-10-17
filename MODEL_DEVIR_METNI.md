@@ -1,3 +1,25 @@
+# Guncel devir - Y-12 paket guvenlik kapisi da gecti
+
+paket_dogrula.py ilk kosuda tests/unit/test_unit_test_runner_process.py icin
+history assigned-credential 9e00f46d83f2 bulgusu verdi. Kaynakta FakeMaven
+redaksiyon/environment filtre testi canary'si oldugu dogrulandi; current icin
+ayni exact istisna zaten vardi. Yalniz history kaydi eklendi; credential veya
+secret kurali gizlenmedi. Yeni tam paket kontrolu PASSED, errors=[],
+history_complete=true. Allowlist sozlesmesi 2/2, package manifest check exit0;
+allowlist dosyasi shipped manifest girdisi degil, wheel baytlari degismedi.
+Ayrintilar tek Y12_DOGRULAMA_SONUCLARI.md raporunda, negative ilk deneme korunur.
+
+Tam Windows fail-fast run2 halen exec session 61976 altinda AKTIF; en son ilk
+iki ilerleme satiri hatasizdi (yuzde1). suite-run2.log/junit-run2.xml dosyalari
+repo disi C:/temp/zekam-y12-e3741df altinda. Ayni handle'i poll et; sonucu
+beklemeden yeni full kosu baslatma. Source Python kodu run2 basladiktan sonra
+degismedi; sadece reviewed repository policy kaydi ve belgeler guncellendi.
+Kullanim limitinin yuzde94'u kaldi; yuzde5 durma esigi henuz yok.
+Goal aktif, Y12 ve genel Windows kabul henuz bitmedi; korunan dort untracked
+ girdiyi stage etme veya silme.
+
+---
+
 # Guncel devir - Y-12 son artifact ve test takip noktasi
 
 Sonuclar tek raporda: docs/Y12_DOGRULAMA_SONUCLARI.md (SURUYOR).
