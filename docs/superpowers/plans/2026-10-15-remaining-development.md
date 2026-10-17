@@ -40,6 +40,18 @@
 
 ## Yurutme kaydi
 
+- 17 Ekim 2026 kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
+  sonrasinda tek ve son toplu pytest kosusu
+  `python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final-ce57d3c`
+  ile exit code 0 verdi: `7987 passed, 1409 skipped, 3 warnings`, sure
+  `54:33`. Uyarilar duplicate ZIP fixture ve iki capability-worker `runpy`
+  RuntimeWarning'idir. Skip'ler Windows symlink/POSIX, kurulu olmayan diger
+  native istemci, gercek Akilli Kasa corpus'u, OCR, local BGE ve explicit
+  remote/live provider kapilarina aittir. Bu kaynak degisikligi icin pytest
+  yeniden calistirilmayacak; kalan native host/tool-denial, signer/credential,
+  bagimsiz verifier, restore/rollback, live kalite ve release-chain kabulleri
+  test sonucundan bagimsiz acik tutulur.
+
 - 17 Ekim 2026 OpenCode 2.0.30 uyumlulugu: Host direct binary `opencode v2.0.30`
   dondugu halde adapter eski `2.0.29` ciktisini exact bekliyordu. Resmi v2.0.29
   ve v2.0.30 `packages/cli/src/run` dosyalari ile permission/session kaynaklari

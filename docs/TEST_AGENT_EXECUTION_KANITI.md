@@ -55,3 +55,12 @@ legacy hydration, missing artifact, rehashed request/dispatch/context drift,
 acceptance subject, upstream alias ve registry dependency regresyon kaynaklari
 eklendi. Gercek model/provider cagrisi veya native kabul yapilmadi; testler final
 toplu asamaya ertelendi, CALISTIRILMADI.
+
+## Final yerel test kaniti
+
+17 Ekim 2026'da kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
+sonrasinda tek toplu pytest kosusu exit code 0 ile tamamlandi:
+`7987 passed, 1409 skipped, 3 warnings` (54:33). Bu kosu yerel regresyon
+kapisini kapatir; native host/tool-denial, signer/credential, bagimsiz kalite,
+gercek provider/model ve restore kabulunu kanitlamaz. Yeni kaynak degisikligi
+yapilmadikca pytest yeniden kosulmayacaktir.
