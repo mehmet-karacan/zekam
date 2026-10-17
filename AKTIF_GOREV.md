@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.0` — Windows-only release scope ve final test kaydi
+**Belge sürümü:** `2.1` — Windows/Linux CI kapsam drift kapisi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3911,6 +3911,17 @@ MacOS archive-only kaynak sayisi 9 oldu. Bu denetim pytest, provider, native hos
 veya release kabul calistirmadi; final Windows/Linux suite'inden once hizli scope
 drift kontrolu olarak kullanilacak.
 
+### 10.120 17 Ekim 2026 aktif MacOS/CI kapsam kapisi
+
+Platform scope audit'i artik tracked Python testlerinin yaninda `.github` CI ve
+`benchmarks` suite dosyalarini da MacOS/Darwin/OSX marker'lari icin tarar. Binary
+test fixture'lari executable test kapsami sayilmaz; bu nedenle UTF-8 olmayan fixture
+baytlarina dokunulmaz. Son salt-okunur audit sonucu `passed=true`,
+`forbidden_test_count=0`, `forbidden_scope_file_count=0` ve `findings=[]` oldu.
+Bu kapi MacOS testinin, CI matrisinin veya benchmark suite'inin geri eklenmesini
+fail-closed yakalar; tarihsel arsiv metinleri ve archive-only kaynaklar bu aktif
+kapsam kanitina dahil degildir. Pytest calistirilmadi.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -4115,6 +4126,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.8 | 2026-10-17 | OpenCode v2.0.30 text-only native olay parseri ve deny-all tool smoke kanıtı eklendi; native transport ve bağımsız verifier kapıları açık bırakıldı |
 | 1.9 | 2026-10-17 | Son kaynak sonrası final suite `7989 passed, 1409 skipped, 3 warnings`; paket validator, runtime reachability ve temiz wheel readback'i güncellendi |
 | 2.0 | 2026-10-17 | MacOS kapsamı kaldırıldı; tek final suite sonucu ve Windows process/registry takip düzeltmeleri kayda alındı; temiz suite kanıtı tekrar çalıştırılmadan açık bırakıldı |
+| 2.1 | 2026-10-17 | Aktif MacOS/CI/benchmark kapsam drift kapısı genişletildi; testler final aşamaya bırakıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
