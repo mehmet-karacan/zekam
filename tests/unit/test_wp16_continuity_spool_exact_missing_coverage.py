@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import sqlite3
+import sys
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +14,11 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
+
+if sys.platform == "win32":
+    pytest.skip("POSIX fcntl coverage Windows'ta calismaz", allow_module_level=True)
+
+import fcntl
 from tests.integration import test_local_continuity_v4_atomic_close as close_fixture
 from tests.integration import test_local_continuity_v4_recovery as recovery_fixture
 from tests.unit import test_wp16_runtime_lifecycle_remaining_coverage as bootstrap_fixture
