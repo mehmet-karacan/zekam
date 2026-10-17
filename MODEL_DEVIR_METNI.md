@@ -1,3 +1,11 @@
+# Guncel devir — Y-10 kaynak teslimi
+
+Y-01..10 gelistirme teslimleri kayitli. Siradaki Y-11, sonra tek final Y-12.
+Test ve kullanici memory migrationi henuz yapilmadi; mevcut DB v2.
+Aktif liste AKTIF_GOREV.md 0.3, son kayit 0.14. Untracked girdileri koru.
+
+---
+
 # Guncel devir — Y-09 gelistirme teslimi
 
 Y-01..09 kaynak teslimleri kayitli; siradaki Y-10, sonra Y-11 ve Y-12.

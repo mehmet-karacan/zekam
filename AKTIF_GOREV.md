@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.4` — Y-09 kalici arsivleme ve v3 gecis kaynagi
+**Belge sürümü:** `3.5` — Y-10 operasyon ve yedekleme baglari
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -177,7 +177,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   surum/rollback baglarini tamamla. Mevcut fikir kayit akisi korunur. Memory/skill execution
   izni sayilmaz. Cikis: kullanici/proje bilgisi ve onayli skill yasam dongusu calisir;
   otomatik kendi kendine degisen evolution sistemi bu teslimin parcasi degildir.
-- [ ] **Y-10 — Durum raporu ve backup:** `backup.py`, `local_backup.py`,
+- [x] **Y-10 — Durum raporu ve backup:** `backup.py`, `local_backup.py`,
   `sqlite/operational_backup.py` ve mevcut Work/usage rapor yolunu tamamla. SQLite online
   snapshot, CAS/manifest ve ayri hedefe restore; kesinti/disk hatasinin acik sonucu kalsin.
   Scheduler varsayilan kapali, mevcut pause/disable davranisi korunur; yeni Windows servisi
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-10 durum raporu ve backup. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-11 paket ve kisa kullanim belgesi. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -441,6 +441,25 @@ migration testinin fingerprint'i kendi v2 pin'ine baglandi; unknown version test
 projection kontrolu yapildi. Y-09 isareti gelistirme teslimidir; bagimsiz inceleme,
 migration ve runtime kabul Y-12de bekler. Geri donus: kaynak commitini geri al;
 ileride migrate edilen DB'yi silme, yedegi ayri hedefe restore ile degerlendir.
+
+### 0.14 Y-10 gelistirme teslimi — 18 Ekim 2026
+
+Durum/Work/usage raporlarinin kanonik readback ve bilinmeyen olcum ayrimi, mevcut
+run-once scheduler ve native standing-grant/pause sinirlari kaynakta incelendi.
+Klasor acilisinda scheduler/native task kurulumu eklenmedi. `local_backup.py`
+online SQLite cohort snapshot, writer fence/deadline, source census, CAS/manifest
+ve exact digest denetimlerini tasir. Restore yalniz yeni hedefte staging ile
+calisir; SQLite integrity ve manifest parity sonrasi atomik yayin vardir.
+Missing/corrupt/disk-full/quiescence ve recovery negatif kaynaklari mevcut test
+kapsamindadir. Yeni memory_archival tablosu learning DB snapshot'iyla birlikte
+korunur; ayri derived state veya ikinci backup gercekligi olusturulmadi.
+
+Bu dilimde yeni kaynak eksigi saptanmadi; mevcut servisler yeniden yazilmadi.
+Kullanici DB henuz v2 oldugundan current v3 service-graph backup/restore kabulunu
+Y-12de explicit memory migration sonrasinda yap. Bu tur gercek backup/restore,
+native scheduler kurulumu, test, model/provider cagrisi yapilmadi. Checkbox
+kaynak teslimidir; gercek DR/runtime ve regresyon kaniti Y-12de bekler.
+Geri donus yalniz belge revizyonudur; kullanici verisi degismedi.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4531,6 +4550,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 3.3 | 2026-10-18 | Y-09 kismi: CLI exact supersession plan/effect bagi; kalici memory arsivleme acik, testler finalde |
 
 | 3.4 | 2026-10-18 | Y-09 kaynak teslimi: append-only memory archival, effective read/search ve yedekli explicit v3 gecisi; test/migration kabul finalde |
+
+| 3.5 | 2026-10-18 | Y-10 mevcut canonical rapor/scheduler ve online backup-restore baglari kaydedildi; gercek DR kabul finalde |
 
 ### 15.3 Şimdiki Gerçek Durum
 
