@@ -228,6 +228,19 @@
   ile projection eslesti; warnings/errors bos. Bu read-only kanit native/live
   ve bagimsiz kabul kapilarini kapatmaz.
 
+- 17 Ekim 2026 df6b150 son paket/reachability readback: Izole Windows wheel
+  smoke `status=passed`, 23/23 check ile tamamlandi; source revision
+  `df6b15092a48892ca491e8259a8b53dbea7e7687`, run
+  `sha256:84b761775fe83619463cb1ef0200e4f195a71777dcbdb7cf4b98ba8876f13ac7`,
+  artifact `sha256:b59a0ba4c1ba997d3304494fe255ba7f7f5dbb1487ecce6ac62169fdff035b9b`,
+  manifest `sha256:43106973f10ece8c7c7e8dee9e6ea049b2192a8cef2e162a0f13280b4e0a99d2`,
+  platform `windows-amd64`, Python `3.13.15`. Runtime reachability
+  `passed=true`, 356 reachable ve 18 archive-only module, finding yok.
+  `scripts/paket_dogrula.py` de `status=passed`, 23 dosya, 20 model,
+  18 faz/108 is, 42 schema, 83 Global DoD, 10.548 history blob,
+  `git_security.findings=[]`, warnings/errors bos dondu. Final pytest bu
+  kaynak revision'i icin siradaki tek toplu kapidir.
+
 - 17 Ekim 2026 yerel E5 runtime readback: Kurulum verifier'i `status=verified`
   dondu; sabit revision `761b726dd34fb83930e26aab4e9ac3899aa1fa78` ve tum
   yedi dosyanin yerel SHA256 kayitlari eslesti. Gercek ONNX Runtime `1.31.0`
