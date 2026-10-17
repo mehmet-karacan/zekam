@@ -66,6 +66,19 @@
   `natural_request_rag.py` ve Windows satir sonu farkinin tracked release manifestine
   sizdigini gosterdigi icin ayri release-parite acigi olarak acik tutuldu.
 
+- 17 Ekim 2026 temiz checkout release-parite duzeltmesi: `b0ee2b6` ile paket
+  manifesti yalniz cached Git kaynaklarini ve platformdan bagimsiz UTF-8 metin
+  bytes kimligini kullanir; wheel smoke ayni canonical byte hesabini uygular.
+  Temiz `git archive` checkout'unda `generate_package_manifest.py --check`
+  exit code 0 verdi. Bu archive'dan uretilen wheel izole Windows kabulunde
+  `status=passed`, 23/23 check, kaynak revizyonu
+  `b0ee2b6bdc396a5ec7de15e1cf183918f62470c6`, manifest
+  `sha256:71f9e364d9f742bab84567c74d0c86e428682b921c7d9958c735b4e97d09d9f2`,
+  artifact `sha256:e85126484394f9cb76e80600a9696ec52f4ac02c0e1955fba8af630cbe9238ef`
+  ve kosu `sha256:753e902c0969d05d8224233a36c3882a333eaa32a3d92b638a246e6a219319af`
+  ile tamamlandi. Bu kaynak duzeltmesinden sonra pytest henuz yeniden
+  calistirilmadi; tek son toplu test gelistirme donduktan sonra yapilacak.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
