@@ -158,7 +158,7 @@ class TestOnlyPolicy:
         return in_test_tree and folded.endswith(".java")
 
     def check_path(self, path: str, *, modifies_existing: bool) -> None:
-        """Windows/macOS dosya sistemleri icin buyuk-kucuk harf ve sondaki nokta/bosluk duyarsiz."""
+        """Windows ve POSIX dosya sistemleri icin yol adlarini canonicalize eder."""
 
         try:
             normalize_relative_source(path)

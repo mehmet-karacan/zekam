@@ -115,7 +115,7 @@ WP1..WP8 uygulandi (ayrinti asagida). WP9..WP11 devam dogrulamalari eklendi. Ek 
 - No-answer/quality corpus: **5 passed**; scaling benchmark (1k/10k/20k/50k): **8 passed**; cross-process cache: **4 passed**; real-project answer keys: **1 passed**; live provider latency: **1 passed** (5 queries, 10 provider calls, embed p50~1015ms).
 - `python scripts/paket_dogrula.py`: errors=[] warnings=[].
 - `python -m ruff check .`: **exit 0, ALL checks passed**; yeni eklenen test dosyalari da temiz.
-- `python -m mypy src/zekam`: gorevin dokundugu tum source dosyalarinda **0 hata**; `src/zekam` icindeki 93 hata + full-tree testleri ozde var (unrelated macOS/continuity/mcp; baseline `c3ad4c6`'da da 362+ hata vardi).
+- `python -m mypy src/zekam`: gorevin dokundugu tum source dosyalarinda **0 hata**; `src/zekam` icindeki 93 hata + full-tree testleri ozde var (legacy continuity/mcp; baseline `c3ad4c6`'da da 362+ hata vardi).
 - Bagimsiz verifier: **PASS**, P0=0, P1=0 (ek artifact'lere iliskin verifier PASS-WITH-P1; P1'ler cozuldu).
 
 ## Onceden var olan sorunlar (gorevle ilgisiz)

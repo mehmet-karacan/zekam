@@ -1,1 +1,0 @@
-{"command": "python -m pytest -q --junitxml=<redacted-evidence-path>", "exit_code": 0, "schema": "zekam-evidence-command/v1", "secret_safe": true}

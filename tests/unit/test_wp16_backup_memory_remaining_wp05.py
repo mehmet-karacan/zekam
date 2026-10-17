@@ -501,7 +501,7 @@ def _discovery() -> bge.LocalBGEDiscovery:
         digest("preprocessor"),
         digest("provider"),
         digest("runtime"),
-        "darwin-arm64:mps",
+        "windows-x64:cpu",
         "torch",
         8,
     )

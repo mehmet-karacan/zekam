@@ -404,7 +404,7 @@ def test_concurrent_drains_publish_one_control_record(control: dict[str, Any]) -
     assert len(_rows(control, "continuity_control_event")) == 1
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Real process SIGKILL proof is macOS/POSIX only")
+@pytest.mark.skipif(os.name != "posix", reason="Real process SIGKILL proof is POSIX only")
 @pytest.mark.parametrize("timing", ["before-commit", "after-commit"])
 def test_process_death_at_control_commit_recovers_from_actual_spool(
     control: dict[str, Any],

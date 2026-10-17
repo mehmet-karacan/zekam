@@ -1,8 +1,9 @@
-"""Dormant macOS launchd-owned PreCompact supervisor boundary.
+"""Legacy-only macOS launchd-owned PreCompact supervisor boundary.
 
 The production adapters are complete but issuance is deliberately disabled.
 Synthetic helpers exercise only codecs and state reduction; their values can
-never satisfy a production generation check.
+never satisfy a production generation check.  macOS is outside the active
+release scope; this module remains only for historical/read compatibility.
 """
 
 from __future__ import annotations

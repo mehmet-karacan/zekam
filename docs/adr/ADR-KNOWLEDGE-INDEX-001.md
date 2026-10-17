@@ -1,6 +1,6 @@
 # ADR-KNOWLEDGE-INDEX-001: Local knowledge index selection
 
-- Status: Accepted for bounded macOS fixture; Windows/scale deferred
+- Status: Superseded; Windows x64 is the only release target
 - Date: 2026-09-02
 - Authority: `AKTIF_GOREV.md` WP-01 and technology gate 8.2
 
@@ -20,14 +20,14 @@ are test baselines, not semantic production engines.
 ## Measured evidence
 
 With explicit user approval, LanceDB 0.37.1, Zvec 0.7.0 and sqlite-vec 0.1.9
-were installed in isolated temporary Mac environments. Production dependencies
+were installed in isolated temporary environments. Production dependencies
 were not changed. The corpus contains 132 distinct chunks from current Zekam
 sources and real 1024-dimensional `BAAI/bge-m3` vectors obtained from the
 loopback Infinity provider. It covers Turkish, English, PL/SQL identifiers,
 paths/functions, Jira IDs, typos, semantic paraphrase, exact/semantic conflict,
 no-answer and cross-project leakage. Feature-hash vectors were not used.
 
-All three candidates passed Mac persistence/restart, project prefiltering,
+All three candidates passed persistence/restart, project prefiltering,
 citation binding, atomic generation activation, update, offline execution and
 50,000-row rebuild/corruption probes. At 250,001 rows, all achieved fusion
 Recall@10 1.0, MRR 0.9375, citation precision 1.0 and no-answer
@@ -56,15 +56,15 @@ not treat that fallback as semantic dense retrieval.
 
 ## Decision
 
-For the user-approved Mac-first phase, select SQLite FTS5 plus sqlite-vec as the
-provisional knowledge stack. It keeps exact, lexical and vector generations
+For the Windows-only phase, select SQLite FTS5 plus sqlite-vec as the
+knowledge stack. It keeps exact, lexical and vector generations
 inside one familiar recovery boundary and has the smallest direct production
 dependency surface. Its measured 250,000-row latency is a declared risk, not a
 hidden pass. Current implementation work uses only a small, source-verifiable
-real-BGE fixture; it does not embed the user's full corpus or claim scale
+bounded local fixture; it does not embed the user's full corpus or claim scale
 acceptance. Global selection remains blocked on:
 
-1. Windows installation and runtime evidence;
+1. Windows installation and runtime evidence with the local E5 profile;
 2. Windows parity for query quality, isolation, crash/restart and rebuild;
 3. deferred large-corpus and stress measurements.
 

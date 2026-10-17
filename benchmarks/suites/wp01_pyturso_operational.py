@@ -1,4 +1,4 @@
-"""WP-01 operational Turso Database/pyturso Mac spike."""
+"""WP-01 operational Turso Database/pyturso evidence."""
 
 from __future__ import annotations
 
@@ -466,7 +466,6 @@ def run(*, root: Path, size: WorkloadSize) -> dict[str, Any]:
         read_only = _read_only(root)
     version_parts = tuple(int(part) for part in runtime_sqlite.split("."))
     wal_safe = version_parts in {(3, 44, 6), (3, 50, 7)} or version_parts >= (3, 51, 3)
-    mac = sys.platform == "darwin" and platform.machine().lower() == "arm64"
     result: dict[str, Any] = {
         "schema": SCHEMA,
         "candidate": "pyturso",
@@ -497,7 +496,6 @@ def run(*, root: Path, size: WorkloadSize) -> dict[str, Any]:
         "hard_gates": {
             "backup_restore": backup["passed"],
             "crash_integrity": crash.passed,
-            "macos_arm64": mac,
             "no_server_or_docker": True,
             "offline_runtime": network["count"] == 0,
             "safe_concurrency_profile": producers["inserted"] == size.producer_rows,

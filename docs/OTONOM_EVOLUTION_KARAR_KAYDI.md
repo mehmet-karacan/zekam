@@ -37,7 +37,7 @@ karar kaydidir. Work state veya approval authority'si degildir.
    tek transaction iddiasi uretilmeyecek.
 4. OS scheduler ve canli provider etkileri once read-only plan, sonra ayri exact yetki ve
    readback ister.
-5. macOS bu Windows cihazinda gecmis sayilmayacak.
+5. Windows disi istemci ve platformlar bu teslimin kabul kapsaminda degildir.
 
 ## Baseline sirasinda bulunan runtime hatasi
 
@@ -101,9 +101,8 @@ Gercek OS kaydi veya uzak model cagrisi bu paketin parcasi degildir.
   `evolve status` bunu
   `standing-grant-operational-migration-not-admitted` olarak acikca gosterir; gorev
   dosyasi yetki yerine gecmez.
-- Hedef OE-01 testleri Windows'ta gecti. Tum unit koleksiyonundaki macOS-only
-  `pwd/fcntl` import hatalari bu Windows paketinin sonucu degildir ve basari diye
-  gizlenmedi.
+- Hedef OE-01 testleri Windows'ta gecti. Windows disi POSIX importlari bu paketin
+  kabul kapsaminda degildir ve basari diye gizlenmedi.
 
 ## OE-01 bagimsiz dogrulama
 
@@ -279,8 +278,8 @@ vermez.
   owner/SYSTEM/Administrators ACL'iyle readback edildikten sonra kayipsiz v3->v4 migration
   ve FK/integrity audit'i PASS'tir. App-managed state/model/benchmark/analytics koklerindeki
   eski inherited ACL'ler ayni policy ile normalize edilmis ve native `local-core status`
-  `all_ready=true` readback vermistir. Tum-suite collection ayrica macOS-only `pwd` ve
-  `fcntl` importlari nedeniyle Windows'ta baslamadi; bunlar OE-05 basarisi gibi gosterilmez.
+  `all_ready=true` readback vermistir. Windows disi POSIX importlari nedeniyle kapsam disi
+  testler calistirilmaz; bunlar OE-05 basarisi gibi gosterilmez.
 
 ## OE-06 shadow/canary/activation/rollback (kapandi)
 

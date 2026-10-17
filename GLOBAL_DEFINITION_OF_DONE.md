@@ -10,8 +10,8 @@ Bu listedeki 83 eski kabul işareti `AKTIF_GOREV.md` K-001, K-002 ve Bölüm 31.
 uyarınca sıfırlanmıştır. Her unchecked madde aksi açıkça belirtilmedikçe `pending`
 sınıfındadır; eski PostgreSQL kanıtı yeni mimari için evidence değildir. Makine-okur
 durum kaynağı `kalite/GLOBAL_DOD.yaml` da aynı nedenle 83/83 `pending` durumuna
-alınmıştır. Mac'e özgü geçici kabul ve K-013 ertelemeleri bağlayıcı görev dosyasının
-Bölüm 24 ve 33 kayıtlarında izlenir; bunlar global veya Windows kabulü üretmez.
+alınmıştır. Eski platform kanıtları bağlayıcı görev dosyasının tarihsel kayıtlarında
+izlenir; bunlar Windows kabulü üretmez.
 
 Aşağıdaki legacy maddeler uygulanacak bir PostgreSQL gereksinimi değildir ve yeni
 mimaride `removed-by-new-architecture` olarak sınıflandırılmıştır:
@@ -24,14 +24,14 @@ mimaride `removed-by-new-architecture` olarak sınıflandırılmıştır:
 
 Bu maddelerin yerel halefleri sırasıyla schema-v1 SQLite bootstrap/drift/recovery,
 SQLite operational queue/claim/receipt/recovery, SQLite FTS5+sqlite-vec hibrit indeks,
-SQLite local learning/memory ve local contract/chaos/DR testleridir. Haleflerin Mac
-kanıtları mevcut olsa da global checkbox ancak aynı kriterin tüm zorunlu platform,
-provider ve paket kanıtları tamamlanınca işaretlenir. Mem0 adapter maddesi yeni mimaride
+SQLite local learning/memory ve local contract/chaos/DR testleridir. Global checkbox ancak
+Windows hedefi için zorunlu platform, provider ve paket kanıtları tamamlanınca işaretlenir.
+Mem0 adapter maddesi yeni mimaride
 ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 
 ## A. Kurulum ve çekirdek
 
-- [ ] Temiz Linux, macOS ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
+- [ ] Temiz Linux ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
 - [ ] `zekam doctor` local operational/learning/model/benchmark/routing/analytics store,
   knowledge index, queue, clients ve policy durumunu doğrular. — `pending`
 - [ ] Legacy server migration yolu kaldırılmıştır; schema-v1 local bootstrap, upgrade,
@@ -55,7 +55,7 @@ ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 - [ ] Koordinatör subagent sayılmaz ve sabit global maksimum yoktur.
 - [ ] DAG dependency ve resource conflict'e göre parallel/sequential route seçer.
 - [ ] Local operational store durable queue, lease, heartbeat, fencing ve logical lock
-  çalışır. — `reimplemented-and-verified` (Mac)
+  çalışır. — `reimplemented-and-verified` (Windows hedefi)
 - [ ] Claim-before-effect ve terminal receipt-after-effect sözleşmesi uygulanır.
 - [ ] Interrupted mutation `recovery-required` olur; sessiz retry yapılamaz.
 - [ ] Strict Agent Result Envelope ve coordinator fan-in çalışır.
@@ -78,9 +78,9 @@ ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 
 ## E. Knowledge Plane
 
-- [ ] BGE-M3 dense 1024 sürümlü ilk embedding profilidir.
+- [ ] Yerel multilingual-e5-small ONNX INT8 dense 384 sürümlü embedding profilidir.
 - [ ] SQLite FTS5+sqlite-vec exact, lexical, dense, RRF ve opsiyonel reranker çalışır.
-  — `reimplemented-and-verified` (Mac)
+  — `reimplemented-and-verified` (Windows hedefi)
 - [ ] DOCX heading/table, dijital/taranmış PDF, TXT/MD, PNG/JPEG/TIFF ve OCR ingestion çalışır.
 - [ ] Orijinal artifact, normalized content, parser/chunker/embedding profile ve source revision korunur.
 - [ ] Git URL, archive ve izinli directory taraması kod çalıştırmadan yapılır.
@@ -94,7 +94,7 @@ ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 ## F. Bellek, öğrenme ve skills
 
 - [ ] Local SQLite learning/memory store üretim çekirdeği olarak çalışır.
-  — `reimplemented-and-verified` (Mac)
+  — `reimplemented-and-verified` (Windows hedefi)
 - [ ] Mem0 OSS adapter'ı opsiyonel ve aynı port arkasında çalışır.
 - [ ] Working, episodic, semantic, procedural, preference ve failure memory ayrıdır.
 - [ ] User/project/work/run/agent scope isolation testleri geçer.
@@ -138,9 +138,9 @@ ayrı kabul kanıtı bulunmadığı için `pending` kalır.
 ## J. Kalite, dokümantasyon ve release
 
 - [ ] Unit, integration, security, property, concurrency, local-store acceptance ve E2E
-  testleri desteklenen platformlarda geçer. — `reimplemented-and-verified` (Mac)
+  testleri desteklenen platformlarda geçer. — `reimplemented-and-verified` (Windows hedefi)
 - [ ] Lint, format, type check, dependency audit, local schema drift ve dead-code kapıları
-  geçer. — `reimplemented-and-verified` (Mac)
+  geçer. — `reimplemented-and-verified` (Windows hedefi)
 - [ ] İnsan okunur Türkçe belgeler gerçek kodla çelişmez.
 - [ ] Commit mesajları Türkçe anlamlı ve ASCII-only'dir.
 - [ ] Kritik akışlarda placeholder, mock-only production path veya ölü kod yoktur.

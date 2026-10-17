@@ -29,7 +29,7 @@ OPEN_STATES filtresiyle devam penceresini okur. Bu komut lease veya execution iz
 uretmez. Bu iki gelistirmenin regresyon kodu hazirdir; testler tum gelistirmeler
 sonrasi tek final asamada calistirilacaktir.
 
-Worker, fresh Mac yerel çekirdeğinin `state/operational.db` kuyruğu üzerinde
+Worker, fresh Windows yerel çekirdeğinin `state/operational.db` kuyruğu üzerinde
 bounded run-once olarak çalışır. Ayrı bir daemon, PostgreSQL bağlantısı, DB
 parolası, systemd birimi veya uzun ömürlü `run` komutu yoktur.
 

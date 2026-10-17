@@ -1,6 +1,6 @@
 # ADR-LOCAL-STORE-001: Embedded operational store selection
 
-- Status: Accepted for macOS ARM64; Windows x64 deferred
+- Status: Superseded; Windows x64 is the only release target
 - Date: 2026-09-02
 - Authority: `AKTIF_GOREV.md` WP-01 and technology gate 8.1
 
@@ -14,7 +14,7 @@ or cross-platform execution evidence.
 
 ## Measured evidence
 
-The macOS ARM64 CPython SQLite spike used Python 3.12.14 and SQLite 3.53.4.
+The historical CPython SQLite spike used Python 3.12.14 and SQLite 3.53.4.
 SQLite 3.53.4 is beyond the upstream 3.51.3 WAL-reset fix boundary. The spike
 executed 10,000 project inserts, 10,000 work inserts, 100,000 append-only
 events, and another 10,000 events through four producers and one serialized
@@ -25,8 +25,7 @@ unexpected-trigger schema drift, file truncation detection, and SQLite
 backup/restore logical digest parity.
 All local probes passed and the network deny monitor observed zero attempts.
 
-Canonical result:
-`artifacts/acceptance/wp-01/wp01-d95cdac/metrics/sqlite-operational-macos-arm64.json`.
+The historical result is retained only in the task ledger; it is not release evidence.
 
 An earlier implementation assumption—copying only the main file while WAL was
 active—failed to carry the schema. The spike therefore uses SQLite's backup API
@@ -35,7 +34,7 @@ one unit or use the backup API.
 
 With explicit user approval, `pyturso` 0.7.2 was installed only in an isolated
 temporary environment and exercised against the same workload. It passed the
-Mac load, constraint, idempotency, serialized-producer/concurrent-reader,
+  load, constraint, idempotency, serialized-producer/concurrent-reader,
 backup/restore, truncation, schema-drift, read-only, crash-integrity and offline
 probes. Its embedded SQLite is 3.50.4, below the 3.50.7 backport boundary for
 the WAL-reset fix, so its safe measured profile is a single-writer coordinator.
@@ -50,8 +49,8 @@ accepted as execution evidence.
 
 ## Decision
 
-For the user-approved Mac-first phase, select CPython SQLite 3.53.4 as the
-provisional operational engine. It has the smaller dependency surface, the
+For the Windows-only phase, select CPython SQLite 3.53.4 as the operational
+engine candidate. It has the smaller dependency surface, the
 WAL-reset fix, the more mature backup/recovery path and no process-lifetime
 path-lock behavior observed in pyturso. This is not Windows acceptance: the
 global selection contract remains fail-closed until Windows x64 evidence exists.
@@ -61,7 +60,6 @@ global selection contract remains fail-closed until Windows x64 evidence exists.
 - `pyproject.toml` remains unchanged.
 - The legacy server database is not queried and is not a candidate data source.
 - No Turso remote/sync mode is allowed in this bake-off.
-- WP-02 may bind CPython SQLite on macOS under the explicit deferred-platform
-  decision.
+- WP-02 may bind CPython SQLite on Windows only after native runtime evidence.
 - If the runtime SQLite version lacks the WAL-reset fix, multi-connection WAL
   is disabled and a single-writer profile is mandatory.

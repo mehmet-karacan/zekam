@@ -268,7 +268,6 @@ def run(*, root: Path, row_count: int) -> dict[str, Any]:
         "operational_mutation_supported": False,
         "hard_gates": {
             "corruption_detection": corruption["passed"],
-            "macos_arm64": current_platform == "macos-arm64",
             "no_server_or_docker": True,
             "offline_runtime": network["count"] == 0,
             "raw_artifact_authority": True,

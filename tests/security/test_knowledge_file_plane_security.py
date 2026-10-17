@@ -141,7 +141,7 @@ def test_text_artifact_and_public_note_fail_closed_before_persistence(tmp_path: 
     assert not (home / manifest.portable_ref).exists()
 
 
-def test_note_path_with_spaces_and_non_ascii_is_portable_on_macos(tmp_path: Path) -> None:
+def test_note_path_with_spaces_and_non_ascii_is_portable(tmp_path: Path) -> None:
     home = tmp_path / "home with spaces"
     HomeLayout(home).ensure().ensure_project("akilli-kasa")
     store = KnowledgeFileStore(home)

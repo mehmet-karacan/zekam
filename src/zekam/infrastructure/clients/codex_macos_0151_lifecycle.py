@@ -1,8 +1,9 @@
-"""Dormant, exact Codex 0.151 macOS lifecycle boundary.
+"""Legacy-only Codex 0.151 macOS lifecycle boundary.
 
 This module parses content-free structural hook input and renders bounded hook
 output.  It does not install hooks, allocate continuity authority, or write any
-runtime or project state.
+runtime or project state.  macOS is outside the active release scope; this
+module remains only for historical/read compatibility.
 """
 
 from __future__ import annotations

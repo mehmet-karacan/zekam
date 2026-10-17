@@ -27,7 +27,6 @@ def test_package_acceptance_workflow_is_cross_platform_and_serverless() -> None:
     assert jobs["wheel-smoke"]["strategy"]["matrix"]["os"] == [
         "ubuntu-latest",
         "windows-latest",
-        "macos-latest",
     ]
     assert set(jobs["package-gate"]["needs"]) == {
         "build-artifacts",

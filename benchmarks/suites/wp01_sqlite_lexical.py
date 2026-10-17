@@ -373,7 +373,6 @@ def run(*, corpus_path: Path, root: Path, target_count: int, rebuild: bool) -> d
             "cross_project_filter_before_limit": (
                 "security-fixture/cross-project-decoy.txt" not in cross["lexical_paths"]
             ),
-            "macos_arm64": current_platform == "macos-arm64",
             "no_server_or_docker": True,
             "offline_runtime": network["count"] == 0,
             "persistent_restart": restart_parity,

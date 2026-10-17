@@ -1,7 +1,7 @@
 """WP-01 operational SQLite spike with local durability fault probes.
 
 The suite uses only CPython's bundled SQLite.  It does not install packages,
-contact a provider, inspect PostgreSQL, or claim Windows execution from macOS.
+contact a provider, inspect PostgreSQL, or claim an unsupported platform result.
 """
 
 from __future__ import annotations
@@ -607,7 +607,7 @@ def _row_counts(path: Path) -> dict[str, int]:
 def run_sqlite_operational_bakeoff(
     *, root: Path, size: WorkloadSize | None = None
 ) -> dict[str, Any]:
-    """Execute the macOS-local operational spike and return canonical evidence."""
+    """Execute the Windows-local operational spike and return canonical evidence."""
     from zekam.application.technology_bakeoff import (
         assess_sqlite_wal_safety,
         canonical_json_digest,
@@ -699,7 +699,6 @@ def run_sqlite_operational_bakeoff(
         "executed_platforms": [current_platform] if current_platform is not None else [],
         "hard_gates": {
             "crash_integrity": crash.passed,
-            "macos_arm64": current_platform == "macos-arm64" and local_probes_pass,
             "no_server_or_docker": True,
             "offline_runtime": network_attempts["count"] == 0,
             "persistent_local_state": backup["passed"],

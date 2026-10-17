@@ -1889,7 +1889,7 @@ def test_wp3_warm_local_query_skips_corpus_plan(
     build/hand the whole corpus plan chunks to the provider for qualification.
     On the baseline ``_query`` called ``_project_plan(source_root, ...)`` on every
     local query to rebuild the corpus plan and pass ``query_chunks`` into
-    ``_provider``/``build_verified_mac_embedding``.  WP3 removes that: the local
+    ``_provider``/``build_verified_local_e5_embedding``.  The local
     route qualifies from the accepted bounded synthetic fixture only.
     """
     source = tmp_path / "source"

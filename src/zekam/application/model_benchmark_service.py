@@ -479,7 +479,7 @@ def _bounded_process(
     stderr = bytearray()
     try:
         process = subprocess.Popen(
-            _sandboxed_argv(argv, read_allow_roots),
+            argv,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -542,76 +542,6 @@ def _bounded_process(
             for final_stream in (process.stdin, process.stdout, process.stderr):
                 if final_stream is not None and not final_stream.closed:
                     final_stream.close()
-
-
-def _sandboxed_argv(argv: tuple[str, ...], read_allow_roots: tuple[Path, ...]) -> tuple[str, ...]:
-    """Wrap a Mac benchmark command in a deny-write/deny-network OS sandbox."""
-    if sys.platform != "darwin":
-        raise PolicyViolation("Local benchmark OS sandbox is only accepted on macOS")
-    sandbox = Path("/usr/bin/sandbox-exec")
-    if not sandbox.is_file():
-        raise PolicyViolation("Local benchmark sandbox executable unavailable")
-    home = Path.home().resolve(strict=True)
-    executable = Path(argv[0])
-    if not executable.is_absolute() or not executable.is_file():
-        raise PolicyViolation("Local adapter executable absolute normal dosya olmali")
-    allowed: set[Path] = set()
-    for item in read_allow_roots:
-        if not isinstance(item, Path) or not item.is_absolute() or item.is_symlink():
-            raise PolicyViolation("Local benchmark sandbox read root invalid")
-        resolved = item.resolve(strict=True)
-        if resolved == home:
-            raise PolicyViolation("Local benchmark sandbox cannot allow the whole user home")
-        allowed.add(resolved)
-    resolved_executable = executable.resolve(strict=True)
-    if executable.parent.name in {"bin", "Scripts"}:
-        allowed.add(executable.parent.parent.resolve(strict=True))
-    elif resolved_executable.is_relative_to(home):
-        allowed.add(resolved_executable.parent)
-    for argument in argv[1:]:
-        candidate = Path(argument)
-        if candidate.is_absolute() and candidate.is_file() and not candidate.is_symlink():
-            allowed.add(candidate.resolve(strict=True))
-
-    def denied_home_entries(directory: Path) -> tuple[Path, ...]:
-        denied: list[Path] = []
-        try:
-            children = tuple(directory.iterdir())
-        except OSError as exc:
-            raise PolicyViolation("Local benchmark home read policy kurulamadı") from exc
-        for child in children:
-            resolved_child = child.resolve(strict=False)
-            exact_allowed = any(path == resolved_child for path in allowed)
-            allowed_descendant = any(
-                directory == path or directory in path.parents for path in allowed
-            )
-            child_has_allowed_descendant = any(resolved_child in path.parents for path in allowed)
-            if exact_allowed:
-                continue
-            if child_has_allowed_descendant and child.is_dir() and not child.is_symlink():
-                denied.extend(denied_home_entries(child))
-                continue
-            if not allowed_descendant or not child_has_allowed_descendant:
-                denied.append(child)
-        return tuple(denied)
-
-    def quoted(value: Path) -> str:
-        return json.dumps(str(value))
-
-    # CPython/Homebrew launch-time services abort under a deny-default profile.
-    # Keep launch/read compatibility, but deny every filesystem mutation and all
-    # network access at the kernel sandbox boundary. Declared roots remain
-    # validated and become part of the adapter contract; they never grant write.
-    rules = [
-        "(version 1)",
-        "(allow default)",
-        "(deny file-write*)",
-        "(deny network*)",
-    ]
-    for path in denied_home_entries(home):
-        operation = "subpath" if path.is_dir() and not path.is_symlink() else "literal"
-        rules.append(f"(deny file-read* ({operation} {quoted(path)}))")
-    return (str(sandbox), "-p", " ".join(rules), *argv)
 
 
 def _run_json_process(

@@ -17,11 +17,6 @@ from zekam.domain.canonical import digest_of_bytes
 from zekam.domain.errors import ValidationFailed
 from zekam.domain.retrieval import Chunk
 from zekam.domain.security import DataClassification
-from zekam.infrastructure.embedding.infinity_bge import (
-    LocalInfinityBGEProvider,
-    build_local_bge_provider,
-    default_mac_bge_configuration,
-)
 from zekam.infrastructure.embedding.onnx_e5 import (
     LocalE5Configuration,
     LocalOnnxE5Provider,
@@ -120,21 +115,6 @@ def project_embedding_probe_fixture(
         ),
         classification=classification,
     )
-
-
-def build_verified_mac_embedding(
-    chunks: tuple[Chunk, ...],
-    *,
-    classification: DataClassification = DataClassification.LOCAL_ONLY,
-) -> VerifiedLocalEmbeddingBinding:
-    """Discover and probe the retained macOS BGE adapter for legacy callers."""
-
-    provider = build_local_bge_provider(default_mac_bge_configuration())
-    result = provider.probe(project_embedding_probe_fixture(chunks, classification=classification))
-    policy = EmbeddingPolicy(classification, result.profile.profile_digest)
-    if not provider.health().healthy:
-        raise ValidationFailed("Verified local embedding provider health gecemedi")
-    return VerifiedLocalEmbeddingBinding(provider, result.profile, policy)
 
 
 def build_verified_local_e5_embedding(

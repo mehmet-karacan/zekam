@@ -8,7 +8,7 @@ default_state_reason: legacy PostgreSQL evidence is not accepted for the new arc
 criteria:
 - id: ZEKAM-DOD-001
   category: A. Kurulum ve çekirdek
-  criterion: Temiz Linux, macOS ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
+  criterion: Temiz Linux ve Windows/WSL kurulum akışı dokümante ve test edilmiştir.
   state: pending
   architecture_classification: pending
   reclassification_evidence: AKTIF_GOREV.md#314-global-dod-guncellemesi
@@ -19,13 +19,12 @@ criteria:
   waiver_allowed: false
   evidence:
   - docs/YENI_MAKINEDE_BASLAMA.md
-  - .zekam/evidence/ZEKAM-DOD-001-macos-20260821T070131Z.json
   - .zekam/evidence/ZEKAM-DOD-001-linux-20260821T072025Z.json
   - .zekam/defects/ZEKAM-DEF-003.json
   - .zekam/defects/ZEKAM-DEF-004.json
-  assessment_note: 'Uc platformda temiz kurulum tatbikati kosuldu ve alti kapi da her
-    birinde gecti. Windows: 2026-08-20, MINGW64_NT-10.0-26200. macOS: 2026-08-21, Darwin
-    25.6.0 arm64, Python 3.12.14. Linux: 2026-08-21, python:3.12-slim (Debian 13 trixie,
+  assessment_note: 'Iki desteklenen platformda temiz kurulum tatbikati kosuldu ve alti kapi da her
+    birinde gecti. Windows: 2026-08-20, MINGW64_NT-10.0-26200. Linux: 2026-08-21,
+    python:3.12-slim (Debian 13 trixie,
     arm64) konteynerinde ayri veritabanina karsi sifirdan migration. Tatbikat iki gercek
     kusur buldu: symlink kararinin resolve sonrasinda verilmesi (commit e7b5c28) ve
     operator ZEKAM_DATABASE_* ortaminin testlere sizmasi (commit 8f266af). Ucuncu
@@ -33,8 +32,7 @@ criteria:
     yuzden taze kurulum doctor healthy donemiyordu; zekam scheduler init eklendi
     (commit db4e694, ZEKAM-DEF-004) ve sifirdan Linux kurulumunda doctor healthy
     dondu. Sinirlar: WSL ayri olarak kosulmadi, Windows ayagi native MSYS2
-    uzerindedir; Linux ayagi macOS ustundeki konteynerdedir, ayri fiziksel makine
-    degildir.'
+    uzerindedir; Linux ayagi ayri fiziksel makine degildir.'
 - id: ZEKAM-DOD-002
   category: A. Kurulum ve çekirdek
   criterion: '`zekam doctor` local operational/learning/model/benchmark/routing/analytics

@@ -1,6 +1,6 @@
 # ADR-ANALYTICS-001: Rebuildable local analytics projection
 
-- Status: Accepted for macOS ARM64; Windows x64 deferred
+- Status: Superseded; Windows x64 is the only release target
 - Date: 2026-09-02
 - Authority: `AKTIF_GOREV.md` technology gate 8.3
 
@@ -10,15 +10,15 @@ Analytics is a derived projection over immutable benchmark and telemetry
 artifacts. It must not become operational authority or accept operational
 mutations. The store must be removable and rebuildable from raw artifacts.
 
-DuckDB 1.5.5 currently publishes macOS ARM64 and Windows x64 Python wheels.
+DuckDB 1.5.5 publishes a Windows x64 Python wheel.
 Official concurrency documentation supports read/write concurrency inside one
 process, while stable multi-process native-file writing is not the default
 model. This matches Zekam's required single analytics writer or batch importer.
 
 ## Measured evidence
 
-With explicit user approval, DuckDB 1.5.5 was installed only in an isolated
-temporary Mac environment. A 100,000-row immutable JSONL artifact was imported;
+Historical isolated-environment measurements imported a 100,000-row immutable
+JSONL artifact;
 four read-only child processes completed concurrently, a second writer process
 was rejected by the native file lock, and deleting/rebuilding the derived DB
 reproduced the exact logical projection digest. No network attempt occurred and
@@ -42,7 +42,7 @@ Use DuckDB only behind an analytics projection port with:
 
 ## Gate
 
-The Mac-first implementation may use DuckDB behind the projection port. Windows
-x64 acceptance remains deferred until the same clean-install, import,
+The Windows implementation may use DuckDB behind the projection port only after
+the same clean-install, import,
 concurrent-read, writer-exclusion, manifest-corruption and delete/rebuild probes
-pass there. No global cross-platform claim follows from this decision.
+pass there. No platform outside the Windows release target is part of this decision.

@@ -1,8 +1,8 @@
 """Fail-closed contracts for the WP-01 embedded technology bake-off.
 
-This module does not select an engine.  It validates measured evidence so an
-ADR cannot turn documentation claims or an unexecuted platform row into a
-production dependency decision.
+This module does not select an engine.  It validates measured Windows evidence
+so an ADR cannot turn documentation claims or an unexecuted platform row into
+a production dependency decision.
 """
 
 from __future__ import annotations
@@ -18,8 +18,7 @@ from typing import Any, Literal, cast
 from zekam.domain.errors import ValidationFailed
 
 type EngineKind = Literal["operational", "knowledge", "analytics"]
-type PlatformName = Literal["macos-arm64", "windows-x64"]
-type DecisionStatus = Literal["macos-accepted-windows-deferred"]
+type PlatformName = Literal["windows-x64"]
 
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 _REQUIRED_HARD_GATES = frozenset(
@@ -28,7 +27,6 @@ _REQUIRED_HARD_GATES = frozenset(
         "offline_runtime",
         "persistent_local_state",
         "reproducible_install",
-        "macos_arm64",
         "windows_x64",
         "crash_integrity",
         "rebuild_or_restore",
@@ -90,9 +88,7 @@ class CandidateEvidence:
             raise ValidationFailed("Bake-off engine_kind gecersiz")
         if not isinstance(artifact_digest, str) or _DIGEST_RE.fullmatch(artifact_digest) is None:
             raise ValidationFailed("Bake-off artifact digest canonical sha256 olmali")
-        if not isinstance(platforms, list) or any(
-            item not in {"macos-arm64", "windows-x64"} for item in platforms
-        ):
+        if not isinstance(platforms, list) or any(item != "windows-x64" for item in platforms):
             raise ValidationFailed("Bake-off platform listesi gecersiz")
         if len(platforms) != len(set(platforms)):
             raise ValidationFailed("Bake-off platform listesi duplicate iceremez")
@@ -115,7 +111,7 @@ class CandidateEvidence:
     def assert_selectable(self) -> None:
         if not self.measured:
             raise ValidationFailed(f"{self.candidate}: gercek bake-off olcumu yok")
-        missing_platforms = {"macos-arm64", "windows-x64"} - self.executed_platforms
+        missing_platforms = {"windows-x64"} - self.executed_platforms
         if missing_platforms:
             raise ValidationFailed(
                 f"{self.candidate}: platform kaniti eksik: {', '.join(sorted(missing_platforms))}"
@@ -128,58 +124,6 @@ class CandidateEvidence:
         failed = sorted(name for name, result in self.hard_gates.items() if not result)
         if failed:
             raise ValidationFailed(f"{self.candidate}: hard gate basarisiz: {', '.join(failed)}")
-
-
-@dataclass(frozen=True, slots=True)
-class MacProvisionalDecision:
-    """Explicit Mac-only decision that cannot masquerade as global acceptance."""
-
-    operational: str
-    knowledge: str
-    analytics: str
-    evidence_digests: tuple[str, ...]
-    status: DecisionStatus
-    windows_x64_deferred: bool
-
-    @classmethod
-    def from_mapping(cls, value: object) -> MacProvisionalDecision:
-        if not isinstance(value, dict):
-            raise ValidationFailed("Mac provisional karar nesne olmalidir")
-        expected = {
-            "operational",
-            "knowledge",
-            "analytics",
-            "evidence_digests",
-            "status",
-            "windows_x64_deferred",
-        }
-        if set(value) != expected:
-            raise ValidationFailed("Mac provisional karar alanlari exact olmali")
-        engines = tuple(value[key] for key in ("operational", "knowledge", "analytics"))
-        if any(not isinstance(item, str) or not item.strip() for item in engines):
-            raise ValidationFailed("Mac provisional motor kimligi bos olamaz")
-        digests = value["evidence_digests"]
-        if (
-            not isinstance(digests, list)
-            or not digests
-            or len(digests) != len(set(digests))
-            or any(
-                not isinstance(item, str) or _DIGEST_RE.fullmatch(item) is None for item in digests
-            )
-        ):
-            raise ValidationFailed("Mac provisional evidence digest listesi gecersiz")
-        if value["status"] != "macos-accepted-windows-deferred":
-            raise ValidationFailed("Mac provisional karar global acceptance olamaz")
-        if value["windows_x64_deferred"] is not True:
-            raise ValidationFailed("Windows x64 yalniz explicit deferred olabilir")
-        return cls(
-            operational=cast(str, engines[0]).strip(),
-            knowledge=cast(str, engines[1]).strip(),
-            analytics=cast(str, engines[2]).strip(),
-            evidence_digests=tuple(cast(list[str], digests)),
-            status="macos-accepted-windows-deferred",
-            windows_x64_deferred=True,
-        )
 
 
 def assess_sqlite_wal_safety(version: str) -> SQLiteWalSafety:

@@ -735,7 +735,6 @@ def run_bakeoff(
             "corruption_detection": corruption_detected is True if rebuild else None,
             "cross_project_filter_before_limit": leakage_prevented,
             "hidden_network_calls": network_attempts["count"] == 0,
-            "macos_arm64": current_platform == "macos-arm64",
             "persistent_restart": restart_parity,
             "rebuild_from_manifest": rebuild_parity,
             "windows_x64": current_platform == "windows-x64",

@@ -78,7 +78,7 @@ def _write_required(root: Path, revision: str = "abc123") -> None:
         f"{sdist_digest.removeprefix('sha256:')}  {sdist.name}\n",
         encoding="ascii",
     )
-    for platform_name in ("ubuntu-latest", "windows-latest", "macos-latest"):
+    for platform_name in ("ubuntu-latest", "windows-latest"):
         _write_json(
             root / f"package-acceptance-{platform_name}" / "package-acceptance.json",
             _acceptance("wheel", wheel_digest, revision),

@@ -1,4 +1,8 @@
-"""Bounded canonical IPC for the dormant Codex 0.151 PreCompact client."""
+"""Legacy-only bounded IPC for the dormant Codex 0.151 PreCompact client.
+
+macOS is outside the active release scope; this module remains only for
+historical/read compatibility.
+"""
 
 # ruff: noqa: SIM905 -- compact exact vocabularies keep the fixed file cap.
 

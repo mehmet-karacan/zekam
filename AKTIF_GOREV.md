@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `1.6` — v0.5 talep defterinden tek ana göreve geçiş
+**Belge sürümü:** `1.7` — Windows-only release scope karari
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3827,6 +3827,26 @@ Bu yoklamada issue govdesi, attachment, PII veya credential kaydedilmedi; Jira/
 Confluence'a yazma yapilmadi. Sonuc WP-06.04 icin yalniz kis partially available
 connector kanitidir. Exact issue/attachment provenance, Confluence pagination/
 permission ve canonical project publication kabul kapilari acik kalir.
+
+### 10.114 17 Ekim 2026 Windows-only release scope karari
+
+Kullanici MacOS kapsamini tamamen kaldirdi ve MacOS testlerinin calistirilmayacagini
+belirledi. Bu karar aktif teslim hedefini Windows 11/OpenCode ve yerel ONNX
+multilingual-e5-small embedding profiline sabitler. MacOS'a ozel test, paketleme,
+CI matrisi, kabul artifact'i ve native inventory yuzeyi kaynak agacindan kaldirildi;
+MacOS'a bagli eski continuity modulleri yalniz tarihsel/read-compatibility kodu olarak
+aktif release ve test koleksiyonunun disinda tutulur.
+
+`artifacts/acceptance` altindaki MacOS kabul bundle'lari ve WP-01 MacOS metrikleri
+silindi. Tarihsel gorev arsivi gecmis karar kaydi olarak korunur; bu kayitlar artik
+acceptance evidence veya platform destegi degildir. `AKTIF_GOREV.yaml` bu kararın
+ardindan canonical projection ureticisiyle yeniden olusturulacaktir.
+
+Son kaynak degisiklikleri tamamlanmadan test calistirilmayacak. Final asamada yalniz
+Windows/Linux destek matrisine ait testler tek kez calistirilacak; MacOS testleri
+koleksiyonda bulunmayacak ve CI'da yer almayacaktir. Bu scope karari acik WP maddelerini
+basarili saymaz; native, credential, corpus, bagimsiz verifier, restore/rollback ve
+release kanit kapilari exact kanit gelene kadar acik kalir.
 
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 

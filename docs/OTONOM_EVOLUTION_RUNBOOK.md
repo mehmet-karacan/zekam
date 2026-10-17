@@ -110,5 +110,5 @@ provider izni vermez.
 
 ## Platform durumu
 
-Bu teslim Windows'ta dogrulanir. macOS adapter kodu korunur fakat bu Windows oturumunda native
-macOS kabul sonucu uretilmez. Iki cihaz ayni writable scope icin bagimsiz auto-writer olamaz.
+Bu teslim Windows'ta dogrulanir. Windows disi istemci ve adapter kabul kapsaminda degildir;
+Windows disi test veya kanit uretilmez. Ayni writable scope icin bagimsiz auto-writer olamaz.

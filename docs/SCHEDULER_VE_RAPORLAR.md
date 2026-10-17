@@ -1,6 +1,6 @@
 # Yerel scheduler, worker ve raporlar
 
-Mac yerel çekirdeği bir scheduler daemon'u kurmaz. Kalıcı iş, lease, outbox ve
+Windows yerel çekirdeği bir scheduler daemon'u kurmaz. Kalıcı iş, lease, outbox ve
 recovery durumu `state/operational.db` içindedir. Dış zamanlayıcı yalnız aşağıdaki
 bounded run-once komutlarını çağırabilir; bunlar PostgreSQL, Docker veya provider
 bağlantısı kullanmaz.

@@ -117,11 +117,10 @@ durumunda istemci beyanini tasir (`next_safe_action_source`); diger durumlarda Z
 dogrulama yonlendirmesidir. Mevcut `zekam resume` paketi ayni checkpoint'in ozetini
 (`latest_semantic_checkpoint`) gosterir.
 
-Not: `zekam continuity local ...` (v4 hydrate/checkpoint/freeze) macOS/POSIX'e ozgudur; repo'nun
-kendi testleri Windows'ta `os.O_NOFOLLOW/O_DIRECTORY` yok diye atlar. Windows ve diger native
-hostlar icin ortak yol `continuity native`'dir. `continuity local freeze*` komutlarinin JSON
-okuyucusu Windows'ta `getattr` + `lstat` reparse kontroluyle calisacak sekilde duzeltildi
-(`os.O_NOFOLLOW` Windows'ta yoktur ve onceden AttributeError verirdi).
+Not: `zekam continuity local ...` (v4 hydrate/checkpoint/freeze) legacy bir akis olarak
+release kapsamindan cikarilmistir. Windows hedefinde kullanilacak ortak yol `continuity native`'dir;
+Windows disi platformlar icin test veya kabul kosusu yoktur. Legacy JSON okuyucusu Windows'ta `getattr` + `lstat`
+reparse kontroluyle korunur (`os.O_NOFOLLOW` Windows'ta yoktur).
 
 ## 3. OpenCode spool recovery
 

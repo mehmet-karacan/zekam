@@ -24,9 +24,6 @@ REQUIRED_GROUPS: dict[str, Callable[[Path], bool]] = {
     "wheel-windows": lambda path: (
         "windows" in path.as_posix() and path.name == "package-acceptance.json"
     ),
-    "wheel-macos": lambda path: (
-        "macos" in path.as_posix() and path.name == "package-acceptance.json"
-    ),
     "sdist": lambda path: path.name == "sdist-acceptance.json",
     "container": lambda path: path.name == "container-acceptance.json",
     "migration": lambda path: path.name == "migration-rehearsal.json",
@@ -176,7 +173,7 @@ def _validate_evidence(root: Path, files: tuple[Path, ...], source_revision: str
     declared = _validate_distribution(root, groups["distribution"])
     wheel_name = next(name for name in declared if name.endswith(".whl"))
     sdist_name = next(name for name in declared if name.endswith(".tar.gz"))
-    for key in ("wheel-linux", "wheel-windows", "wheel-macos"):
+    for key in ("wheel-linux", "wheel-windows"):
         _validate_acceptance(
             groups[key],
             kind="wheel",

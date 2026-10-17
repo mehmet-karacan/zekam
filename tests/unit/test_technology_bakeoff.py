@@ -7,7 +7,6 @@ import pytest
 
 from zekam.application.technology_bakeoff import (
     CandidateEvidence,
-    MacProvisionalDecision,
     assess_sqlite_wal_safety,
     canonical_json_digest,
     load_candidate_evidence,
@@ -21,7 +20,6 @@ _PASSING_GATES = {
     "offline_runtime": True,
     "persistent_local_state": True,
     "reproducible_install": True,
-    "macos_arm64": True,
     "windows_x64": True,
     "crash_integrity": True,
     "rebuild_or_restore": True,
@@ -51,7 +49,7 @@ def _candidate(**overrides: object) -> CandidateEvidence:
         "candidate": "sqlite",
         "engine_kind": "operational",
         "artifact_digest": _DIGEST,
-        "executed_platforms": ["macos-arm64", "windows-x64"],
+        "executed_platforms": ["windows-x64"],
         "hard_gates": dict(_PASSING_GATES),
         "measured": True,
     }
@@ -67,7 +65,7 @@ def test_select_requires_exactly_one_fully_measured_candidate() -> None:
     ("overrides", "message"),
     [
         ({"measured": False}, "olcumu yok"),
-        ({"executed_platforms": ["macos-arm64"]}, "windows-x64"),
+        ({"executed_platforms": []}, "windows-x64"),
         (
             {"hard_gates": {**_PASSING_GATES, "crash_integrity": False}},
             "crash_integrity",
@@ -99,7 +97,7 @@ def test_select_rejects_ambiguous_passing_candidates() -> None:
     [
         {"artifact_digest": "sha256:not-a-digest"},
         {"measured": 1},
-        {"executed_platforms": ["macos-arm64", "macos-arm64"]},
+        {"executed_platforms": ["windows-x64", "windows-x64"]},
         {"hard_gates": {"offline_runtime": 1}},
         {"unexpected": True},
     ],
@@ -111,7 +109,7 @@ def test_candidate_mapping_rejects_wrong_types_duplicates_and_unknowns(
         "candidate": "sqlite",
         "engine_kind": "operational",
         "artifact_digest": _DIGEST,
-        "executed_platforms": ["macos-arm64", "windows-x64"],
+        "executed_platforms": ["windows-x64"],
         "hard_gates": dict(_PASSING_GATES),
         "measured": True,
     }
@@ -134,7 +132,7 @@ def test_evidence_loader_round_trip(tmp_path: Path) -> None:
             "candidate": "sqlite",
             "engine_kind": "operational",
             "artifact_digest": _DIGEST,
-            "executed_platforms": ["macos-arm64", "windows-x64"],
+            "executed_platforms": ["windows-x64"],
             "hard_gates": _PASSING_GATES,
             "measured": True,
         }
@@ -146,40 +144,3 @@ def test_evidence_loader_round_trip(tmp_path: Path) -> None:
 def test_canonical_digest_rejects_non_finite_json() -> None:
     with pytest.raises(ValueError):
         canonical_json_digest({"latency": float("nan")})
-
-
-def _mac_decision(**overrides: object) -> MacProvisionalDecision:
-    value: dict[str, object] = {
-        "operational": "cpython-sqlite",
-        "knowledge": "sqlite-fts5+sqlite-vec",
-        "analytics": "duckdb",
-        "evidence_digests": [_DIGEST],
-        "status": "macos-accepted-windows-deferred",
-        "windows_x64_deferred": True,
-    }
-    value.update(overrides)
-    return MacProvisionalDecision.from_mapping(value)
-
-
-def test_mac_provisional_decision_is_explicitly_not_global_acceptance() -> None:
-    decision = _mac_decision()
-    assert decision.windows_x64_deferred is True
-    assert decision.status == "macos-accepted-windows-deferred"
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"windows_x64_deferred": False},
-        {"status": "accepted"},
-        {"evidence_digests": []},
-        {"evidence_digests": [_DIGEST, _DIGEST]},
-        {"operational": ""},
-        {"unexpected": True},
-    ],
-)
-def test_mac_provisional_decision_rejects_ambiguous_or_global_claims(
-    overrides: dict[str, object],
-) -> None:
-    with pytest.raises(ValidationFailed):
-        _mac_decision(**overrides)
