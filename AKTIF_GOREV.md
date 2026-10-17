@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.1` — Y-07 Work okumasinda salt okunur transaction
+**Belge sürümü:** `3.2` — Y-08 Maven sure ve cikti butcesi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -166,7 +166,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   stale revision, lease/fencing, unknown effect ve missing artifact recovery korunur.
   Cikis: baska oturum/model kaldigi isi kaynak/config kontroluyle bulur; sohbet veya
   Markdown'dan sahte Work durumu uretilmez.
-- [ ] **Y-08 — Java test muhendisligi urunu:** `unit_test_runtime.py`, `unit_test_loop.py`
+- [x] **Y-08 — Java test muhendisligi urunu:** `unit_test_runtime.py`, `unit_test_loop.py`
   ve `unit_test_runner/` yolunu mevcut native CLI/model yetenegiyle tamamla. Dogru Maven
   modulu, test-only patch, gercek Surefire/JaCoCo olcumu, tazelik ve plateau/devam sonucu
   tek akista baglansin; production/pom veya basarili test silinerek coverage artirilmasin.
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-08 Java test muhendisligi urunu. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-09 temel bellek ve skill. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -380,6 +380,22 @@ kaynaklari guncellendi. Py_compile ve diff/projection disinda kosu yapilmadi.
 Y-07 checkbox gelistirme teslimidir; race/crash/cross-client/receipt ve native
 kabul Y-12de bekler. DB/veri migration veya Work kapanisi yapilmadi. Geri donus:
 kaynak commitini geri al; mevcut state/proje/receipt kayitlarini koru.
+
+### 0.11 Y-08 gelistirme kaydi — 18 Ekim 2026
+
+Mevcut native test runtime ve loop; Maven modul/plani, test-only patch, full test
+agaci/source/config tazelik readback'i, gercek Surefire/JaCoCo report facts,
+plateau/son dogrulanmis kazanc ve canonical interrupted recovery baglarini tasir.
+Runtime kaynagi incelendi; yeni ajan orkestrasyonu veya signed publication katmani
+eklenmedi. Maven runner NaN/Infinity/bool timeout ve gecersiz lock bekleme/cikti
+butcesini process/quarantine oncesinde reddedecek sekilde tamamlandi. Build lock
+API'si de sonlu ve negatif olmayan bekleme ister; output ust siniri mevcut 4 MiB.
+Bu kaynak degisikligi gercek Maven/Java/test calistirmadi. Budget reddinde process
+ve rapor/quarantine etkisi olmadigini gosteren regresyon kodu hazirlandi;
+py_compile/diff/projection kontrolu yapildi. Baseline, gercek Maven/JaCoCo fixture,
+native loop kalite ve plateau kabul kosulari Y-12 final asamasindadir.
+Y-08 checkbox gelistirme teslimidir, test basarisi/Work kapanisi degildir.
+Geri donus: kaynak commitini geri al; production/pom ve basarili testleri koru.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4464,6 +4480,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 3.0 | 2026-10-18 | Y-06 mevcut ODI/Jira/Confluence/Oracle/Git kaynak baglari kaydedildi; canli kabul ve testler finalde |
 
 | 3.1 | 2026-10-18 | Y-07: Work-project evidence salt okunur transactiona baglandi; active Work yuzeyi ve final concurrency regresyonlari guncellendi |
+
+| 3.2 | 2026-10-18 | Y-08: Maven timeout lock/output sinirlari effect oncesine baglandi; gercek Maven ve test kabul Y-12de |
 
 ### 15.3 Şimdiki Gerçek Durum
 

@@ -1,3 +1,10 @@
+# Guncel devir — Y-08 gelistirmesi
+
+Y-01..08 gelistirme teslimleri kayitli. Siradaki Y-09. Testler Y-12de.
+Son kayit AKTIF_GOREV.md 0.11; Maven veya test kosusu yapilmadi. Untracked girdileri koru.
+
+---
+
 # Guncel devir — Y-07 gelistirmesi
 
 Y-01..07 gelistirme teslimleri kayitli. Siradaki Y-08. Testler Y-12de.

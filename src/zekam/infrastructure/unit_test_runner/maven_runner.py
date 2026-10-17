@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import math
 import os
 import re
 import subprocess
@@ -133,6 +134,12 @@ class BuildLockBusy(PolicyViolation):
 def build_lock(lock_dir: Path, project_root: Path, *, wait_seconds: float = 0.0) -> Iterator[None]:
     """Proje/reactor kokune bagli cross-process kilit (kilit dosyasi ``lock_dir``'de)."""
 
+    if (
+        type(wait_seconds) not in (int, float)
+        or not math.isfinite(wait_seconds)
+        or wait_seconds < 0
+    ):
+        raise ValidationFailed("Build lock bekleme suresi sonlu ve negatif olmayan sayi olmali")
     key = os.path.normcase(str(project_root.resolve(strict=True)))
     name = "maven-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:32] + ".lock"
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -357,8 +364,20 @@ def run_maven(
 ) -> MavenRunResult:
     """Plani yetkiyle, kilit altinda calistirir. Gercek exit code/sure/cikti digest'i doner."""
 
-    if timeout_seconds <= 0:
-        raise ValidationFailed("timeout pozitif olmali")
+    if (
+        type(timeout_seconds) not in (int, float)
+        or not math.isfinite(timeout_seconds)
+        or timeout_seconds <= 0
+    ):
+        raise ValidationFailed("timeout pozitif ve sonlu olmali")
+    if type(max_output_bytes) is not int or not 1 <= max_output_bytes <= MAX_OUTPUT_BYTES:
+        raise ValidationFailed("Maven cikti byte butcesi izinli sinirda olmali")
+    if (
+        type(lock_wait_seconds) not in (int, float)
+        or not math.isfinite(lock_wait_seconds)
+        or lock_wait_seconds < 0
+    ):
+        raise ValidationFailed("Build lock bekleme suresi sonlu ve negatif olmayan sayi olmali")
     check_authorization(plan, authorization)
     root = _validate_invocation(plan)
     filtered = filter_environment(os.environ if environ is None else environ)

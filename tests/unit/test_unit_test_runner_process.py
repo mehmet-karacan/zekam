@@ -18,7 +18,7 @@ from tests.unit.unit_test_runner_support import (
 )
 
 from zekam.application.unit_test_measurement import RunStatus
-from zekam.domain.errors import PolicyViolation
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.infrastructure.unit_test_runner.maven_plan import (
     ExecutionAuthorization,
     MavenPlan,
@@ -256,3 +256,30 @@ def test_replay_runner_does_not_use_shell_and_probe_runs_without_plugins(tmp_pat
     # probe plani ag olasi degil -> allow_network gerekmez
     result = run_maven(probe, auth, lock_dir=tmp_path / "l", run_id="r", timeout_seconds=30)
     assert result.status is RunStatus.COMPLETED and "Apache Maven 3.9.9" in result.output_tail
+
+
+@pytest.mark.parametrize(
+    ("argument", "value"),
+    [
+        ("timeout_seconds", float("nan")), ("timeout_seconds", float("inf")),
+        ("timeout_seconds", True), ("timeout_seconds", 0),
+        ("lock_wait_seconds", float("nan")), ("lock_wait_seconds", float("inf")),
+        ("lock_wait_seconds", -1), ("max_output_bytes", True),
+        ("max_output_bytes", 0), ("max_output_bytes", 4 * 1024 * 1024 + 1),
+    ],
+)
+def test_invalid_maven_budget_cannot_start_or_quarantine_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argument: str, value: object
+) -> None:
+    from zekam.infrastructure.unit_test_runner import maven_runner as subject
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Invalid budget reached authorization or process/report effects")
+
+    monkeypatch.setattr(subject, "check_authorization", forbidden)
+    monkeypatch.setattr(subject, "start_process_tree", forbidden)
+    monkeypatch.setattr(subject, "quarantine_stale_outputs", forbidden)
+    kwargs = {"timeout_seconds": 30, argument: value}
+    with pytest.raises(ValidationFailed):
+        run_maven(None, None, lock_dir=tmp_path / "locks", run_id="invalid", **kwargs)  # type: ignore[arg-type]
+    assert not (tmp_path / "locks").exists()
