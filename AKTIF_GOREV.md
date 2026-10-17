@@ -3516,6 +3516,26 @@ halen aciktir.
 `next_safe_action`: test-only fixture kanitini gercek hedef Java projesi kabulüyle karistirma;
 fresh Surefire/JaCoCo, test tree ve toolchain fingerprint'i ayni kanonik raporda koru.
 
+### 10.95 17 Ekim 2026 son yerel paket ve OpenCode uyumluluk kaniti
+
+Kaynak dilimleri sonrasindaki tek toplu pytest kosusu `7980 passed, 1409 skipped,
+3 warnings` ile temizlendi. Sonrasinda repository disi sonuc yoluyla calistirilan
+`scripts/paket_dogrula.py` `status=passed`, `findings=[]`, `warnings=[]` ve
+`errors=[]` dondu; 23 zorunlu dosya, 20 model, 18 faz/108 is, 42 schema,
+83 Global DoD ve 10.430 history blob kontrol edildi.
+
+Hostta `@opencode/cli` 2.0.30 direct binary'si salt okunur `opencode.exe
+--version` ile `opencode v2.0.30` olarak goruldu. PATH shim'i gorunur olmadigi
+icin OpenCode resolver'i Windows global npm koklerinde tek direct binary'yi
+shell/npm calistirmadan bulacak, iki paket kuruluysa fail-closed kalacak sekilde
+genisletildi; doctor/CLI executable readback'i ayni resolver'a baglandi.
+Kaynak/test fixture degisikligi commitleri `24b5fbb` ve `f5406df` olarak
+`origin/main`e pushlandi. Pytest bu uyumluluk diliminde tekrar calistirilmadi.
+
+Bu kanit yerel paket ve executable cozumlemesini guclendirir; native lifecycle,
+tool-denial, signer/credential, canli provider/Jira/Oracle kalite, bagimsiz
+verifier, restore ve clean release kabul kapilarini kapatmaz.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -3714,6 +3734,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.2 | 2026-10-12 | WP-01 Graft/Aider/Serena ve model karşılaştırması, D-01..08, 13 WP uygulama haritası ve 27 kabul hedefi tamamlandı; kaynak uygulama onayı bekleniyor |
 | 1.3 | 2026-10-17 | WP-02..12 kaynak dilimleri, yerel E5 geçişi, fixture uyumluluğu ve paket manifesti güncellendi; tam suite final kapısına taşındı |
 | 1.4 | 2026-10-17 | Final suite `7980 passed, 1409 skipped, 3 warnings` ile temizlendi; native, credential, live kalite ve release kabul kapıları açık bırakıldı |
+| 1.5 | 2026-10-17 | Paket kabulü ve OpenCode global npm executable çözümlemesi kanıtlandı; native ve canlı kabul kapıları açık bırakıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -3724,9 +3745,9 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
-| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5 kurulum ve paket manifesti doğrulandı; final `python -m pytest -q` `7980 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
+| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; final `python -m pytest -q` `7980 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `6872967`, `766f82a`; Miro/GitBook uzak yayını yapılmadı |
+| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`; Miro/GitBook uzak yayını yapılmadı |
 
 **Sonraki adım:** Native istemci/host enforcement, signer ve credential sahipliği,
 canlı provider/Oracle/Jira kalite ölçümü, gerçek Maven/coverage ve clean release
