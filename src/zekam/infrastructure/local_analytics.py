@@ -805,6 +805,34 @@ class LocalAnalyticsStore:
                 "grants_authority": False,
             }
 
+        # A freshly initialized analytics root has both source directories but
+        # no immutable segment yet.  Treat that state as an honest
+        # no-measurement result; delegating it to ``_segments`` would classify
+        # the empty census as source corruption and callers would lose the
+        # distinction between "no receipt" and "analytics unavailable".
+        manifest_entries = tuple(self.manifests.iterdir())
+        raw_entries = tuple(self.raw.iterdir())
+        if not manifest_entries and not raw_entries:
+            return {
+                "schema": "zekam-analytics-usage/v1",
+                "status": "unknown",
+                "reference": selected_ref,
+                "reference_kind": "run" if run_ref is not None else "work",
+                "models": [],
+                "provider_calls": None,
+                "tokens": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "duration_seconds": None,
+                "cost_micros": None,
+                "event_count": 0,
+                "event_ids": [],
+                "events_truncated": False,
+                "source_digests": [],
+                "reason": "analytics-events-missing",
+                "grants_authority": False,
+            }
+
         events: list[dict[str, Any]] = []
         for _manifest, rows in self._segments():
             for event in rows:
