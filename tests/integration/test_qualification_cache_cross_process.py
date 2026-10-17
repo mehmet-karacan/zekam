@@ -1,4 +1,4 @@
-"""Cross-process warm qualification-cache E2E (ZEKAM-RAG-PERFORMANCE-CORRECTNESS-001).
+"""Cross-process local-provider qualification boundary E2E.
 
 WP2 (B01) requires that a WARM provider qualification is reused across *separate
 CLI processes*, not only inside one Python process.  Because each CLI invocation
@@ -10,27 +10,21 @@ Regression matrix row "Ayri CLI process'lerinden ayni binding":
     "Qualification cache gercekten yeniden kullanilir; process-local basariyla
      sinirli kalmaz."
 
-These tests prove that durability with a real two-process scenario:
+These tests prove the local-only route across two processes:
 
-* Process A (the test parent) writes a warm qualification record through the
-  real ``project_rag_runtime._write_durable_qualification`` into a temp
-  provider-ledger SQLite file.
+* Process A (the test parent) may write a legacy remote qualification record.
 * Process B (a fresh ``sys.executable`` subprocess, separate interpreter)
-  exercises the real ``project_rag_runtime._provider`` wrapper (with a stubbed
-  remote provider so NO network/probe hit occurs) against the SAME ledger and
-  reports whether the warm record was reused WITHOUT calling ``probe()`` again.
+  exercises the real ``project_rag_runtime._provider`` wrapper and proves that
+  local E5 does not consult or refresh that remote record.
 
-Provider-free and deterministic: the probe is a stub that only counts calls;
-the durable-record write/read is what is under test.  All temp paths come from
-pytest ``tmp_path``; the ledger is a private regular file as the real code
-requires (passes ``private_regular``).
+Provider-free and deterministic: the local binding is a bounded test stub.
+All temp paths come from pytest ``tmp_path``; legacy fixture ledgers remain
+private regular files.
 
 Scenarios:
-  XP-1  cross-process reuse   - A writes warm, B reuses it, probe count 0.
-  XP-2  no ledger => re-probe - B with no durable record probes (qualifies).
-  XP-3  expired/mismatched    - B with an expired or wrong-binding record does
-        => re-validate, fail-closed  NOT reuse it; it re-probes (no silent
-                                reuse / no auto-approval).
+  XP-1  legacy warm record   - A writes a remote record; B stays local.
+  XP-2  no ledger            - B stays local without creating a remote ledger.
+  XP-3  stale/mismatched     - B ignores stale remote records and stays local.
 """
 
 from __future__ import annotations
@@ -49,10 +43,6 @@ import pytest
 from zekam.application import project_rag_runtime as runtime
 from zekam.application.config import EmbeddingRoute, KnowledgeSettings
 from zekam.domain.canonical import digest
-from zekam.infrastructure.embedding.opencode_remote import (
-    OpenCodeRemoteEmbeddingProvider,
-    RuntimeOpenCodeEmbeddingExecutor,
-)
 from zekam.infrastructure.local_file_security import private_regular
 
 # ---------------------------------------------------------------------------
@@ -62,17 +52,17 @@ from zekam.infrastructure.local_file_security import private_regular
 
 
 def _make_knowledge() -> KnowledgeSettings:
-    return KnowledgeSettings(embedding_route=EmbeddingRoute.REMOTE)
+    return KnowledgeSettings(embedding_route=EmbeddingRoute.LOCAL)
 
 
 def _make_configuration() -> SimpleNamespace:
-    """A canonical remote embedding configuration (secret-free test stub)."""
+    """A stable local-profile identity used only for legacy ledger fixtures."""
     return SimpleNamespace(
-        provider_id="litellm",
-        canonical_model_id="openai/BAAI/bge-m3",
-        selected_model_id="openai/BAAI/bge-m3",
-        credential_locator="OPENCODE_LITELLM_KEY",
-        embedding_endpoint="https://models.example.test/v1/embeddings",
+        provider_id="local-e5",
+        canonical_model_id="intfloat/multilingual-e5-small",
+        selected_model_id="intfloat/multilingual-e5-small",
+        credential_locator=None,
+        embedding_endpoint=None,
         endpoint_identity=SimpleNamespace(identity_digest=digest("endpoint")),
     )
 
@@ -101,7 +91,7 @@ def _make_record(now_ns: int, ttl_seconds: int) -> runtime._QualificationRecord:
         provider_call_count=2,
         model_revision_fingerprint=digest("revision"),
         provider_identity_digest=digest("provider"),
-        exact_model_id="openai/BAAI/bge-m3",
+        exact_model_id="intfloat/multilingual-e5-small",
     )
 
 
@@ -114,89 +104,23 @@ def _make_record(now_ns: int, ttl_seconds: int) -> runtime._QualificationRecord:
 def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
     """Return a JSON-safe report of ``_provider`` warm/cold behaviour.
 
-    ``case`` selects the ledger precondition:
-      * "warm"    - ledger already holds a fresh, matching record.
-      * "cold"    - no ledger (or an empty one) => must re-probe.
-      * "expired" - ledger holds an expired record => must re-probe (fail-closed).
-      * "mismatch"- ledger holds a record for a DIFFERENT binding => re-probe.
+    ``case`` selects the legacy ledger precondition. The local route must
+    produce the same result for every case without consulting that ledger.
     """
-    from zekam.domain.security import DataClassification
-
     probes: list[int] = []
-    configuration = _make_configuration()
     knowledge = _make_knowledge()
 
-    class _FakeRemoteProvider:
-        def __init__(
-            self,
-            configuration: object,
-            executor: object,
-            *,
-            dimension: int,
-            max_batch_size: int,
-            document_journal: object | None = None,
-        ) -> None:
-            del configuration, executor, dimension, max_batch_size, document_journal
-            self._profile_digest = digest("provider-profile")
+    def _fake_local(*, classification: object = None) -> SimpleNamespace:
+        del classification
+        profile = SimpleNamespace(
+            profile_digest=digest("local-profile"),
+            probe_evidence_digest=digest("local-probe"),
+            exact_model_id=knowledge.embedding_model_ref,
+            dimension=knowledge.embedding_dimension,
+        )
+        return SimpleNamespace(provider=object(), policy=object(), profile=profile)
 
-        def probe(self, _fixture: object) -> SimpleNamespace:
-            probes.append(1)
-            return SimpleNamespace(
-                profile=SimpleNamespace(
-                    profile_digest=self._profile_digest,
-                    model_revision_fingerprint=digest("revision"),
-                    provider_identity_digest=digest("provider"),
-                    exact_model_id=knowledge.embedding_model_ref,
-                    dimension=knowledge.embedding_dimension,
-                    vector_dtype="float32",
-                    normalized=True,
-                    distance_metric="cosine",
-                    query_prefix="",
-                    passage_prefix="",
-                    preprocessor_digest=digest("pre"),
-                    tokenizer_digest=digest("tok"),
-                    batch_policy_digest=digest("batch"),
-                    device_scope="windows:x64:opencode",
-                    data_classification_allowlist=(DataClassification.PUBLIC,),
-                    verified_at="2026-09-02T00:00:00Z",
-                    probe_evidence_digest=digest("probe"),
-                    validate_vector=lambda _vector: None,
-                ),
-                semantic_margin=0.4,
-                positive_score=0.7,
-                negative_score=0.3,
-                max_repeat_delta=0.0001,
-                max_batch_delta=0.0001,
-                batch_cosine=0.9999,
-                latency_ms=1,
-                evidence_digest=digest("probe"),
-                provider_call_count=2,
-            )
-
-    class _FakeHost:
-        def register(self, _work: object) -> None:
-            return None
-
-        def summary(self) -> dict[str, object]:
-            return {
-                "schema": "zekam-local-provider-ledger-summary/v1",
-                "provider_calls": 0,
-                "durable_remote_effects": 0,
-            }
-
-    # ---- stub only the heavyweight harness; qualification logic stays real ----
-    runtime.OpenCodeRemoteEmbeddingProvider = cast(  # type: ignore[attr-defined]
-        type[OpenCodeRemoteEmbeddingProvider], _FakeRemoteProvider
-    )
-    runtime.ProcessIsolatedJsonProviderTransport = lambda *_a, **_k: object()  # type: ignore[attr-defined, assignment]
-    runtime.LiveProcessClient = lambda *_a, **_k: object()  # type: ignore[attr-defined, assignment]
-    runtime.RuntimeOpenCodeEmbeddingExecutor = cast(  # type: ignore[attr-defined]
-        type[RuntimeOpenCodeEmbeddingExecutor], lambda _invocation: object()
-    )
-    runtime.RuntimeProviderContractRunner = lambda *_a, **_k: object()  # type: ignore[attr-defined, assignment]
-    runtime.load_inventory = lambda *_: object()  # type: ignore[attr-defined, assignment]
-    runtime.SQLiteProviderLedgerHost = lambda *_a, **_k: _FakeHost()  # type: ignore[attr-defined, assignment]
-    runtime.load_opencode_embedding_configuration = lambda *_a, **_k: configuration  # type: ignore[attr-defined, assignment]
+    runtime.build_verified_local_e5_embedding = _fake_local  # type: ignore[assignment]
 
     binding = runtime._provider(
         Path(ledger_path).parent,
@@ -210,7 +134,9 @@ def _subprocess_runner(ledger_path: str, case: str) -> dict[str, object]:
     return {
         "probe_calls": len(probes),
         "probe_call_count": binding.probe_call_count,
-        "qualified_from_cache": bool(binding.probe.get("qualified_from_cache")),
+        "qualified_from_cache": bool(binding.probe.get("qualified_from_cache", False)),
+        "remote_provider_used": binding.remote_provider_used,
+        "ledger_exists": Path(ledger_path).exists(),
         "binding_digest": _make_binding_digest(),
     }
 
@@ -260,8 +186,7 @@ def _run_subprocess(ledger_path: Path, case: str, timeout: int = 120) -> dict[st
 
 
 # ---------------------------------------------------------------------------
-# XP-1  Cross-process reuse: A writes a warm record, a SEPARATE interpreter B
-# reuses it and does NOT re-probe.
+# XP-1  Legacy warm record: a SEPARATE interpreter B stays on local E5.
 # ---------------------------------------------------------------------------
 
 
@@ -283,19 +208,17 @@ def test_xp1_warm_qualification_reused_across_separate_processes(tmp_path: Path)
 
     result = _run_subprocess(ledger, "warm")
 
-    # Process B reuses the durable record: probe() was NOT called again.
+    # Process B ignores the legacy remote record and stays local.
     assert result["probe_calls"] == 0
-    # The reconstructed binding reports zero probe calls and tells us the
-    # acceptance came from the cache.
-    assert result["probe_call_count"] == 0
-    assert result["qualified_from_cache"] is True
-    # Process B computed an identical binding digest for this ledger.
+    assert result["probe_call_count"] == 2
+    assert result["qualified_from_cache"] is False
+    assert result["remote_provider_used"] is False
+    assert result["ledger_exists"] is True
     assert result["binding_digest"] == _make_binding_digest()
 
 
 # ---------------------------------------------------------------------------
-# XP-2  No-ledger => a SEPARATE process must re-probe (qualification computed,
-# never silently skipped).
+# XP-2  No ledger: local E5 does not create a remote qualification ledger.
 # ---------------------------------------------------------------------------
 
 
@@ -305,18 +228,15 @@ def test_xp2_separate_process_with_no_ledger_reprobes(tmp_path: Path) -> None:
 
     result = _run_subprocess(ledger, "cold")
 
-    # With no durable record the subordinate process had to run the probe once.
-    assert result["probe_calls"] == 1
-    assert result["probe_call_count"] == 2  # provider-reported probe cost
+    assert result["probe_calls"] == 0
+    assert result["probe_call_count"] == 2
     assert result["qualified_from_cache"] is False
-    # A fresh durable record was written back so the *next* process is warm.
-    assert ledger.exists()
-    assert private_regular(ledger)
+    assert result["remote_provider_used"] is False
+    assert result["ledger_exists"] is False
 
 
 # ---------------------------------------------------------------------------
-# XP-3  Expired / mismatched-binding => a SEPARATE process re-validates
-# (fail-closed): it never treats the stale/incompatible record as valid.
+# XP-3  Expired / mismatched-binding: local E5 ignores both records.
 # ---------------------------------------------------------------------------
 
 
@@ -364,7 +284,8 @@ def test_xp3_expired_or_mismatched_record_revalidates_fail_closed(
 
     result = _run_subprocess(ledger, case)
 
-    # Fail-closed: the subordinate process re-validated (re-probed) instead of
-    # silently reusing the stale/incompatible evidence.
-    assert result["probe_calls"] == 1
+    assert result["probe_calls"] == 0
+    assert result["probe_call_count"] == 2
     assert result["qualified_from_cache"] is False
+    assert result["remote_provider_used"] is False
+    assert result["ledger_exists"] is True
