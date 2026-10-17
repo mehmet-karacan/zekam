@@ -1,3 +1,19 @@
+# Guncel devir - Y-09/Y-10 schema uyumluluk duzeltmesi
+
+Kaynak incelemesindeki v2 backup ve v3 skill prepare bulgulari duzeltildi.
+Local core dogrulamasi learning v2/v3 icin ayni canonical fingerprint ve
+zorunlu unique index kontrolunu kullanir. Saglam v2 otomatik migrate edilmez;
+bozuk metadata/DDL/index reddi korunur. Skill prepare v3 icin exact planli
+no-op doner; receipt veya migration basarisi uydurmaz, effect olusturmaz.
+V1->v2 eski migration/replay semantigi degismedi.
+V2/v3 tam bundle restore, index drift ve v3 prepare no-op regresyonlari hazir.
+Hicbir test CALISTIRILMADI; kullanici DB/backup dosyalarina yazilmadi.
+Siradaki gelistirme: Y-09 mevcut SQLite learning store icin kanita bagli
+candidate olusturma yuzeyi. Sonra tum gelistirmeler bitince Y-12 final kabul.
+Onceki Maven fixture dirty degisikligi ve dort untracked girdi korunur.
+
+---
+
 # Guncel devir - Y-03 kaynakli yanit ek duzeltmesi
 
 Son kullanici talimati Y-03 uzerinden devamdir. Test kosusu BASLATILMADI.

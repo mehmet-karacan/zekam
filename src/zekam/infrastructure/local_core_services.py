@@ -11,7 +11,7 @@ from pathlib import Path
 from zekam.application.composition import ApplicationContext
 from zekam.application.skill_runtime import SkillRuntimeSigner, SkillRuntimeVerifier
 from zekam.domain.canonical import digest
-from zekam.domain.errors import ConfigurationError
+from zekam.domain.errors import ConfigurationError, PolicyViolation
 from zekam.infrastructure.local_analytics import LocalAnalyticsStore
 from zekam.infrastructure.local_file_security import (
     private_directory,
@@ -39,7 +39,7 @@ from zekam.infrastructure.sqlite.local_improvement import (
 from zekam.infrastructure.sqlite.local_improvement import SQLiteLocalImprovementStore
 from zekam.infrastructure.sqlite.local_learning import SCHEMA_DIGEST as LEARNING_SCHEMA_DIGEST
 from zekam.infrastructure.sqlite.local_learning import SCHEMA_VERSION as LEARNING_SCHEMA_VERSION
-from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning
+from zekam.infrastructure.sqlite.local_learning import SQLiteLocalLearning, validate_learning_schema
 from zekam.infrastructure.sqlite.local_model_benchmark import (
     SCHEMA_DIGEST as BENCHMARK_SCHEMA_DIGEST,
 )
@@ -155,6 +155,12 @@ def validate_local_sqlite_store(
             raise ConfigurationError(f"Local {name} database integrity invalid")
         if connection.execute("pragma foreign_key_check").fetchone() is not None:
             raise ConfigurationError(f"Local {name} foreign key graph invalid")
+        if name == "learning":
+            try:
+                version = validate_learning_schema(connection)
+            except PolicyViolation as exc:
+                raise ConfigurationError("Local learning schema validation failed") from exc
+            return {"schema_version": version, "schema_digest": _schema_digest(connection)}
         if name == "source_authority":
             page_size = connection.execute("pragma page_size").fetchone()[0]
             page_count = connection.execute("pragma page_count").fetchone()[0]
@@ -365,7 +371,7 @@ class LocalCoreServices:
                     **contract,
                     "expected_schema_digest": (
                         contract["schema_digest"]
-                        if name == "operational"
+                        if name in {"operational", "learning"}
                         else _EXPECTED_DATABASE_DIGESTS[name]
                     ),
                     "tables": tables,

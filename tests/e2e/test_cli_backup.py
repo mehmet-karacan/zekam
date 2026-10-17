@@ -385,10 +385,21 @@ def test_source_authority_backup_boundary_is_honestly_not_ready(home_root: Path)
     assert "local-root-canary" not in rendered
 
 
+@pytest.mark.parametrize("learning_version", [2, 3])
 def test_complete_local_bundle_verifies_and_restores_without_overwrite(
-    home_root: Path, tmp_path: Path
+    home_root: Path, tmp_path: Path, learning_version: int
 ) -> None:
     _prepare(home_root).put(b"immutable-local-artifact")
+    if learning_version == 2:
+        from zekam.infrastructure.sqlite.local_learning import _SCHEMA_V2, SCHEMA_V2_DIGEST
+        from zekam.infrastructure.local_file_security import restrict_private_file
+
+        learning_path = home_root / "state" / "learning.db"
+        learning_path.unlink()  # Only this test's new, empty home fixture.
+        with sqlite3.connect(learning_path) as connection:
+            connection.executescript(_SCHEMA_V2)
+            connection.execute("insert into learning_schema values(1,2,?)", (SCHEMA_V2_DIGEST,))
+        restrict_private_file(learning_path)
     for relative in (
         "analytics/raw/segment.jsonl",
         "analytics/manifests/segment.json",

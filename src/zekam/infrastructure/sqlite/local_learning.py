@@ -464,12 +464,14 @@ with closing(sqlite3.connect(":memory:")) as _schema_db:
     SCHEMA_DIGEST = _schema_digest(_schema_db)
 
 
-def _assert_learning_schema(db: sqlite3.Connection) -> int:
+def validate_learning_schema(db: sqlite3.Connection) -> int:
+    """Validate an admitted v2/v3 store without upgrading or accepting schema drift."""
     row = db.execute("select version,schema_digest from learning_schema where singleton=1").fetchone()
     if (
         row is None
         or tuple(row) not in {(2, SCHEMA_V2_DIGEST), (SCHEMA_VERSION, SCHEMA_DIGEST)}
         or _schema_digest(db) != row[1]
+        or db.execute("select count(*) from learning_schema").fetchone()[0] != 1
         or not _required_v2_indexes_present(db)
     ):
         raise PolicyViolation("WP-09 local schema drift")
@@ -477,7 +479,7 @@ def _assert_learning_schema(db: sqlite3.Connection) -> int:
 
 
 def _archival_records(db: sqlite3.Connection) -> dict[str, dict[str, Any]]:
-    if _assert_learning_schema(db) == 2:
+    if validate_learning_schema(db) == 2:
         return {}
     rows = db.execute(
         "select a.*,r.memory_id source_memory_id,r.created_at source_created_at "
@@ -1002,7 +1004,7 @@ class SQLiteLocalLearning:
         ):
             raise ValidationFailed("Learning v3 backup target exact distinct absolute file required")
         with closing(self._connect_readonly()) as db:
-            version = _assert_learning_schema(db)
+            version = validate_learning_schema(db)
             content = _pre_v3_content_digest(db)
         if backup_path.exists():
             if not private_regular(backup_path):
@@ -1039,7 +1041,7 @@ class SQLiteLocalLearning:
         if plan["migration_required"]:
             with closing(self._connect()) as db:
                 db.execute("begin immediate")
-                if _assert_learning_schema(db) != 2 or _pre_v3_content_digest(db) != plan["source_content_digest"]:
+                if validate_learning_schema(db) != 2 or _pre_v3_content_digest(db) != plan["source_content_digest"]:
                     raise PolicyViolation("Learning v3 migration source drift")
                 if not backup_path.exists():
                     created_parent = not backup_path.parent.exists()
@@ -1062,7 +1064,7 @@ class SQLiteLocalLearning:
                     db.execute(statement)
                 db.execute("update learning_schema set version=3,schema_digest=? where singleton=1", (SCHEMA_DIGEST,))
                 if (
-                    _assert_learning_schema(db) != 3
+                    validate_learning_schema(db) != 3
                     or _pre_v3_content_digest(db) != plan["source_content_digest"]
                     or db.execute("pragma integrity_check").fetchone()[0] != "ok"
                     or db.execute("pragma foreign_key_check").fetchone() is not None
@@ -1088,12 +1090,21 @@ class SQLiteLocalLearning:
         db.execute("pragma foreign_keys=on")
         db.execute("pragma query_only=on")
         try:
-            _assert_learning_schema(db)
+            validate_learning_schema(db)
             db.execute("begin")
         except Exception:
             db.close()
             raise
         return db
+
+    def schema_status(self) -> dict[str, object]:
+        """Read the admitted schema from a single read-only snapshot."""
+        with closing(self._connect_readonly()) as db:
+            version = validate_learning_schema(db)
+            return {
+                "schema_version": version,
+                "schema_digest": SCHEMA_V2_DIGEST if version == 2 else SCHEMA_DIGEST,
+            }
 
     def memory_status(self) -> dict[str, object]:
         """Kayitli memory/candidate sayilarini ve store sagligini census eder."""
@@ -1102,7 +1113,7 @@ class SQLiteLocalLearning:
             if db.execute("pragma integrity_check").fetchone()[0] != "ok":
                 raise PolicyViolation("WP-09 SQLite memory integrity drift")
         with closing(self._connect_readonly()) as db:
-            schema_version = _assert_learning_schema(db)
+            schema_version = validate_learning_schema(db)
             archived = _archival_records(db)
             counts: dict[str, int] = {}
             for table in (
@@ -1380,7 +1391,7 @@ class SQLiteLocalLearning:
 
     def require_memory_archival(self) -> None:
         with closing(self._connect_readonly()) as db:
-            if _assert_learning_schema(db) != 3:
+            if validate_learning_schema(db) != 3:
                 raise PolicyViolation("Memory archival requires explicit memory prepare v3")
 
     def archive_memory(
@@ -1397,7 +1408,7 @@ class SQLiteLocalLearning:
             raise PolicyViolation("Memory archival metadata must not contain secrets")
         timestamp = _time(now)
         with closing(self._connect()) as db:
-            if _assert_learning_schema(db) != 3:
+            if validate_learning_schema(db) != 3:
                 raise PolicyViolation("Memory archival requires explicit memory prepare v3")
             db.execute("begin immediate")
             head = db.execute(
@@ -1436,7 +1447,7 @@ class SQLiteLocalLearning:
         db.execute("pragma foreign_keys=on")
         db.execute("pragma busy_timeout=5000")
         try:
-            _assert_learning_schema(db)
+            validate_learning_schema(db)
         except Exception:
             db.close()
             raise
@@ -1465,7 +1476,7 @@ class SQLiteLocalLearning:
         with closing(self._connect()) as db:
             db.execute("pragma query_only=on")
             db.execute("begin")
-            if _assert_learning_schema(db) == 3:
+            if validate_learning_schema(db) == 3:
                 digest_columns["memory_archival"] = "archive_digest"
                 _archival_records(db)
             if db.execute("pragma integrity_check").fetchone()[0] != "ok":

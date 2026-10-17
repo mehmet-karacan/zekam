@@ -374,6 +374,28 @@ def prepare_command(
 
     try:
         learning, lifecycle, resolved_home = _paths(home)
+        try:
+            current = learning.schema_status()
+        except PolicyViolation:
+            # v1 still needs the original exact v1->v2 migration plan below.
+            # Unknown/corrupt schemas are also rejected by that planner.
+            current = None
+        if current is not None and current["schema_version"] == 3:
+            body = {
+                "schema": "zekam-skill-prepare-current/v1",
+                "state": "current",
+                **current,
+                "migration_required": False,
+                "database_ref": "ZEKAM_HOME/state/learning.db",
+                "provider_calls": 0,
+                "network_calls": 0,
+                "grants_authority": False,
+            }
+            exact = digest(body)
+            if apply and plan_digest != exact:
+                raise PolicyViolation("Skill prepare exact --plan-digest ister")
+            _emit({**body, "plan_digest": exact, "applied": False})
+            return
         backup = resolved_home / "backups" / "learning-v1-before-v2-4d5d9f79.db"
         plan = learning.migration_plan_v2(backup)
         if not apply:

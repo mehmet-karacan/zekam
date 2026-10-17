@@ -102,3 +102,50 @@ def test_v2_to_v3_requires_exact_plan_and_preserves_data_with_online_backup(tmp_
     with sqlite3.connect(path) as db:
         assert db.execute("select version,schema_digest from learning_schema").fetchone() == (3, SCHEMA_DIGEST)
     assert store.audit()["memory_revision"] == 1
+
+
+def test_skill_prepare_on_v3_is_noop_and_does_not_create_effect(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    store = _store(tmp_path, home)
+    runner = CliRunner()
+    before = store.path.read_bytes()
+    with sqlite3.connect(store.operational_path) as db:
+        jobs = db.execute("select count(*) from local_job").fetchone()[0]
+    args = ["skill", "prepare", "--home", str(home)]
+    planned = runner.invoke(app, args)
+    assert planned.exit_code == 0, planned.output
+    plan = json.loads(planned.output)
+    assert plan["schema_version"] == 3
+    assert plan["migration_required"] is False
+    assert plan["applied"] is False
+    refused = runner.invoke(app, args + ["--uygula", "--plan-digest", digest("wrong")])
+    assert refused.exit_code != 0
+    applied = runner.invoke(app, args + ["--uygula", "--plan-digest", plan["plan_digest"]])
+    assert applied.exit_code == 0, applied.output
+    assert json.loads(applied.output) == plan
+    assert store.path.read_bytes() == before
+    with sqlite3.connect(store.operational_path) as db:
+        assert db.execute("select count(*) from local_job").fetchone()[0] == jobs
+    assert not (home / "backups" / "learning-v1-before-v2-4d5d9f79.db").exists()
+
+
+@pytest.mark.parametrize("version", [2, 3])
+def test_core_validator_checks_admitted_learning_schema_and_unique_indexes(tmp_path: Path, version: int) -> None:
+    from zekam.infrastructure.local_core_services import validate_local_sqlite_store
+    from zekam.domain.errors import ConfigurationError
+    from zekam.infrastructure.sqlite.local_learning import _SCHEMA, _REQUIRED_V2_INDEX_SQL
+
+    path = tmp_path / "learning.db"
+    expected = SCHEMA_V2_DIGEST if version == 2 else SCHEMA_DIGEST
+    with sqlite3.connect(path) as db:
+        db.executescript(_SCHEMA_V2 if version == 2 else _SCHEMA)
+        db.execute("insert into learning_schema values(1,?,?)", (version, expected))
+    restrict_private_file(path)
+    assert validate_local_sqlite_store("learning", path) == {
+        "schema_version": version, "schema_digest": expected,
+    }
+    with sqlite3.connect(path) as db:
+        name = next(iter(_REQUIRED_V2_INDEX_SQL))
+        db.execute('drop index "' + name.replace('"', '""') + '"')
+    with pytest.raises(ConfigurationError, match="schema validation"):
+        validate_local_sqlite_store("learning", path)
