@@ -70,27 +70,31 @@ dizinine dokunulmaz. Proje RAG ve continuity yollari eski BGE ayarini veya
 indeksini artik okumaz; yerel E5 profili disinda bir ayar fail-closed reddedilir.
 
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
-aktif production index bulunmadi. Bu nedenle ilgisiz SQLite veritabanlarina
-dokunulmadi; yeni production index gelistirme tamamlanip son testler gectikten
-sonra olusturulacaktir.
+aktif production index bulunmadi. Varsayilan operational home
+`C:\\Users\\mkaracan\\.zekam` mevcut degil; `%LOCALAPPDATA%/Zekam` altinda
+yalniz model kurulumu var ve `layout.json`/BGE index adayi yok. Bu nedenle
+ilgisiz SQLite veritabanlarina dokunulmadi, home bootstrap edilmedi ve yeni
+production index olusturulmadi.
 
 ## Son dogrulama notu
 
 Gercek kurulu modelle yapilan provider smoke kontrolden gecti: route `local`,
 CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
-batch 6 ms olculdu. Gelistirme dilimleri tamamlandiktan sonra 17 Ekim 2026'da
-onceki tam kosuda tek kalan paket manifesti digest drift'i ureticiyle yenilendi.
-Manifest duzeltmesinden sonra yapilan son toplu `python -m pytest -q` kosusu exit
-code `0` ile sonuclandi: `7980 passed, 1409 skipped, 3 warnings` (1:09:16).
+batch 6 ms olculdu. Kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
+sonrasinda tek son toplu `python -m pytest -q --tb=short` kosusu exit code `0`
+ile sonuclandi: `7987 passed, 1409 skipped, 3 warnings` (54:33). Uyarilar
+duplicate ZIP fixture ve iki capability-worker `runpy` RuntimeWarning'idir.
 Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan native
 istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir; remote/live
 provider ve gercek production corpus yeniden indeksleme kosulari bu makinede
-acik yetki veya veri olmadan calistirilmadi.
-Uretim corpus indexi bu kontrolde olusturulmadi; aktif ZEKAM_HOME indexi
-bulunmadigi icin yeniden indekslenecek hedef de yoktu.
+calistirilmadi. Uretim corpus indexi olusturulmadi; canonical home ve legacy
+index adayi bulunmadigi icin silinecek veya yeniden indekslenecek hedef yoktu.
 
 Paket kabul betigi de repository disi sonuc dosyasiyla basariyla tamamlandi:
 `status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]`.
+Son HEAD clean archive wheel smoke'u `23/23` kontrol ve `status=passed` verdi;
+manifest `sha256:c17060e155b184f5bb2700f86fa4a077963cefb246701e7afd38058a15999506`,
+artifact `sha256:8c697351a51b5295c6c948b3482ffcbc23d8d219f97eb99afbce926a47a202de`.
 Kontrol; zorunlu dosyalar, aktif gorev projection'i, model envanteri, is grafigi,
 schema/YAML, bellek yonlendirme politikasi, Git gecmisi ve secret taramasini
 kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
