@@ -60,6 +60,20 @@ _STRIP = {
 _IGNORED_PACKAGE_PARTS = frozenset({"__pycache__"})
 _IGNORED_PACKAGE_NAMES = frozenset({".DS_Store"})
 MAX_PACKAGE_ARTIFACT_BYTES = 256 * 1024 * 1024
+
+
+def _canonical_package_payload(payload: bytes) -> bytes:
+    """Match the manifest's platform-independent text-byte identity."""
+
+    try:
+        return (
+            payload.decode("utf-8")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .encode("utf-8")
+        )
+    except UnicodeDecodeError:
+        return payload
 _NATIVE_STORAGE_PROBE = """
 import importlib.metadata
 import json
@@ -142,7 +156,7 @@ def _add_archive_entry(entries: dict[str, str], path: str, payload: bytes) -> No
     folded = path.casefold()
     if path in entries or any(existing.casefold() == folded for existing in entries):
         raise ValueError(f"Package source duplicate/case-collision: {path}")
-    entries[path] = digest_of_bytes(payload)
+    entries[path] = digest_of_bytes(_canonical_package_payload(payload))
 
 
 def _entry_bundle_digest(entries: dict[str, str]) -> str:

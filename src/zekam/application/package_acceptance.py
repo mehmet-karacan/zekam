@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import tomllib
 from collections.abc import Iterator, Mapping
 from importlib import metadata
@@ -156,7 +157,52 @@ def _read_package_bytes(path: Path) -> bytes:
         raise ValidationFailed(f"Package source dosyasi okunamadi: {path.name}") from exc
     if len(payload) > MAX_PACKAGE_FILE_BYTES:
         raise ValidationFailed(f"Package source dosyasi boyut sinirini asiyor: {path.name}")
-    return payload
+    # Git's repository policy is LF, while a Windows checkout can materialize
+    # tracked text files as CRLF.  Package identity must describe the shipped
+    # logical bytes consistently on both hosts; binary resources remain byte
+    # exact when they are not valid UTF-8.
+    try:
+        return (
+            payload.decode("utf-8")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .encode("utf-8")
+        )
+    except UnicodeDecodeError:
+        return payload
+
+
+def _repository_tracked_paths(repository_root: Path | None) -> frozenset[str] | None:
+    """Return cached Git paths when a repository checkout is available.
+
+    Local protected or generated files may exist beside a checkout without
+    belonging to the committed wheel.  The release manifest must describe the
+    tracked source subject, while installed wheels and source archives have no
+    Git metadata and therefore keep their complete package tree.
+    """
+
+    if repository_root is None:
+        return None
+    git_marker = repository_root / ".git"
+    if not git_marker.exists():
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repository_root), "ls-files", "--cached", "-z"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValidationFailed("Package tracked source listesi okunamadi") from exc
+    try:
+        values = completed.stdout.decode("utf-8", errors="strict").split("\0")
+    except UnicodeDecodeError as exc:
+        raise ValidationFailed("Package tracked source listesi UTF-8 olmali") from exc
+    paths = frozenset(value for value in values if value)
+    if not paths:
+        raise ValidationFailed("Package tracked source listesi bos")
+    return paths
 
 
 def _strict_json_document(payload: str | bytes) -> dict[str, Any]:
@@ -220,11 +266,19 @@ def _add_package_tree(
     destination: Path = Path(),
     exclude_manifest: bool = False,
     excluded: frozenset[str] = frozenset(),
+    tracked_paths: frozenset[str] | None = None,
+    source_prefix: Path | None = None,
 ) -> None:
     if root.is_symlink() or not root.is_dir():
         raise ValidationFailed(f"Package source root bulunamadi: {root.name}")
     for path in sorted(_iter_package_files(root), key=lambda candidate: candidate.as_posix()):
         relative = path.relative_to(root)
+        if tracked_paths is not None:
+            if source_prefix is None:
+                raise ValidationFailed("Package tracked source prefix eksik")
+            source_path = (source_prefix / relative).as_posix()
+            if source_path not in tracked_paths:
+                continue
         target = destination / relative
         if target.as_posix() in excluded:
             continue
@@ -242,9 +296,22 @@ def _add_package_tree(
         entries[portable] = digest_of_bytes(_read_package_bytes(path))
 
 
-def _add_package_file(entries: dict[str, str], *, source: Path, destination: Path) -> None:
+def _add_package_file(
+    entries: dict[str, str],
+    *,
+    source: Path,
+    destination: Path,
+    tracked_paths: frozenset[str] | None = None,
+    repository_root: Path | None = None,
+) -> None:
     if source.is_symlink() or not source.is_file():
         raise ValidationFailed(f"Package source file bulunamadi: {source.name}")
+    if tracked_paths is not None:
+        if repository_root is None:
+            raise ValidationFailed("Package tracked source root eksik")
+        source_path = source.relative_to(repository_root).as_posix()
+        if source_path not in tracked_paths:
+            raise ValidationFailed(f"Package tracked source eksik: {source_path}")
     portable = destination.as_posix()
     if portable in entries or any(
         existing.casefold() == portable.casefold() for existing in entries
@@ -263,23 +330,53 @@ def _package_source_entries(
         expected_root = (repository_root / "src" / "zekam").resolve()
         if root.resolve() != expected_root:
             raise ValidationFailed("Package source root repository binding ile uyusmuyor")
+    tracked_paths = _repository_tracked_paths(repository_root)
     exclusions = (
         _wheel_exclusion_paths(repository_root) if repository_root is not None else frozenset()
     )
-    _add_package_tree(entries, root=root, exclude_manifest=True, excluded=exclusions)
+    _add_package_tree(
+        entries,
+        root=root,
+        exclude_manifest=True,
+        excluded=exclusions,
+        tracked_paths=tracked_paths,
+        source_prefix=Path("src/zekam") if tracked_paths is not None else None,
+    )
     if repository_root is not None:
-        _add_package_tree(entries, root=repository_root / "config", destination=Path("_config"))
-        _add_package_tree(entries, root=repository_root / "schemas", destination=Path("schemas"))
-        _add_package_tree(entries, root=repository_root / "modeller", destination=Path("modeller"))
+        _add_package_tree(
+            entries,
+            root=repository_root / "config",
+            destination=Path("_config"),
+            tracked_paths=tracked_paths,
+            source_prefix=Path("config") if tracked_paths is not None else None,
+        )
+        _add_package_tree(
+            entries,
+            root=repository_root / "schemas",
+            destination=Path("schemas"),
+            tracked_paths=tracked_paths,
+            source_prefix=Path("schemas") if tracked_paths is not None else None,
+        )
+        _add_package_tree(
+            entries,
+            root=repository_root / "modeller",
+            destination=Path("modeller"),
+            tracked_paths=tracked_paths,
+            source_prefix=Path("modeller") if tracked_paths is not None else None,
+        )
         _add_package_file(
             entries,
             source=repository_root / "AKTIF_GOREV.md",
             destination=Path("AKTIF_GOREV.md"),
+            tracked_paths=tracked_paths,
+            repository_root=repository_root,
         )
         _add_package_file(
             entries,
             source=repository_root / "docs" / "RADAR_RUNBOOK.md",
             destination=Path("RADAR_RUNBOOK.md"),
+            tracked_paths=tracked_paths,
+            repository_root=repository_root,
         )
     if not entries:
         raise ValidationFailed("Package source bundle bos")
