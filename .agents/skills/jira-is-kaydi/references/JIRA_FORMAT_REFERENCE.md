@@ -5,7 +5,7 @@ resolved_url: 'https://ouryahoo.atlassian.net/secure/WikiRendererHelpAction.jspa
 capture_kind: researched_syntax_reference
 research_checked_at: '2026-09-16'
 snapshot_created_at: '2026-09-16T00:00:00Z'
-last_attempt_at: '2026-09-16T06:57:15Z'
+last_attempt_at: '2026-10-17T18:20:07Z'
 last_checked_at: '2026-09-16T06:57:15Z'
 last_changed_at: '2026-09-16T06:57:15Z'
 refresh_after_days: 30
@@ -19,9 +19,9 @@ reference_revision: 1
 etag: null
 last_modified: null
 bootstrap_required: false
-last_check_status: 'changed'
-last_error: null
-next_retry_after: null
+last_check_status: 'failed'
+last_error: 'ValueError'
+next_retry_after: '2026-10-18T18:20:07Z'
 target_renderer_validation: not_run
 reference_hash_contract: sha256-utf8-lf-managed-payload-v1
 ---

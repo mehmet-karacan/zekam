@@ -880,3 +880,13 @@
   test kanitidir; bu kaynak seti icin pytest/Maven yeniden calistirilmayacaktir.
   Exact native/live/credential/corpus/verifier/restore/release kaniti gelmeden
   bu maddeler tamamlanmis isaretlenmez.
+
+- 17 Ekim 2026 WP-06 bounded connector readback'i: `jira-is-kaydi` skill status'u
+  TTL expired ve yerel referans valid dondu. Tek refresh ag denemesi `ValueError`
+  ile basarisiz oldu; referans icerigi korunup retry zamani kaydedildi. Jira
+  current-user ve bounded `ORDER BY updated DESC`/`max_results=1`/`key` aramasi
+  terminal yanit verdi; project listesi 404, issue detail timeout oldu. Confluence
+  current-user basarili, space/page listeleri timeout oldu. Issue govdesi,
+  attachment, PII veya credential kalici kayda alinmadi ve yazma effect'i yapilmadi.
+  Bu WP-06.04 icin partial connector kanitidir; exact issue/attachment provenance,
+  Confluence pagination/permission ve canonical publication kabul kapilari aciktir.

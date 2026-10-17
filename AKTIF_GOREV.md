@@ -3813,6 +3813,21 @@ kaniti olarak korunur. Bu kaynak seti icin pytest/Maven yeniden calistirilmayaca
 acik maddeler exact native/live/credential/corpus/verifier/restore/release kaniti
 gelmeden isaretlenmeyecektir.
 
+### 10.113 17 Ekim 2026 Jira/Confluence bounded read-only probe
+
+`jira-is-kaydi` skill'inin once yerel status kontrolu `ttl-expired` ve referansi
+gecerli bildirdi. Yenileme icin tek ag denemesi yapildi; `ValueError` ile basarisiz
+oldu ve yerel referans korunarak yeni deneme zamani kaydedildi. Jira read-only
+current-user ve `ORDER BY updated DESC`, `max_results=1`, yalniz `key` alanli
+arama terminal yanit verdi. Jira proje listesi `HTTP 404`, tek issue ayrintisi
+okumasi timeout oldu. Confluence current-user terminal yanit verdi; space listesi
+ve page aramasi timeout oldu.
+
+Bu yoklamada issue govdesi, attachment, PII veya credential kaydedilmedi; Jira/
+Confluence'a yazma yapilmadi. Sonuc WP-06.04 icin yalniz kis partially available
+connector kanitidir. Exact issue/attachment provenance, Confluence pagination/
+permission ve canonical project publication kabul kapilari acik kalir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
