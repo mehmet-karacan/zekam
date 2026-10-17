@@ -3879,6 +3879,19 @@ Repository icine gecici artifact yazilmadi. Bu kanit kaynak export/readback dili
 ilerletir; final suite, native kabul, bagimsiz verifier ve release zinciri kapilarini
 acik birakir.
 
+### 10.117 17 Ekim 2026 MacOS archive-only paket siniri
+
+MacOS'a bagli Codex 0.151 v4 ingress, PreCompact, composition ve supervisor
+modulleri kaynak checkout'unda tarihsel/read-compatibility olarak tutuldu; Hatch
+wheel exclusion, package acceptance ve runtime reachability audit ayni exact set ile
+guncellendi. `python scripts/generate_package_manifest.py --check`, benchmark
+catalog check, `audit_runtime_reachability.py --repository .`, `py_compile` ve
+`git diff --check` basarili oldu. Audit sonucu `passed=true`, 355 reachable ve 26
+archive-only moduldur; MacOS test koleksiyonu eklenmedi ve pytest calistirilmadi.
+Degisiklik `1fda1ad` commit'inde origin/main'e push edildi. Bu statik paket siniri
+final Windows/Linux suite, native, live, corpus, bagimsiz verifier ve release kabul
+kanitlarinin yerine gecmez.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
