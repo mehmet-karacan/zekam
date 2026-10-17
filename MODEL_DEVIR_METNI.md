@@ -1,3 +1,29 @@
+# Guncel devir - Y-12 kalan test kosusu AKTIF
+
+Work readback fix 73c758e push edildi; hedefli 31 test gecti.
+Yeni canli handle: exec session42673; suite-run3b.log, junit-run3b.xml,
+pytest-run3b. Bunu poll et. Session61976 terminal failed (625/282/1), session44191
+selection guard nedeniyle hic test kosmadan terminal oldugundan yeniden bekleme.
+Run3b source73c758e koduyla, ayni original kapsamdan devam ediyor.
+
+Tam census9362; run2 JUnit'inden bitmis80dosya904case exact uzlasti. Failed
+module haric, her completed dosyanin tum case'leri census ile eslesti. Kalan8458
+case run3b'de toplandi; remaining-scope-check.json passed true, source drift yok.
+Import-time UUID param etiketleri collection'lar arasi degistigi icin ilk raw
+nodeid guard durdu. Declaration + parametre sirasi/sayisi + SHA256 guard'i ile
+hicbir test dusurulmeden devam edildi. Orijinal untracked iki ignore disinda
+yeni skip yok; bitmis dosyalarin kaniti JUnit'te, kalanlar source/census'a bagli.
+
+Tam bitince census/complete JUnit birlesimiyle9362 case kapsamini dogrula;
+failed partial run kanitini final passed sayma. Hata cikarsa onu duzelt ve
+etkilenen kontrolleri ayni Y12 asamasinda yeniden kos. Son Python fix nedeniyle
+son wheel rebuild/clean acceptance halen GEREKLI; e00648d wheel green olsa da
+son source diye sunma. Sonra authority/projection ve tek raporla final audit.
+Artifact alani C:/temp/zekam-y12-e3741df. Dort untracked girdi korunur.
+Goal aktif; bekleme user input veya onay gerektirmiyor, Y12 henuz bitmedi.
+
+---
+
 # Guncel devir - Y-12 run2 durdu, Work readback duzeltildi
 
 Exec session61976 TERMINAL exit1. Run2: 625 passed / 282 skipped / 1 failed,

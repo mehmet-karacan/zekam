@@ -12,7 +12,7 @@ pakete veya test kabul kapsaminda sahiplenilmedi.
 |---|---|---|
 | Yerel E5 CPU | PASSED | 384 boyut, finite/L2, TR/EN/TR-EN semantic probe; 2 intra-op thread, inter-op 1, batch 4; remote cagri 0 |
 | E5 ilk yukleme / sorgu / batch4 | OLCULDU | 4889 ms / medyan 8.55 ms / medyan 34.36 ms; proses CPU 5.109 sn, gozlenen peak RSS 462950400 bayt |
-| Son wheel temiz kurulum | PASSED | 11/11: izole venv, offline wheelhouse, site-packages import/manifest, version/help/init/doctor/skill prepare/resume/memory plan-apply-replay; self verification |
+| e00648d wheel temiz kurulum | PASSED (onceki artifact) | 11/11: izole venv, offline wheelhouse, site-packages import/manifest, version/help/init/doctor/skill prepare/resume/memory plan-apply-replay; self verification |
 | Yerel cold indeks | PASSED | 8467 ms tam CLI suresi, 3 chunk, 3 yeni embedding |
 | Degisikliksiz tekrar | PASSED | 6978 ms tam CLI suresi, 3 cache hit, 0 yeni embedding, ayni generation digest |
 | Delta indeks | PASSED | 7434 ms tam CLI suresi, 3 cache hit, yalniz 2 yeni chunk |
@@ -65,6 +65,15 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
   Kalan dosyalar kosulurken run2'de tam biten dosyalar yeniden calistirilmayacak;
   collection census ve JUnit node kimliklerinin birlesimi tam kapsam icin okunacak.
 
+- Tam collection census: 9362 test. Run2 JUnit'inde tamamlanmis 80 dosyada
+  904 case vardir; son/hatali modul tamamlanmis sayilmadi ve yeniden dahil
+  edildi. Devam kosusu 8458 case'i aldi; declaration/parametre sayilari ve test
+  dosyasi SHA256'lari eslesti. Bazi unit testlerinin import-time UUID parametre
+  etiketleri her collection'da degistigi icin ilk raw nodeid esitlik kontrolu
+  hic test calistirmadan durdu. Sonra ayni kaynak dosyasi, test declaration'i,
+  parametre sirasi/sayisi uzerinden eksiksiz kapsam denetlendi; yeni skip yok.
+  Bu sefer tam kapsam onceki 904 case + kalan 8458 case kanitlariyla uzlasacak.
+
 ## Bagimsizlik ve kalan is
 
 `1739a5f..c4a1e5e` kaynak araligi ayri gpt-6-astra reviewer tarafindan incelendi.
@@ -75,7 +84,8 @@ farkli basliklar bagimsiz verifier gibi sunulmaz.
 
 Siradaki is: run2 sonucunu al, gercek hatalari gider, gerekli etkilenen tekrarlar
 ve tam Windows kabulunu bitir; son kaynak kapilarini ve artifact baglarini
-kontrol et. Y-12 checkbox ve goal, gereken kanitlar tamamlanmadan kapanmaz.
+kontrol et. Work readback duzeltmesi 73c758e sonrasinda son wheel yeniden
+uretilip temiz kabulden gecmeden mevcut artifact son kaynak diye sunulmaz. Y-12 checkbox ve goal, gereken kanitlar tamamlanmadan kapanmaz.
 
 ## Repo disi kanit baglari
 
@@ -106,3 +116,6 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `runtime-reachability-final.log` | `sha256:f0bfd9b4315ad2f07466aa1b69c6a6622d5118fa000287bb295fec41d158f117` |
 | `junit-run2.xml` | `sha256:e0242dfedcf7a13fcf486ad5799957c400598eddfb6d8f98acb654cd07ce2954` |
 | `work-readback-fix-junit.xml` | `sha256:f7a7c7f373101a1bcdcf4c32ab8a9d905a7ac9b4e365c646624703d9fc8ced0f` |
+| `test-census.json` | `sha256:4dfba5788f1c45489aa406809956f4c2f17d3bb2e185055d5af42bae5738dbf6` |
+| `test-continuation-plan.json` | `sha256:64bdeb7e8e592683c97b1bb258b2ec0bdd320b0a391059971db821c424789ba2` |
+| `remaining-scope-check.json` | `sha256:4f5943b46aa1cade9e665b674f9b0084c3f584c73e586a2fd18d030e2d7af2ea` |
