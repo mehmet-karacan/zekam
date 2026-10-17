@@ -90,6 +90,19 @@
   signer/credential, live quality, bagimsiz verifier ve restore kabul kapilarini
   kapatmaz.
 
+- 17 Ekim 2026 kaynak degisikligi sonrasi tek final pytest: HEAD
+  `2cf2b4167f231e6e8efe61b031f0cbfbb9e3c0be` uzerinde, kaynak ve paket kabul
+  adimlari durduktan sonra `python -m pytest -q --tb=short --basetemp
+  C:\\temp\\zekam-final-b0ee2b6` exit code 0 ile tamamlandi. Sonuc:
+  `7984 passed, 1409 skipped, 3 warnings`, sure `52:51`. Uyarilar duplicate ZIP
+  fixture ve iki `runpy` capability-worker RuntimeWarning'inden ibaret.
+  Skip'ler Windows symlink/POSIX, kurulu olmayan native istemci, gercek Akilli
+  Kasa corpus'u, OCR, local BGE ve explicit remote/live provider kapilarina
+  aittir. Bu yerel test kapisini kapatir; native host/tool-denial,
+  signer/credential, bagimsiz verifier, restore/rollback, live kalite ve
+  production release zinciri kabul kapilarini kapatmaz. Bu kaynak degisikligi
+  icin pytest yeniden calistirilmayacak.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
