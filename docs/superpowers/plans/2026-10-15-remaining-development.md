@@ -862,3 +862,12 @@
   veya native/live kabul yerine gecmez. Mevcut kaynak seti icin yeni pytest/Maven
   kosusu yapilmayacak; native, credential, corpus, bagimsiz verifier,
   restore/rollback ve release-chain kapilari acik kalir.
+
+- 17 Ekim 2026 WP-09 harici Java hedefi read-only readback'i: `C:\\innova\\projeler\\ai-test-engineering\\java-support`
+  HEAD `3e1f63a`; hedef repo untracked handoff/test dosyalari tasiyor. Mevcut
+  `target/surefire-reports` XML'leri iki sinifta toplam `16` test, `15` basarili
+  ve `1` failure gosteriyor. `pom.xml` Surefire plugin'i iceriyor, JaCoCo
+  plugin'i veya taze coverage exec/XML/HTML yok. Bu stale/hedefe ait rapor WP-09
+  kabul kaniti sayilmadi; harici repoya degisiklik yapilmadi ve Maven
+  calistirilmadi. WP-09.01..06 icin taze source/tree fingerprint, Surefire/JaCoCo
+  ve bagimsiz verifier kaniti acik kalir.

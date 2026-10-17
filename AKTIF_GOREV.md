@@ -3785,6 +3785,18 @@ provider/model cagrisi veya native/live kabul yerine gecmez. Bu nedenle native,
 credential, corpus, bagimsiz verifier, restore/rollback ve release-chain kapilari
 acik tutuldu. Mevcut kaynak seti icin yeni pytest/Maven kosusu yapilmayacak.
 
+### 10.111 17 Ekim 2026 WP-09 harici Java hedefi read-only durumu
+
+`C:\\innova\\projeler\\ai-test-engineering\\java-support` hedefi salt-okunur
+incelendi; HEAD `3e1f63a` ve hedef repo untracked handoff/test dosyalari tasiyor.
+Mevcut `target/surefire-reports` XML'leri iki test sinifinda toplam `16` test,
+`15` basarili ve `1` failure bildiriyor. `pom.xml` yalniz Surefire plugin'i
+iceriyor; JaCoCo plugin'i veya taze coverage exec/XML/HTML bag'i yok.
+
+Bu stale/hedefe ait rapor WP-09 kabul kaniti sayilmadi; harici repoya degisiklik
+yapilmadi ve Maven calistirilmadi. WP-09.01..06 icin hedef gercek source/tree
+fingerprint'i, taze Surefire/JaCoCo kosusu ve bagimsiz verifier kaniti halen aciktir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
