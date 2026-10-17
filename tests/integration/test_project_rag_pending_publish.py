@@ -868,3 +868,34 @@ def test_foreign_project_projection_rejects_before_cas(tmp_path: Path, existing:
         paths["index"], read_only=True, dimension=LOCAL_E5_DIMENSION
     ) as index:
         assert index.generation(PROJECT_ID).generation_digest == staged_a.generation_digest
+
+
+@pytest.mark.parametrize("failure", [runtime.ProviderCallCancelled, runtime.ProviderDeadlineExceeded])
+def test_cancel_or_deadline_after_lock_wait_keeps_ready_generation(
+    tmp_path: Path, failure: type[Exception]
+) -> None:
+    paths = _paths(tmp_path)
+    ready, staged = _ready_and_staged(paths)
+    _write_state(paths, _result(ready))
+    old_state = paths["state"].read_bytes()
+    checks = 0
+
+    def budget() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise failure("budget expired while waiting for publication")
+
+    with pytest.raises(failure):
+        runtime._publish_rag_state_pending(
+            paths, PROJECT_ID, _result(staged), ready.generation_digest,
+            staged.generation_digest, check_budget=budget,
+        )
+    assert checks == 2
+    assert paths["state"].read_bytes() == old_state
+    assert not runtime._rag_pending_path(paths["state"]).exists()
+    with _read_only_connection(paths["index"]) as connection:
+        row = connection.execute(
+            "select generation_digest from current_generation where project_id=?", (PROJECT_ID,)
+        ).fetchone()
+        assert row[0] == ready.generation_digest

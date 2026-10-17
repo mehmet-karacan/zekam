@@ -2265,6 +2265,7 @@ def _publish_rag_state_pending(
     staged_generation_digest: str,
     *,
     publication: dict[str, Any] | None = None,
+    check_budget: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Publish one staged index generation and its rag-state as one unit.
 
@@ -2309,7 +2310,14 @@ def _publish_rag_state_pending(
     pending_path = _rag_pending_path(state_path)
     if not _scoped_path_is_private(paths["home"], state_path.parent, directory=True):
         raise PolicyViolation("Project RAG runtime scope ACL/identity drift")
+    if check_budget is not None:
+        check_budget()
     with _rag_state_write_lock(state_path):
+        # Waiting for the writer lock must not turn a cancelled/expired run
+        # into a publication. Once pending evidence exists, finish or recover
+        # the atomic publication instead of interrupting its commit protocol.
+        if check_budget is not None:
+            check_budget()
         if pending_path.exists() or pending_path.is_symlink():
             raise PolicyViolation("Project RAG onceki pending yayin uzlastirilmali")
         if state_path.exists() or state_path.is_symlink():
@@ -3536,6 +3544,7 @@ def _index(
         expected_current_digest,
         generation.generation_digest,
         publication=publication,
+        check_budget=lambda: _check_index_budget(cancel, deadline_monotonic),
     )
     return result
 

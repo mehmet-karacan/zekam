@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.8` — Y-04 guvenli kaynak okumasi
+**Belge sürümü:** `2.9` — Y-05 indeks yayininda iptal siniri
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -148,7 +148,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   secret korumasi ve bounded ZIP/XML davranisini tamamla. Desteksiz format icin parser
   uydurma; acik unsupported/partial sonucu ver. Cikis: mevcut desteklenen dosya turleri
   kaynak dosyayi degistirmeden ve secret sizdirmadan indekse hazirlanir.
-- [ ] **Y-05 — Yerel RAG ve indeks devami:** `project_knowledge_index.py`,
+- [x] **Y-05 — Yerel RAG ve indeks devami:** `project_knowledge_index.py`,
   `knowledge_index.py`, yerel ONNX provider ve SQLite indeks store'unda eksik baglari
   tamamla. Sadece yeni/degisen chunk'lar embed edilsin; batch/token/payload sinirlari,
   kota, iptal, retry ve hata sonrasi resume korunsun. Staging tamamlanmadan aktif indeks
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-05 yerel RAG ve indeks devami. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-06 ODI/Jira/Oracle baglari. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -330,6 +330,20 @@ Iki regresyon kaynagi hazirlandi; test kosusu yapilmadi. Yalniz py_compile ve
 diff kontrolu yapildi; parser/secret/rename ve gercek kaynak kabul testleri Y-12'de.
 Y-04 checkbox gelistirme teslimidir, final test veya Work kapanisi degildir.
 Geri donus: kaynak/belge commitini geri al; kullanici verisini degistirme.
+
+### 0.8 Y-05 gelistirme kaydi — 18 Ekim 2026
+
+Aktif yerel RAG yolundaki scoped vector cache, batch/token/payload limitleri,
+zero-call completed receipt reconciliation, staged generation ve SQLite pointer
+CAS/pending recovery kaynaklari incelendi; yeniden embedding veya indeksleme
+calistirilmadi. Yayin writer lock'u beklerken iptal/deadline dolmasi acigi kapatildi:
+pending evidence yazilmadan once ve lock alindiktan sonra budget yeniden okunur.
+Commit protokolu basladiktan sonra yarim iptal yapilmaz; terminal/recovery zinciri
+korunur. Eski ready index ve state iptal durumunda degismez; staged/cache veri
+sonraki devam icin kalir. Cancel/deadline regresyon kaynaklari gercek SQLite/pending
+fixture'ina eklendi, CALISTIRILMADI. py_compile/diff/projection kontrolu yapildi.
+Y-05 gelistirme teslimidir; crash/corpus/performance ve regresyon kabul Y-12de.
+Geri donus: kaynak/belge commitini geri al; cache/index veya kullanici state silme.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4408,6 +4422,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.6 | 2026-10-18 | Y-02 gelistirmesi: tek ortak girise mevcut yerel CLI yolu eklendi; kanonik ince giris generatoru korundu; native oturum kabul kosulari final Y-12de |
 | 2.7 | 2026-10-18 | Y-03: duz metinde proje/locator kaynaklari, citation ve kapsam tutarliligi, bos/buyuk aciklama reddi ve sanitize erisilemezlik baglandi; regresyon kodu hazir, testler Y-12de |
 | 2.8 | 2026-10-18 | Y-04: strict UTF-8 ve descriptor/path kimlik kontrolu ile kaynak drift korumasi; regresyonlar hazir, kosular Y-12de |
+
+| 2.9 | 2026-10-18 | Y-05: yayin lock beklemesi sonrasi cancel/deadline yeniden kontrolu; final regresyon kodu hazir |
 
 ### 15.3 Şimdiki Gerçek Durum
 
