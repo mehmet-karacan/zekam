@@ -80,7 +80,11 @@ production index olusturulmadi.
 
 Gercek kurulu modelle yapilan provider smoke kontrolden gecti: route `local`,
 CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
-batch 6 ms olculdu. OpenCode text-only native parseri ve deny-all smoke kaynaklari
+batch 6 ms olculdu. Son salt okunur tekrar dogrulamada ayni model 384 boyutlu
+bir sorgu ve iki belge vektoru uretti; normlar `1.0`, gecikmeler sorgu `3 ms` ve
+belge batch `5 ms`, probe evidence digest'i
+`sha256:094d27798287a164980940ed81771dbc3be32264ec427b96a90958fafe646dde` oldu.
+OpenCode text-only native parseri ve deny-all smoke kaynaklari
 `3fb420b` sonrasinda, tek son toplu `python -m pytest -q --tb=short
 --basetemp C:\\temp\\zekam-final-db710cd` kosusu exit code `0` ile sonuclandi:
 `7989 passed, 1409 skipped, 3 warnings` (54:12). Uyarilar
