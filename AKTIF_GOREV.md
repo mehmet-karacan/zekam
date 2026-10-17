@@ -3567,6 +3567,44 @@ proje/doctor kontrollerini kapsar. Native canlı istemci/tool-denial, signer ve
 credential sahipliği, canlı provider/Jira/Oracle kalite, bağımsız verifier,
 restore/rollback ve production release zinciri hâlâ ayrı kabul kapılarıdır.
 
+### 10.98 17 Ekim 2026 native OpenCode olay ve tool-denial kaniti
+
+Kurulu `@opencode/cli` `v2.0.30` direct binary'si ile gecici private profile,
+literal loopback provider ve CAS girdisi kullanilarak gercek `run --standalone
+--format json` akisi calistirildi. Hostun text-only olay akisi strict session,
+message ve part kimlikleriyle kabul edilir hale getirildi; sonuc `outcome=success`,
+`exit_code=0` ve `grants_authority=false` olarak kaydedildi. Adapter artifakti
+`sha256:14e0c88305fc39333bd61badd14f53b3650cd91c360a89ef92611ec87939fbc4`,
+execution binding ise `sha256:c264244e4404a83605c4cf4abfa1c794892b08f929ccfc964bad89ca27ce6334`
+olarak baglandi.
+
+Ayni deny-all profile'de sentetik `bash` tool istegi, OpenCode komutunu
+calistirmadan `tool_use` hata olayi ve `Tools are disabled after the maximum
+agent steps` sonucu verdi. Bu kanit yalnız exact profile/steps sinirini kapsar;
+shell wrapper/here-string bypass, genel native transport, signer/credential ve
+bagimsiz verifier kabulü degildir. Kaynak commitleri `db710cd` ve `3fb420b`dir;
+pytest bu smoke adimlarinda calistirilmadi.
+
+### 10.99 17 Ekim 2026 son kaynak sonrasi paket ve runtime readback'i
+
+`db710cd` ve `3fb420b` kaynak degisiklikleri durduktan sonra tek son toplu
+`python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final-db710cd`
+kosusu exit code `0` ile tamamlandi: `7989 passed, 1409 skipped, 3 warnings`
+(`54:12`). Bu kaynak seti icin pytest yeniden kosulmayacak.
+
+Sonrasinda `scripts/generate_package_manifest.py --check`, runtime reachability
+auditi (`passed=true`, 356 reachable, 18 archive-only, legacy PostgreSQL data
+access false) ve package validator (`status=passed`, 23 dosya, 20 model,
+18 faz/108 is, 42 schema, 83 Global DoD, git_security findings bos) okundu.
+Temiz `git archive` checkout'undan uretilen Windows wheel izole venv'de 23/23
+kontrolden gecti. Protected untracked kullanici/fixture dosyalari stage edilmedi;
+bu dosyalar authority veya paket kaniti sayilmaz.
+
+Bu readback yerel regression ve temiz paket kapilarini kapsar; gercek native
+tool-denial enforcement, signer/credential sahipligi, canli provider/Jira/Oracle
+kalitesi, bagimsiz verifier, restore/rollback ve production release zinciri
+acik kabul kapilaridir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -3768,6 +3806,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.5 | 2026-10-17 | Paket kabulü ve OpenCode global npm executable çözümlemesi kanıtlandı; native ve canlı kabul kapıları açık bırakıldı |
 | 1.6 | 2026-10-17 | Son kaynak düzeltmesi sonrası final suite `7983 passed, 1409 skipped, 3 warnings` ile yeniden temizlendi; açık native, canlı ve release kapıları korundu |
 | 1.7 | 2026-10-17 | Stale package manifest düzeltildi; izole Windows wheel kabulü 23/23 geçti; native, canlı ve bağımsız doğrulama kapıları açık bırakıldı |
+| 1.8 | 2026-10-17 | OpenCode v2.0.30 text-only native olay parseri ve deny-all tool smoke kanıtı eklendi; native transport ve bağımsız verifier kapıları açık bırakıldı |
+| 1.9 | 2026-10-17 | Son kaynak sonrası final suite `7989 passed, 1409 skipped, 3 warnings`; paket validator, runtime reachability ve temiz wheel readback'i güncellendi |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -3778,9 +3818,9 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
-| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, paket kabulü ve OpenCode direct executable çözümlemesi doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final4` `7983 passed, 1409 skipped, 3 warnings` ile temiz; izole Windows wheel kabulü 23/23 geçti; canlı ürün kabulü yok |
+| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5, OpenCode v2.0.30 text-only native parseri, deny-all smoke, paket validator ve runtime reachability doğrulandı; son final `python -m pytest -q --tb=short --basetemp C:\temp\zekam-final-db710cd` `7989 passed, 1409 skipped, 3 warnings` ile temiz; izole Windows wheel kabulü 23/23 geçti; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`; Miro/GitBook uzak yayını yapılmadı |
+| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `7d3a20f`, `24b5fbb`, `f5406df`, `5e3e375`, `db710cd`, `3fb420b`, `46531f9`; Miro/GitBook uzak yayını yapılmadı |
 
 **Sonraki adım:** Native istemci/host enforcement, signer ve credential sahipliği,
 canlı provider/Oracle/Jira kalite ölçümü, gerçek Maven/coverage ve clean release
