@@ -74,6 +74,16 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
   parametre sirasi/sayisi uzerinden eksiksiz kapsam denetlendi; yeni skip yok.
   Bu sefer tam kapsam onceki 904 case + kalan 8458 case kanitlariyla uzlasacak.
 
+- Run3b: 1300 passed / 73 skipped / 1 failed. Windows spawn, harici
+  devam-kosucusunu yeniden import edince eksik main guard nedeniyle ikinci
+  pytest oturumu acilmisti; bu, fixture dizinine esit-zamanli cleanup girisimi
+  dogurdu. Hard-exit/capture recovery testi standart pytest girisinden
+  dogrudan 1/1 gecti. Harici artifact kosucusuna __main__ guard eklendi;
+  test_evolution_capture modulu tamamen yeniden dahil edildi ve yeni kosu bu
+  modulden sonra ilerledi. Urun kodu bu harness duzeltmesi icin degismedi.
+  Run2+run3b JUnit'lerinden tam biten dosyalarda 2270 case dogrulandi; kalan
+  7092 case yeni declaration/sayi/source-hash kontrolunden eksiksiz gecti.
+
 ## Bagimsizlik ve kalan is
 
 `1739a5f..c4a1e5e` kaynak araligi ayri gpt-6-astra reviewer tarafindan incelendi.
@@ -119,3 +129,7 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `test-census.json` | `sha256:4dfba5788f1c45489aa406809956f4c2f17d3bb2e185055d5af42bae5738dbf6` |
 | `test-continuation-plan.json` | `sha256:64bdeb7e8e592683c97b1bb258b2ec0bdd320b0a391059971db821c424789ba2` |
 | `remaining-scope-check.json` | `sha256:4f5943b46aa1cade9e665b674f9b0084c3f584c73e586a2fd18d030e2d7af2ea` |
+| `junit-run3b.xml` | `sha256:3ccfd9eeb0b8d31bef6f98b893f8e8abd43ac52050cfa298d3ee978c68333b01` |
+| `spawn-runner-fix-junit.xml` | `sha256:38881467f18e65089b6719c35299113639f6e80c75d8528fb14ea0919d53ce12` |
+| `test-continuation-plan-run4.json` | `sha256:5e9543b4045e824b03457852aca3f493fa6477380188ab9e435beafda3a0bace` |
+| `remaining-scope-check-run4.json` | `sha256:a690813dc5debc4b7fc497c04561ad4bc9111c7b1006320e61e84dc0b3240278` |

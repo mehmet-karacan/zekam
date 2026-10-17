@@ -1,3 +1,24 @@
+# Guncel devir - Y-12 guarded devam kosusu AKTIF
+
+Canli exec session13275, suite-run4.log, junit-run4.xml, pytest-run4.
+Once bu handle'i poll et. Exec42673 terminal failed: 1300 passed/73 skipped/1
+failed. Sebep external continue_suite.py'nin main guard eksikligiydi; Windows
+spawn import'u ayni pytest/basetemp'i yeniden baslatiyordu. Standart python -m
+pytest ile hedef hard-exit recovery testi 1/1 gecti. Harici yeni kosucu
+continue_suite_guarded.py __main__ guard'li; evolution_capture modulu tumden
+tekrar dahil edildi ve kosu bu modulden sonra ilerledi. Urun kodu degismedi.
+
+Run2 ve run3b JUnit birlesiminde tam bitmis dosyalardan 2270 case kanitli;
+kalan7092 case run4'te collection ile exact declaration/sayi/hash eslesti.
+Plan test-continuation-plan-run4.json; scope-check remaining-scope-check-run4.json.
+Census9362. Tam final audit'te tum declaration+parametre slotlarini JUnit
+birlesimiyle uzlastir, failed partial run'i passed sayma. Isimlerde import-time
+UUID degisebilir; source hash + declaration + parametre sira/sayisi bagini koru.
+Source Python son duzeltme73c758e; son wheel rebuild/clean acceptance halenacik.
+Dort korunan untracked girdi korunur. Y12 ve goal AKTIF, bitmedi.
+
+---
+
 # Guncel devir - Y-12 kalan test kosusu AKTIF
 
 Work readback fix 73c758e push edildi; hedefli 31 test gecti.
