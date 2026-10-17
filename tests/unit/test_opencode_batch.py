@@ -42,6 +42,26 @@ def _stream(events):
     return b"\n".join(canonical_bytes(event) for event in events)
 
 
+def _text_only_events(document=None):
+    document = document or {
+        "result": {"agent_id": "model-invented", "summary": "ready"},
+        "body": {},
+    }
+    return [
+        {
+            "type": "text",
+            "sessionID": "ses_text_only",
+            "part": {
+                "type": "text",
+                "sessionID": "ses_text_only",
+                "messageID": "msg_text_only",
+                "id": "prt_text_only",
+                "text": json.dumps(document),
+            },
+        }
+    ]
+
+
 def test_observed_native_identity_replaces_model_identity_and_reasoning_not_persisted():
     events = _events()
     events.insert(
@@ -59,6 +79,18 @@ def test_observed_native_identity_replaces_model_identity_and_reasoning_not_pers
     document = subject.parse_batch_events(_stream(events))
     assert document["result"]["agent_id"] == "opencode:ses_fixture:msg_fixture"
     assert b"not persisted" not in canonical_bytes(document)
+
+
+def test_current_opencode_text_only_stream_is_accepted():
+    document = subject.parse_batch_events(_stream(_text_only_events()))
+    assert document["result"]["agent_id"] == "opencode:ses_text_only:msg_text_only"
+
+
+def test_text_only_stream_rejects_part_or_message_drift():
+    events = _text_only_events()
+    events.append({**events[0], "part": {**events[0]["part"], "messageID": "other"}})
+    with pytest.raises(ValidationFailed):
+        subject.parse_batch_events(_stream(events))
 
 
 @pytest.mark.parametrize(

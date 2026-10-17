@@ -45,9 +45,12 @@ Protokol degisikliginde version pini ve capability kaniti birlikte yenilenir.
 - stdout/stderr runtime'da bounded okunur. Timeout, truncation veya nonzero
   exit JSON'daki success iddiasiyla asilamaz.
 - Strict UTF-8/JSON, duplicate-key ve nonfinite reddi uygulanir.
-- Tek native root session/assistant message/step ve completed `stop` gerekir.
-  Tool/error/unknown event, farkli session/message, eksik terminal veya birden
-  fazla text part sonucu reddeder. Reasoning toplanmaz/persist edilmez.
+- Tek native root session/assistant message gerekir. Tarihsel event akisinda
+  `step_start` + `text` + `step_finish(reason=stop)` zinciri; OpenCode 2.0.30'un
+  gercek `run --format json` akisinda ise process exit 0 ile biten tek veya ayni
+  `id` ile yenilenen salt `text` olaylari kabul edilir. Tool/error/unknown event,
+  farkli session/message, farkli text part veya eksik metin reddedilir.
+  Timeout/truncation/nonzero exit terminal yerine gecmez. Reasoning toplanmaz/persist edilmez.
 - Modelin agent_id beyaninin yerine gozlenen native session/message kimligi
   konur. Result/body secret taramasindan sonra CAS'e yazilir; dispatch sonucu
   yalniz artifact_digest tasir. Patch uygulama Zekam test-only kapisindadir.
@@ -107,7 +110,21 @@ modellerden ve bu limitten bagimsiz kalir.
 Regresyon fixture kaynaklari yazildi, CALISTIRILMADI. Canli model/provider ve
 Maven calistirilmadi. Bu asama WP-09 kapanisi degildir. Gercek native
 tool-denial/end-to-end/bagimsiz verifier/credential provisioning kabul kaniti
-halen gereklidir.
+hala gereklidir.
+
+## Loopback native smoke kaniti
+
+17 Ekim 2026'da kurulu `opencode v2.0.30` direct binary, gecici private
+profil ve `127.0.0.1` uzerindeki sentetik OpenAI-compatible cevaplayici ile
+calistirildi. Adapter gercek `--version` probe'u, `run --standalone --format
+json`, CAS stdin, process exit ve text-only event fallback'ini birlikte
+gecirdi. Sonuc `outcome=success`, `exit_code=0`, `grants_authority=false` ve
+artifact `sha256:14e0c88305fc39333bd61badd14f53b3650cd91c360a89ef92611ec87939fbc4`;
+execution binding `sha256:c264244e4404a83605c4cf4abfa1c794892b08f929ccfc964bad89ca27ce6334`.
+
+Bu sentetik loopback kaniti native child/event/CAS bagini gosterir; gercek
+model kalitesi, tool-denial'in model tarafindan tetiklenmesi, credential
+provisioning, bagimsiz verifier veya production release kabulunu gostermez.
 
 Birincil kaynak: https://github.com/anomalyco/opencode/tree/v2/packages/cli/src/run
 ve ayni repodaki packages/cli/src/server-process.ts, packages/schema/src/config,

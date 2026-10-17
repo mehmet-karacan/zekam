@@ -140,6 +140,20 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
         lines = raw.decode("utf-8", errors="strict").splitlines()
     except UnicodeDecodeError as exc:
         raise ValidationFailed("OpenCode batch UTF-8 olmali") from exc
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        events.append(_json(line))
+    if not events:
+        raise ValidationFailed("OpenCode batch event stream bos")
+    # OpenCode 2.0.30's real ``run --format json`` output exposes the
+    # completed assistant message as one or more replacement ``text`` events
+    # and exits successfully without step_start/step_finish records. The
+    # process exit/timeout/truncation gates in dispatch provide the terminal
+    # boundary; this fallback still accepts only one stable native identity.
+    if all(event.get("type") == "text" for event in events):
+        return _parse_text_only_events(events)
     session: str | None = None
     message: str | None = None
     started = False
@@ -147,10 +161,7 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
     text: str | None = None
     text_id: str | None = None
     usage_steps: list[dict[str, Any]] = []
-    for line in lines:
-        if not line.strip():
-            continue
-        event = _json(line)
+    for event in events:
         current_session = _identifier(event.get("sessionID"))
         if session is not None and session != current_session:
             raise ValidationFailed("OpenCode batch root session drift")
@@ -193,6 +204,39 @@ def parse_batch_events(raw: bytes) -> dict[str, Any]:
     if not finished or session is None or message is None or text is None:
         raise ValidationFailed("OpenCode batch incomplete event stream")
     return attach_native_usage(_final_document(text, session, message), usage_steps)
+
+
+def _parse_text_only_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Parse the successful text-only stream emitted by current OpenCode V2."""
+
+    session: str | None = None
+    message: str | None = None
+    text_id: str | None = None
+    text: str | None = None
+    for event in events:
+        current_session = _identifier(event.get("sessionID"))
+        if session is not None and session != current_session:
+            raise ValidationFailed("OpenCode batch text-only session drift")
+        session = current_session
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("sessionID") != session:
+            raise ValidationFailed("OpenCode batch text-only part session drift")
+        if "type" in part and part.get("type") != "text":
+            raise ValidationFailed("OpenCode batch text-only part type drift")
+        current_message = _identifier(part.get("messageID"))
+        if message is not None and message != current_message:
+            raise ValidationFailed("OpenCode batch text-only message drift")
+        message = current_message
+        current_text_id = _identifier(part.get("id"))
+        if text_id is not None and text_id != current_text_id:
+            raise ValidationFailed("OpenCode batch text-only part drift")
+        current_text = part.get("text")
+        if not isinstance(current_text, str):
+            raise ValidationFailed("OpenCode batch text-only text eksik")
+        text_id, text = current_text_id, current_text
+    if session is None or message is None or text is None:
+        raise ValidationFailed("OpenCode batch text-only stream incomplete")
+    return attach_native_usage(_final_document(text, session, message), [])
 
 
 def _final_document(text: str, session: str, message: str) -> dict[str, Any]:

@@ -52,6 +52,14 @@ surumler hala provider baslatmadan fail-closed kaliyor. Bu degisiklik native
 tool-denial, credential izolasyonu veya gercek provider/model kabul kaniti
 degildir; bunlar ayri canli kabul kapisi olarak acik tutulur.
 
+17 Ekim 2026'da ayni 2.0.30 binary'si `127.0.0.1` loopback sentetik
+OpenAI-compatible endpoint ile adapter uzerinden calistirildi. Gercek
+`run --format json` ciktisinin salt `text` olayli oldugu goruldu; adapter bu
+akisi stable session/message/part kimligiyle ve process exit 0 siniriyla kabul
+edecek fallback'i tasir. CAS artifact ve execution binding yazimi basarili
+oldu. Bu smoke provider kalitesini, tool-denial'i veya credential provisioning'i
+dogrulamaz; onlar ayri kabul kapilaridir.
+
 ## Acik native adapter baglantisi
 
 Genel `SubprocessClientAdapter` icin kullanilan assignment/digest flag'leri

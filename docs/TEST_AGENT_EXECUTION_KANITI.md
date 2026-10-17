@@ -58,6 +58,13 @@ toplu asamaya ertelendi, CALISTIRILMADI.
 
 ## Final yerel test kaniti
 
+17 Ekim 2026 native OpenCode loopback smoke'unda `opencode v2.0.30`
+adapter'in text-only event fallback'i gercek child process, CAS stdin ve
+artifact yazimi ile `outcome=success` verdi. Bu kaynak degisikligi final pytest
+kosusundan sonra yapildigi icin asagidaki pytest sayilari onceki kaynak
+revizyonunun kanitidir; parser degisikligi icin yeni final kosusu gelistirme
+tamamen durduktan sonra yapilmalidir.
+
 17 Ekim 2026'da kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
 sonrasinda tek toplu pytest kosusu exit code 0 ile tamamlandi:
 `7987 passed, 1409 skipped, 3 warnings` (54:33). Bu kosu yerel regresyon

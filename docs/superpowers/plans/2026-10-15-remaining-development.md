@@ -747,3 +747,16 @@
 - Gorev 2 native Work islem secimi: route/dispatch allowlist'i ve komut haritasi Work islemlerine baglandi; Work key'i proje/Jira scope'u uretmez. Ince AGENTS girisi canonical dogal dil Work akisina baglandi. Regresyon kodu hazir, CALISTIRILMADI; host davranisi ve gercek kabul halen acik.
 - Gorev 2 dogal dil tekil okuma: ask acik Work/gorev/numarali is referansini scoped canonical show/history/dependencies/checkpoints'e baglar. Mixed/belirsiz talepler clarification; bounded event/run/checkpoint pencereleri ve sifir provider. Capability/observability dependency komutlariyla hizalandi. Regresyon kodu hazir, CALISTIRILMADI. Create/transition/close dogal dil kabul kapisi acik.
 - Gorev 2 dependency rapor/resume: bounded tek SQL aggregate dogal dil, work resume ve workspace resume'a baglandi. Canonical dependency blocker checkpoint yonlendirmesinden once gorunur; v8 oncesi unknown korunur. Regresyon kodu hazir, CALISTIRILMADI. Ruling: ara test ve worktree skill adimlari kullanicinin son test ve gercek kok talimatiyla uygulanmaz.
+
+- 17 Ekim 2026 native OpenCode loopback kabul dilimi: Kurulu `opencode v2.0.30`
+  direct binary, gecici private profil, literal loopback provider ve sentetik
+  CAS input ile gercek `run --standalone --format json` calistirildi. Hostun
+  salt `text` olayli basarili akisi gozlemlendi; parser ayni session/message/id
+  icin bounded text-only fallback ile guncellendi. Adapter sonucu
+  `outcome=success`, `exit_code=0`, `grants_authority=false`, artifact
+  `sha256:14e0c88305fc39333bd61badd14f53b3650cd91c360a89ef92611ec87939fbc4`
+  ve execution binding `sha256:c264244e4404a83605c4cf4abfa1c794892b08f929ccfc964bad89ca27ce6334`.
+  Yeni regresyon kaynagi eklendi, pytest bu gelistirme diliminde
+  calistirilmadi; final suite bu kaynak degisikligi tamamen durduktan sonra
+  bir kez calistirilacak. Gercek model kalitesi, tool-denial tetikleme,
+  signer/credential ve bagimsiz verifier kabul kapilari acik.
