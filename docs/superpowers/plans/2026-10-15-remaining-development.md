@@ -818,3 +818,12 @@
   altinda yalniz pinned E5 model agaci var; canonical operational home ve
   legacy production index agaci bulunmadigi icin effect baslatilmadi. Native,
   live, credential, restore ve release kabul kapilari acik tutuldu.
+
+- 17 Ekim 2026 mevcut kaynak seti final regression: `db980b0` HEAD'inde kaynak
+  gelistirmeleri durdurulduktan sonra tek `PYTHONPATH=src python -m pytest -q
+  --tb=short --basetemp C:\\temp\\zekam-final-db980b0` kosusu exit code `0` verdi:
+  `7991 passed, 1409 skipped, 3 warnings`, sure `3291.74s (0:54:51)`. Bu kosu
+  generator parser v7 ve native batch source readback'i sonrasi yapilan tek
+  final testtir; yeni kaynak degisikligi yapilmadi. Skip edilen live/native,
+  credential, corpus, bagimsiz verifier, restore/rollback ve release-chain
+  kapilari acik kalir. Bu kaynak seti icin pytest/Maven yeniden calistirilmaz.
