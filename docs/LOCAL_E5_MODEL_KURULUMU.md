@@ -76,15 +76,15 @@ sonra olusturulacaktir.
 
 ## Son dogrulama notu
 
-Gercek kurulu modelle yapilan son provider smoke kontrolden gecti: route `local`,
+Gercek kurulu modelle yapilan provider smoke kontrolden gecti: route `local`,
 CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
 batch 6 ms olculdu. Gelistirme dilimleri tamamlandiktan sonra 17 Ekim 2026'da
-calistirilan tek ve son toplu `python -m pytest -q` kosusu exit code `1` ile
-sonuclandi: `7831 passed, 1409 skipped, 149 failed, 3 warnings` (1:11:38).
-Kirmizilarin agirligi eski BGE/remote sozlesmeleri, guncel schema/projection
-beklentileri ve makineye bagli SQLite, skill ve unit-test loop fixture'laridir.
-Bu sonuc repository genelinde yesil kabul degildir; yeni yerel E5 kurulumu ve
-runtime dogrulamasi ayri kanit olarak korunur. Kullanici kurali geregi bu
-kosudan sonra yeni pytest cagrisi yapilmadi.
-Üretim corpus indexi bu kontrolde oluşturulmadı; aktif ZEKAM_HOME indexi
-bulunmadığı için yeniden indekslenecek hedef de yoktu.
+onceki tam kosuda tek kalan paket manifesti digest drift'i ureticiyle yenilendi.
+Manifest duzeltmesinden sonra yapilan son toplu `python -m pytest -q` kosusu exit
+code `0` ile sonuclandi: `7980 passed, 1409 skipped, 3 warnings` (1:09:16).
+Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan native
+istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir; remote/live
+provider ve gercek production corpus yeniden indeksleme kosulari bu makinede
+acik yetki veya veri olmadan calistirilmadi.
+Uretim corpus indexi bu kontrolde olusturulmadi; aktif ZEKAM_HOME indexi
+bulunmadigi icin yeniden indekslenecek hedef de yoktu.
