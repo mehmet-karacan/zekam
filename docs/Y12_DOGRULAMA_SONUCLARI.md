@@ -2,8 +2,8 @@
 
 Durum: **SURUYOR**. Genel Windows test paketi henuz tamamlanmadi; bu rapor
 release onayi, Work kapanisi veya tum urunun gectigi iddiasi degildir.
-Son kabul edilen kaynak duzeltmesi `39359a4`; temiz wheel `e00648d` HEAD'indeki
-ayni kaynak ve package manifestinden uretildi. Korunan dort untracked girdi
+Son kaynak duzeltmesi `6ffc3ce`; bu HEAD icin `release-rank` temiz wheel
+kabulu 11/11 gecti. Genel test kaniti henuz tamamlanmadi. Korunan dort untracked girdi
 pakete veya test kabul kapsaminda sahiplenilmedi.
 
 ## Kapsam ve gercek sonuclar
@@ -25,7 +25,7 @@ pakete veya test kabul kapsaminda sahiplenilmedi.
 | Learning-v2 -> v3 | PASSED | Canonical memory prepare terminal receipt; integrity/FK ok; eski tablolarin logical content paritesi ve schema3/all_ready readback |
 | Learning-v3 kullanici yedegi | PASSED | Guncel kullanici bundle create/verify ve ayri yeni hedefe restore |
 | Paket/kaynak kapilari | PASSED | Paket yapisi + tam Git security history, manifest, catalog, platform ve son wheel runtime reachability gecti; bulgu sonrasi exact fixture history kaydiyla tekrar dogrulandi |
-| Tum ilgili Windows testleri | RUNNING | Run2: 625 passed / 282 skipped / 1 failed; Work readback hata sinifi duzeltildi, ilgili 31 test gecti. Tamamlanmis dosyalar JUnit ile baglanip kalan kapsam kosulacak |
+| Tum ilgili Windows testleri | RUNNING | Yeni census 9364 case; 6360 tamamlanmis case mevcut JUnit kanitiyla korunur (passed/skipped ayri). Run6 yalniz kalan 3004 case. Gecen case dosya yarida kalsa da yeniden kosulmaz |
 | Canli Oracle/Jira/Confluence/ODI sistemi | NOT-RUN | Bu final kabulde kurum verisi/credential'i veya canli kurum servisi kullanilmadi; fixture/source kapsamiyla karistirilmaz |
 | MacOS / yeni Linux native kabul matrisi | OUT-OF-SCOPE | Onayli 0.3 kapsam karari |
 
@@ -167,3 +167,32 @@ kalanlari secer. Y12 henuz kapanmadi; final wheel/gate ve kalan test kaniti acik
 - `junit-run5.xml` SHA256: `sha256:57eaf1ec2c9d0386071e8684d83eb6085195cf9d79bf699e859cf543177669ca`.
 
 - `rank-fix-junit.xml` SHA256: `sha256:c5a0d108f9473fbb311168ae74193e5c09df4ceadbf33211f3d1653a6681ad71`.
+
+
+## Case duzeyinde tekrar yapmadan devam
+
+Kullanici karariyla run6 tamamlanmis dosyalari degil, tamamlanmis test
+case'lerini atlar. Census 9364; run2/3b/4/5 ve etkilenen RAG fix JUnit
+birlesiminde 6360 tamamlanmis case vardir. Bunlar passed/skipped olarak
+ayrilir; skip basari iddiasi degildir. Kalan 3004 case'in declaration/sayi
+ve SHA256 kapsam kontrolu gecti. Parametreli testin yalniz kalan slotlari
+secilir; yeni JUnit eslemesi continuation plan'daki eski slot sirasini kullanir.
+Run6 henuz aktif; sonucu alinmadan genel kabul kapanmaz.
+
+6ffc3ce icin temiz wheel kurulumu 11/11, paket/security history kontrolu ve
+wheel runtime reachability gecti. Bu belge guncellemesi Python kaynaklarini
+veya paketlenen authority'yi degistirmez; wheel kaynak bagi korunur.
+
+- `test-census-post-rank.json` SHA256: `sha256:aa7f1a6925dd9c93548db3fe91a8afc374144b23d82ec56e961322196ae6d047`.
+
+- `test-continuation-plan-run6.json` SHA256: `sha256:1a704c50cb93583d4eaeb0c35de6b776cdecd2f37aa14102bbfa452a75517f24`.
+
+- `remaining-scope-check-run6.json` SHA256: `sha256:675660783fa66078e0b55a41ea090447e1c71877853a99b00e56de149b2ef06f`.
+
+- `package-validation-rank.json` SHA256: `sha256:92185f06a85bfa2a115cd50f15be55e8242612a1bd99aa35f864cdf1004bb3e2`.
+
+- `release-rank/build-binding.json` SHA256: `sha256:0abeb6eed4167ff24b376bf034c9960734e17c5cbf14db118cd553b4c0a0910d`.
+
+- `release-rank/wheel-functional-acceptance.json` SHA256: `sha256:a8c7f06fb13e0d1c868a6c53a5d0c916dbd944343ce2aa3cdc1851563eaa1590`.
+
+- `release-rank/runtime-reachability.log` SHA256: `sha256:f0bfd9b4315ad2f07466aa1b69c6a6622d5118fa000287bb295fec41d158f117`.

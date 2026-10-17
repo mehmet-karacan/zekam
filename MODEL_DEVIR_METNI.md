@@ -1,3 +1,24 @@
+# Guncel devir - Y12 run6 AKTIF, case duzeyinde kalan3004
+
+Canli exec55585: suite-run6.log / junit-run6.xml / pytest-run6.
+Once bu handle'i poll et; yeniden test baslatma. 6360 case mevcut
+run2/3b/4/5 + rank-fix JUnit kanitiyla korunur; yeni census9364.
+Guarded run6 yalniz3004 kalan case'i secer, yarim dosyada gecenleri bile
+tekrarlamaz. Parametreli eski slotlari plan completed_slots alanindan cozumle;
+run6 JUnit ordinal'i tum declaration'a degil yalniz secili slotlara eslenir.
+Hazir harici final_census_audit.py bu eslemeyi yapar; XML terminal olunca calistir.
+Hata varsa yalniz basarisiz/etkileneni duzelt, yeni kalanlari devam ettir.
+
+6ffc3ce RAG rank fix ve48/48 ilgili kontrol push edildi. Ayni kaynak
+release-rank wheel11/11 temiz kabul, package-validation-rank ve runtime
+reachability passed. Yeni wheel build-binding source/hash kaydi var.
+Bu devir/report degisikligi Python veya paketlenen authority'yi degistirmez.
+Tum case kaniti, son authority/projection ve final gate/artifact baglari
+bitmeden Y12/goal'u kapatma. Korunan4untracked girdiye dokunma.
+Kanitlar C:/temp/zekam-y12-e3741df altinda. Yeni onay beklenmiyor.
+
+---
+
 # Guncel devir - Y12 run5 terminal, RAG rank fix dogrulandi
 
 Session75353 TERMINAL exit1; yeniden poll etme. Run5 394passed/2skip/1fail.
