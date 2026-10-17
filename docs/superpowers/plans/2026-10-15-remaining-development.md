@@ -241,6 +241,17 @@
   `git_security.findings=[]`, warnings/errors bos dondu. Final pytest bu
   kaynak revision'i icin siradaki tek toplu kapidir.
 
+- 17 Ekim 2026 final toplu pytest: Kaynak ve paket kabul adimlari durduktan
+  sonra `python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final6`
+  exit code `0` ile tamamlandi. Sonuc `7984 passed, 1409 skipped, 3 warnings`,
+  sure `53:05`. Yeni yerel E5 manifest regresyon testi dahil edildi; Windows
+  symlink/POSIX, kurulu olmayan native istemci, gercek Akilli Kasa corpus'u,
+  OCR, local BGE ve live provider testleri host veya explicit yetki siniri
+  nedeniyle skip kaldi. Yerel final test kapisi bu kaynak revision'i icin
+  temizdir; native/tool-denial, signer/credential, bagimsiz verifier,
+  restore/rollback, canli kalite ve production release zinciri acik kabul
+  kapilari olarak kalir.
+
 - 17 Ekim 2026 yerel E5 runtime readback: Kurulum verifier'i `status=verified`
   dondu; sabit revision `761b726dd34fb83930e26aab4e9ac3899aa1fa78` ve tum
   yedi dosyanin yerel SHA256 kayitlari eslesti. Gercek ONNX Runtime `1.31.0`
