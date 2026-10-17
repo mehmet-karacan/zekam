@@ -1528,9 +1528,16 @@ def apply_project_index(
     if type(provider_batch_limit) is not int or provider_batch_limit < 1:
         raise ValidationFailed("Embedding provider batch limiti gecersiz")
     effective_batch_size = min(batch_size, provider_batch_limit)
-    for chunk_batch in _project_embedding_batches(
+    embedding_batches = _project_embedding_batches(
         plan.chunks, batch_size=effective_batch_size, model_id=plan.embedding_profile.model_ref
-    ):
+    )
+    # A quota that cannot cover the minimum number of bounded batches must be
+    # rejected before the first provider effect.  Remote providers may still
+    # report more than one transport call per batch; the post-call receipt
+    # check below remains the authoritative upper bound for that case.
+    if max_provider_calls is not None and max_provider_calls < len(embedding_batches):
+        raise ProviderCallQuotaExceeded("Project embedding provider cagrisi kotasi yetersiz")
+    for chunk_batch in embedding_batches:
         _check_project_embedding_budget(cancel, deadline_monotonic)
         texts = tuple(chunk.text for chunk in chunk_batch)
         embedded = _embed_project_batch_with_retry(
