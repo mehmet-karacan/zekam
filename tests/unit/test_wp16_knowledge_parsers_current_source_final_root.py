@@ -66,7 +66,7 @@ def test_transcript_constructor_and_timestamp_like_lines_preserve_bad_data() -> 
 def test_ocr_missing_bbox_threshold_and_empty_results_are_rejected() -> None:
     with pytest.raises(ValidationFailed, match="eksik alan"):
         OcrParser(lambda _: ({"text": "x"},)).parse(b"x")
-    with pytest.raises(ValidationFailed, match="dort deger"):
+    with pytest.raises(ValidationFailed, match="dort gercek"):
         OcrParser(lambda _: ({"text": "x", "page": 1, "bbox": (0, 1), "confidence": 1},)).parse(
             b"x"
         )
@@ -80,7 +80,7 @@ def test_ocr_missing_bbox_threshold_and_empty_results_are_rejected() -> None:
 @pytest.mark.parametrize(
     "blocks,error",
     (
-        (({"kind": "paragraph"},), "text ve kind"),
+        (({"kind": "paragraph"},), "text alani"),
         (({"text": "x"},), "text ve kind"),
         (({"text": "x", "kind": "paragraph"},), "locator ister"),
         ((), "yapili belge bos"),

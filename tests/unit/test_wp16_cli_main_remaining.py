@@ -223,7 +223,11 @@ def _doctor_dependencies(
     monkeypatch.setattr(cli, "error_console", errors)
     monkeypatch.setattr(cli, "build_context", lambda **_: object())
     monkeypatch.setattr(cli, "build_doctor", lambda _: doctor)
-    monkeypatch.setattr(LocalCoreServices, "from_context", lambda _: local)
+    monkeypatch.setattr(
+        LocalCoreServices,
+        "from_context",
+        lambda _context, **_kwargs: local,
+    )
     monkeypatch.setattr(cli, "_render_report", lambda _: None)
     monkeypatch.setattr(cli, "_render_doctor_repair_plan", lambda _: None)
     return output, errors, doctor, local

@@ -1345,6 +1345,31 @@ def _backup_document(
         "total_bytes": total_bytes,
         "grants_authority": authority,
     }
+    if (
+        isinstance(directories, list)
+        and isinstance(entries, list)
+        and all(
+            isinstance(item, dict) and set(item) == {"path", "mode"}
+            for item in directories
+        )
+        and all(
+            isinstance(item, dict)
+            and set(item) == {"path", "kind", "mode", "size_bytes", "sha256"}
+            for item in entries
+        )
+    ):
+        body["capture_contract"] = {
+            "schema": "zekam-quiescent-sqlite-cohort/v1",
+            "database_paths": sorted(
+                item["path"] for item in entries if item["kind"] == "sqlite"
+            ),
+            "regular_file_digests": {
+                item["path"]: item["sha256"]
+                for item in entries
+                if item["kind"] == "file"
+            },
+            "grants_authority": False,
+        }
     return {**body, "manifest_digest": digest(body)}
 
 
@@ -1435,7 +1460,7 @@ def test_backup_sources_stop_tree_generator_at_file_limit(
     second = tree / "second"
     requested: list[Path] = []
 
-    def bounded_walk(_root: Path):
+    def bounded_walk(_root: Path, **_kwargs: object):
         requested.append(first)
         yield first
         requested.append(second)
@@ -1605,13 +1630,13 @@ def test_backup_verify_empty_census_totals_authority_and_extras(
         local_backup.verify_bundle(root)
     extra.unlink()
 
-    for document, message in (
-        (_backup_document([], [], file_count=1), "totals"),
-        (_backup_document([], [], total_bytes=1), "totals"),
-        (_backup_document([], [], authority=True), "grant authority"),
+    for document, error_type, message in (
+        (_backup_document([], [], file_count=1), PolicyViolation, "totals"),
+        (_backup_document([], [], total_bytes=1), PolicyViolation, "totals"),
+        (_backup_document([], [], authority=True), ValidationFailed, "schema"),
     ):
         _write_backup_manifest(root, document)
-        with pytest.raises(PolicyViolation, match=message):
+        with pytest.raises(error_type, match=message):
             local_backup.verify_bundle(root)
 
 
@@ -1628,7 +1653,7 @@ def test_backup_create_aggregate_bound_and_directory_census(
     monkeypatch.setattr(local_backup, "_REQUIRED_DIRECTORIES", frozenset())
     monkeypatch.setattr(local_backup, "MAX_TOTAL_BYTES", 0)
     services = SimpleNamespace(status=lambda: {"all_ready": True})
-    with pytest.raises(PolicyViolation, match="aggregate"):
+    with pytest.raises(PolicyViolation, match="operational cohort"):
         local_backup.create_bundle(cast(Any, services), home, tmp_path / "bundle")
     assert not (tmp_path / "bundle").exists()
 

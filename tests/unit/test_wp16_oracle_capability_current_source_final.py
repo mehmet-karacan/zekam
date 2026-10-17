@@ -18,6 +18,7 @@ from tests.unit import test_project_embedding_apply_boundary as embedding_fixtur
 
 from zekam.application import model_capability_benchmark as cap
 from zekam.application import oracle_metadata_index as oracle
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.application.embedding_provider import (
     EmbeddingBatch,
     EmbeddingPolicy,
@@ -264,7 +265,9 @@ def _plan() -> Any:
     return replace(
         plan,
         embedding_profile=IndexEmbeddingProfile(
-            "openai/BAAI/bge-m3", 1024, provider_profile_digest=profile.profile_digest
+            "intfloat/multilingual-e5-small",
+            LOCAL_E5_DIMENSION,
+            provider_profile_digest=profile.profile_digest,
         ),
     )
 
@@ -281,7 +284,9 @@ class _Provider:
     def embed_documents(self, texts: tuple[str, ...], policy: EmbeddingPolicy) -> EmbeddingBatch:
         self.profile.assert_policy(policy)
         count = len(texts) if self.vectors is None else self.vectors
-        vectors = tuple((1.0,) + (0.0,) * 1023 for _ in range(count))
+        vectors = tuple(
+            (1.0,) + (0.0,) * (LOCAL_E5_DIMENSION - 1) for _ in range(count)
+        )
         receipt_count = len(texts) if self.receipt_count is None else self.receipt_count
         receipt = EmbeddingReceipt(
             EmbeddingPurpose.DOCUMENT,
@@ -289,7 +294,7 @@ class _Provider:
             digest(texts),
             digest(vectors),
             max(1, receipt_count),
-            1024,
+            LOCAL_E5_DIMENSION,
             1,
             1,
         )
