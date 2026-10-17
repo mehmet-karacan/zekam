@@ -219,7 +219,11 @@ class ReplayClientAdapter:
             ClientKind.INTERNAL,
             f"replay-mock-{specialty.value}",
             "replay-agent",
-            frozenset({"structured-result"}),
+            # Replay harness'in canonical gateway ile child assignment
+            # dispatch'ini gercek bir adapter gibi kullanabilmesi gerekir.
+            # Capability kontrolunu gevsetmeden, bu mock istemcinin
+            # destekledigi capability'yi acikca beyan ediyoruz.
+            frozenset({"child-dispatch", "structured-result"}),
         )
 
     @property
