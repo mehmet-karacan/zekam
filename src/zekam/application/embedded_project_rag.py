@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
@@ -19,7 +22,17 @@ from zekam.application.knowledge_index import (
     KnowledgeIndexPort,
     KnowledgeIndexRecord,
 )
-from zekam.application.project_knowledge_index import ProjectIndexPlan
+from zekam.application.project_knowledge_index import (
+    MAX_PROJECT_EMBED_BATCH_SIZE,
+    ProjectIndexPlan,
+    _embed_project_batch_with_retry,
+    _project_embedding_batches,
+)
+from zekam.application.provider_adapter import (
+    ProviderCallCancelled,
+    ProviderCallQuotaExceeded,
+    ProviderDeadlineExceeded,
+)
 from zekam.application.retrieval_service import (
     DEFAULT_RETRIEVAL_DEADLINE_SECONDS,
     MAX_PACKED_CHUNKS,
@@ -612,8 +625,19 @@ def build_embedded_project_generation(
     embedding_provider: EmbeddingProvider,
     embedding_policy: EmbeddingPolicy,
     created_at: dt.datetime | None = None,
+    batch_size: int = MAX_PROJECT_EMBED_BATCH_SIZE,
+    cancel: threading.Event | None = None,
+    deadline_monotonic: float | None = None,
+    max_provider_calls: int | None = None,
 ) -> tuple[ProjectIndexPlan, KnowledgeGeneration]:
-    """Embed every bounded source chunk before atomically activating the generation."""
+    """Embed bounded source chunks before atomically activating the generation.
+
+    The older embedded path used a fixed slice size and called the provider
+    directly.  That made token/payload limits, cancellation and total deadlines
+    depend on the caller rather than the indexing boundary.  Keep all provider
+    work before generation publication, while reusing the canonical bounded
+    batching and retry policy used by the SQLite project index path.
+    """
 
     profile = embedding_provider.describe()
     profile.assert_policy(embedding_policy)
@@ -626,7 +650,20 @@ def build_embedded_project_generation(
     provider_batch_limit = getattr(embedding_provider, "max_batch_size", 8)
     if type(provider_batch_limit) is not int or provider_batch_limit < 1:
         raise ValidationFailed("Embedded provider batch limiti gecersiz")
-    effective_batch_size = min(8, provider_batch_limit)
+    if type(batch_size) is not int or not 1 <= batch_size <= MAX_PROJECT_EMBED_BATCH_SIZE:
+        raise ValidationFailed("Embedded project batch sayi siniri gecersiz")
+    if cancel is not None and not isinstance(cancel, threading.Event):
+        raise ValidationFailed("Embedded project cancel typed olmali")
+    if deadline_monotonic is not None and (
+        type(deadline_monotonic) not in (int, float)
+        or not math.isfinite(float(deadline_monotonic))
+    ):
+        raise ValidationFailed("Embedded project deadline gecersiz")
+    if max_provider_calls is not None and (
+        type(max_provider_calls) is not int or max_provider_calls < 1
+    ):
+        raise ValidationFailed("Embedded project provider cagrisi siniri gecersiz")
+    effective_batch_size = min(batch_size, provider_batch_limit)
     bound_plan = replace(
         plan,
         embedding_profile=replace(
@@ -642,11 +679,21 @@ def build_embedded_project_generation(
         item.relative_path: item.content_digest for item in bound_plan.discovery.files
     }
     vectors: dict[str, tuple[float, ...]] = {}
-    for offset in range(0, len(bound_plan.chunks), effective_batch_size):
-        chunks = bound_plan.chunks[offset : offset + effective_batch_size]
-        batch = embedding_provider.embed_documents(
-            tuple(chunk.text for chunk in chunks), embedding_policy
+    provider_calls = 0
+    for chunks in _project_embedding_batches(
+        bound_plan.chunks,
+        batch_size=effective_batch_size,
+        model_id=profile.exact_model_id,
+    ):
+        _check_embedded_generation_budget(cancel, deadline_monotonic)
+        batch = _embed_project_batch_with_retry(
+            embedding_provider,
+            tuple(chunk.text for chunk in chunks),
+            embedding_policy,
+            cancel=cancel,
+            deadline_monotonic=deadline_monotonic,
         )
+        _check_embedded_generation_budget(cancel, deadline_monotonic)
         if (
             len(batch.vectors) != len(chunks)
             or batch.receipt.vector_count != len(chunks)
@@ -654,11 +701,15 @@ def build_embedded_project_generation(
             or batch.receipt.dimension != profile.dimension
         ):
             raise PolicyViolation("Embedded project provider partial/receipt drift")
+        provider_calls += batch.receipt.provider_call_count
+        if max_provider_calls is not None and provider_calls > max_provider_calls:
+            raise ProviderCallQuotaExceeded("Embedded project provider cagrisi kotasi asildi")
         for chunk, vector in zip(chunks, batch.vectors, strict=True):
             profile.validate_vector(vector)
             vectors[chunk.chunk_id] = vector
     if len(vectors) != len(bound_plan.chunks):
         raise PolicyViolation("Embedded project vector set incomplete")
+    _check_embedded_generation_budget(cancel, deadline_monotonic)
     records = tuple(
         KnowledgeIndexRecord(
             chunk_id=chunk.chunk_id,
@@ -687,6 +738,17 @@ def build_embedded_project_generation(
         created_at=moment.isoformat().replace("+00:00", "Z"),
     )
     return bound_plan, generation
+
+
+def _check_embedded_generation_budget(
+    cancel: threading.Event | None, deadline_monotonic: float | None
+) -> None:
+    """Fail before publication when the caller cancelled or the budget expired."""
+
+    if cancel is not None and cancel.is_set():
+        raise ProviderCallCancelled("Embedded project indexing cancelled")
+    if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+        raise ProviderDeadlineExceeded("Embedded project indexing deadline expired")
 
 
 _DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc", ".txt")

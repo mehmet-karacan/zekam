@@ -40,6 +40,13 @@
 
 ## Yurutme kaydi
 
+- 17 Ekim 2026 WP-05.03 embedded generation batch siniri: `build_embedded_project_generation`
+  artik canonical 4'lu local E5 batch, token/payload sinirlari, bounded transient retry,
+  cancellation, toplam deadline ve provider-call quota'yi provider etkisi sonrasi
+  generation yayinlamadan once uygular. Vektorler tamamlanmadan `KnowledgeGeneration`
+  yazilmaz; partial/unknown sonuc fail-closed kalir. Paket manifesti yenilendi, import
+  denetimi yapildi; pytest final asamasina birakildi. Commit bu dilimin sonunda alinacak.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
