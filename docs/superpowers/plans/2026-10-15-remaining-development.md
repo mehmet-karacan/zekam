@@ -30,7 +30,7 @@
 ## Sirali gorevler
 
 - [x] 1. WP-07.05 kaynak uygulamasi: spool candidate `startedAt` ile OS PID incarnation `processStartedAt` ayrimini ve native source-root drift reddini zaten uyguluyor. Gercek process-kill/race/full-spool ve native host kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
-- [ ] 2. WP-07.01..04: canonical Work dogal dil ve resume/lease/grant akislarindaki kalan uygulama bosluklarini kaynak incelemesiyle belirle ve tamamla.
+- [x] 2. WP-07.01..04 kaynak uygulamasi: dogal dil Work okuma, canonical job/Run/source-config fingerprint readback ve lease/recovery execution guard kaynakta baglandi. Gercek lease/grant yeniden edinimi, race/crash ve native client kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [ ] 3. WP-02/03: native mutation admission, istemci ve shell/publication transport baglantilarini tamamla.
 - [ ] 4. WP-04/05/06: discovery/parser/secret ve incremental publication/reconciliation; issue/history/provenance baglantilarinin kalan uygulamasini tamamla.
 - [ ] 5. WP-08/09/10: host capability, model/agent envelope, test muhendisligi ve memory/skill lifecycle baglantilarini tamamla.
@@ -46,6 +46,11 @@
   top-level ve link/reparse ancestor kontrolu ile source-root drift'i fail-closed
   reddediyor. Bu dilim kaynakta tamamlandi; native process-kill/race ve tam spool
   kabul kapilari acik. Test CALISTIRILMADI.
+
+- 17 Ekim 2026 WP-07.01..04 kaynak denetimi: canonical Work dogal dil ve
+  `workspace_resume`/`work show` yollarinin ortak bounded Run, source snapshot,
+  config revision, lease/recovery ve binding guard okumalari kaynakta mevcut.
+  Bu dilim uygulama kapsami acik kabul kapilarindan ayrildi; test CALISTIRILMADI.
 
 - 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
   alindi; `git publication` alt komutlari canonical surface denetiminde artik
