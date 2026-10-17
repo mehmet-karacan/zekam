@@ -333,43 +333,105 @@ def plan_client_instruction_bootstrap(
     return ClientInstructionBootstrapPlan(tuple(planned), tuple(conflicts))
 
 
-def apply_client_instruction_bootstrap(plan: ClientInstructionBootstrapPlan) -> None:
-    """Atomically create or update only the planned managed sections."""
+@dataclass(frozen=True, slots=True)
+class _ManagedInstructionSnapshot:
+    """Bir global client hedefinin staged gecici dosya ve eski bayt kaniti."""
 
-    for item in plan.files:
-        user_home = (
-            item.path.parents[1]
-            if item.client_id
-            in {
-                ClientIntegrationId.CODEX.value,
-                ClientIntegrationId.CLAUDE_CODE.value,
-            }
-            else item.path.parents[2]
+    item: ClientInstructionFilePlan
+    user_home: Path
+    original: bytes | None
+    temporary: Path
+
+
+def _managed_user_home(item: ClientInstructionFilePlan) -> Path:
+    if item.client_id in {
+        ClientIntegrationId.CODEX.value,
+        ClientIntegrationId.CLAUDE_CODE.value,
+    }:
+        return item.path.parents[1]
+    return item.path.parents[2]
+
+
+def _rollback_managed_instruction(snapshot: _ManagedInstructionSnapshot) -> None:
+    """Restore a global target only when no foreign drift appeared."""
+
+    path = snapshot.item.path
+    _assert_safe_home(snapshot.user_home)
+    _assert_safe_path(snapshot.user_home, path)
+    current = _read_bounded_entry_bytes(path) if path.exists() else None
+    expected = snapshot.item.content.encode("utf-8")
+    if current == snapshot.original:
+        return
+    if current != expected:
+        raise ConfigurationError("Client bootstrap rollback disi drift nedeniyle reddedildi")
+    if snapshot.original is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = _stage_entry(path, snapshot.original)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def apply_client_instruction_bootstrap(plan: ClientInstructionBootstrapPlan) -> None:
+    """Planlanan managed bolumleri coklu hedef rollback'iyle yazar."""
+
+    if plan.conflicts:
+        raise ConfigurationError(
+            "Client bootstrap plani conflict tasiyor; hic dosya yazilmedi: "
+            + "; ".join(f"{conflict.path.name}:{conflict.reason}" for conflict in plan.conflicts)
         )
+    prepared: list[tuple[ClientInstructionFilePlan, Path, bytes | None]] = []
+    # Tum hedefleri once preflight et; ikinci hedef stale ise ilk hedef henuz
+    # yazilmamis olur.
+    for item in plan.files:
+        user_home = _managed_user_home(item)
         _assert_safe_home(user_home)
         _assert_safe_path(user_home, item.path)
         current = read_instruction_text(item.path) if item.path.exists() else ""
         expected, action, _view = _render(current)
         if expected != item.content or action != item.action:
             raise ConfigurationError("Client bootstrap plani dosya drift nedeniyle stale")
-        if item.action == "unchanged":
-            continue
-        item.path.parent.mkdir(parents=True, exist_ok=True)
-        _assert_safe_path(user_home, item.path)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{item.path.name}.", dir=item.path.parent
-        )
-        temporary = Path(temporary_name)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(item.content.encode("utf-8"))
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(item.path)
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
-        verify_instruction_readback(item.path, item)
+        if action != "unchanged":
+            original = _read_bounded_entry_bytes(item.path) if item.path.exists() else None
+            prepared.append((item, user_home, original))
+
+    staged: list[_ManagedInstructionSnapshot] = []
+    committed: list[_ManagedInstructionSnapshot] = []
+    try:
+        for item, user_home, original in prepared:
+            item.path.parent.mkdir(parents=True, exist_ok=True)
+            _assert_safe_path(user_home, item.path)
+            temporary = _stage_entry(item.path, item.content)
+            staged.append(_ManagedInstructionSnapshot(item, user_home, original, temporary))
+        for snapshot in staged:
+            item = snapshot.item
+            _assert_safe_path(snapshot.user_home, item.path)
+            current = (
+                _read_bounded_entry_bytes(item.path) if item.path.exists() else None
+            )
+            if current != snapshot.original:
+                raise ConfigurationError("Client bootstrap apply sirasinda dosya drifti")
+            # Replace'in belirsiz OS etkisini de konservatif rollback'e dahil et.
+            committed.append(snapshot)
+            snapshot.temporary.replace(item.path)
+            verify_instruction_readback(item.path, item)
+    except BaseException as exc:
+        rollback_errors: list[BaseException] = []
+        for snapshot in reversed(committed):
+            try:
+                _rollback_managed_instruction(snapshot)
+            except BaseException as rollback_error:
+                rollback_errors.append(rollback_error)
+        if rollback_errors:
+            raise ConfigurationError(
+                "Client bootstrap rollback readback basarisiz"
+            ) from rollback_errors[0]
+        raise
+    finally:
+        for snapshot in staged:
+            snapshot.temporary.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +655,7 @@ class _ProjectEntrySnapshot:
     temporary: Path
 
 
-def _read_project_entry_bytes(path: Path) -> bytes:
+def _read_bounded_entry_bytes(path: Path) -> bytes:
     """Read a bounded UTF-8 entry without newline normalization."""
 
     metadata = path.stat(follow_symlinks=False)
@@ -606,7 +668,7 @@ def _read_project_entry_bytes(path: Path) -> bytes:
     return payload
 
 
-def _stage_project_entry(path: Path, content: str) -> Path:
+def _stage_entry(path: Path, content: str | bytes) -> Path:
     """Write one fsync'ed temporary file beside its target."""
 
     descriptor, temporary_name = tempfile.mkstemp(
@@ -615,7 +677,7 @@ def _stage_project_entry(path: Path, content: str) -> Path:
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            stream.write(content.encode("utf-8"))
+            stream.write(content.encode("utf-8") if isinstance(content, str) else content)
             stream.flush()
             os.fsync(stream.fileno())
     except BaseException:
@@ -629,7 +691,7 @@ def _rollback_project_entry(project_root: Path, snapshot: _ProjectEntrySnapshot)
 
     path = snapshot.item.path
     _assert_project_local_target(project_root, path)
-    current = _read_project_entry_bytes(path) if path.exists() else None
+    current = _read_bounded_entry_bytes(path) if path.exists() else None
     expected = snapshot.item.content.encode("utf-8")
     # Replace failure can be ambiguous on a hostile/failed filesystem. If the
     # old bytes are still present, there is nothing to restore.
@@ -640,8 +702,7 @@ def _rollback_project_entry(project_root: Path, snapshot: _ProjectEntrySnapshot)
     if snapshot.original is None:
         path.unlink(missing_ok=True)
         return
-    original = snapshot.original.decode("utf-8")
-    temporary = _stage_project_entry(path, original)
+    temporary = _stage_entry(path, snapshot.original)
     try:
         temporary.replace(path)
     finally:
@@ -683,8 +744,8 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
             item.path.parent.mkdir(parents=True, exist_ok=True)
             _assert_project_local_target(plan.project_root, item.path)
             existed = item.path.exists()
-            original = _read_project_entry_bytes(item.path) if existed else None
-            temporary = _stage_project_entry(item.path, item.content)
+            original = _read_bounded_entry_bytes(item.path) if existed else None
+            temporary = _stage_entry(item.path, item.content)
             staged.append(_ProjectEntrySnapshot(item, existed, original, temporary))
 
         # Replace atomik olsa da birden cok hedef tek OS transaction'i degildir.
@@ -694,7 +755,7 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
             item = snapshot.item
             _assert_project_local_target(plan.project_root, item.path)
             current = (
-                _read_project_entry_bytes(item.path) if item.path.exists() else None
+                _read_bounded_entry_bytes(item.path) if item.path.exists() else None
             )
             if current != snapshot.original:
                 raise ConfigurationError(
@@ -704,7 +765,7 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
             # unknown effect and must still enter the conservative rollback path.
             committed.append(snapshot)
             snapshot.temporary.replace(item.path)
-            if _read_project_entry_bytes(item.path) != item.content.encode("utf-8"):
+            if _read_bounded_entry_bytes(item.path) != item.content.encode("utf-8"):
                 raise ConfigurationError("Project entry readback drift")
     except BaseException as exc:
         rollback_errors: list[BaseException] = []
@@ -714,7 +775,9 @@ def apply_project_local_entry(plan: ProjectLocalEntryPlan) -> None:
             except BaseException as rollback_error:
                 rollback_errors.append(rollback_error)
         if rollback_errors:
-            raise ConfigurationError("Project entry rollback readback basarisiz") from rollback_errors[0]
+            raise ConfigurationError(
+                "Project entry rollback readback basarisiz"
+            ) from rollback_errors[0]
         raise
     finally:
         for snapshot in staged:

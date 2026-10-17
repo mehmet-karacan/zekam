@@ -3639,7 +3639,9 @@ olursa onceki replace'ler yalniz halen planlanan govdeyi tasiyorsa eski baytlari
 geri aliniyor. Disaridan gelen yeni drift'in uzerine yazilmiyor; rollback readback'i
 kanitlanamazsa basari receipt'i uretilmiyor. Bu, preflight sonrasindaki coklu hedef
 partial-write riskini daraltir; native host shell/tool-denial ve gercek client
-kabulunu tek basina kapatmaz.
+kabulunu tek basina kapatmaz. Ayni staged preflight ve conservative rollback
+sozlesmesi global managed client instruction apply'ina da baglandi; conflict tasiyan
+plan hicbir hedefi yazmiyor.
 
 AST parse kontrolu yapildi; pytest, Maven ve canli provider/model cagrisi bu
 gelistirme diliminde calistirilmadi. Sonraki adim kalan kaynak gelistirmelerini
