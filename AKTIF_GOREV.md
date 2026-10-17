@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.5` — Y-10 operasyon ve yedekleme baglari
+**Belge sürümü:** `3.6` — Y-11 tracked wheel ve kullanim belgesi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -182,7 +182,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   snapshot, CAS/manifest ve ayri hedefe restore; kesinti/disk hatasinin acik sonucu kalsin.
   Scheduler varsayilan kapali, mevcut pause/disable davranisi korunur; yeni Windows servisi
   veya periyodik is kurma. Cikis: gercek kayittan durum raporu ve guvenli backup/restore.
-- [ ] **Y-11 — Paket ve kisa kullanim belgesi:** `package_acceptance.py`,
+- [x] **Y-11 — Paket ve kisa kullanim belgesi:** `package_acceptance.py`,
   `PACKAGE_RELEASE_MANIFEST.json`, mevcut manifest generator ve kurulum/kullanim belgelerini
   son kaynakla hizala. Tek kurulum/ilk kullanim/devam/backup aciklamasi yeterli; desteklenen
   ve eksik akislar acik yazilsin. Cikis: finalde kurulacak wheel ve guncel belge; ayri
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-11 paket ve kisa kullanim belgesi. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-12 final test, review, wheel ve gercek CPU/DR kabul asamasini yurut. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -460,6 +460,24 @@ Y-12de explicit memory migration sonrasinda yap. Bu tur gercek backup/restore,
 native scheduler kurulumu, test, model/provider cagrisi yapilmadi. Checkbox
 kaynak teslimidir; gercek DR/runtime ve regresyon kaniti Y-12de bekler.
 Geri donus yalniz belge revizyonudur; kullanici verisi degismedi.
+
+### 0.15 Y-11 gelistirme teslimi — 18 Ekim 2026
+
+README baslangici gercek yerel veri/CLI/model kurulumu, dogal dil ilk kullanim,
+devam, explicit memory prepare, backup/restore ve source/artifact ayrimina gore
+sadelestirildi. Yeni mimari export/yayin projesi veya UI eklenmedi.
+`scripts/build_tracked_wheel.py` gercek checkout'ta mevcut manifest builder'in
+tracked sanal paket agacini Hatch'e exact file mapping olarak iletir. Source
+clone'u, untracked modul veya kullanici/model verisi release'e alinmaz. Artifact
+repo disindadir ve stale manifest ile build reddedilir. Bu, korunan untracked
+natural_request_rag.py dosyasinin istemeden wheel'e girmesini de onler.
+
+Y-01..11 kaynak gelistirme teslimleri kaydedildi. Runtime test/acceptance, source
+manifest check, wheel-only kurulum, E5 CPU/semantik/performans, Maven/JaCoCo,
+checkpoint ve backup/restore Y-12 final asamasindadir. Testler henuz CALISTIRILMADI.
+Kullanici learning DB'si halen v2; explicit migration test/review sonrasinda ele
+alinacak. Y-11 kaynak teslimidir; wheel kabul basarisi veya Work kapanisi degildir.
+Geri donus: kaynak/belge revizyonunu geri al; kullanici home/model/state korunsun.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4552,6 +4570,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 3.4 | 2026-10-18 | Y-09 kaynak teslimi: append-only memory archival, effective read/search ve yedekli explicit v3 gecisi; test/migration kabul finalde |
 
 | 3.5 | 2026-10-18 | Y-10 mevcut canonical rapor/scheduler ve online backup-restore baglari kaydedildi; gercek DR kabul finalde |
+
+| 3.6 | 2026-10-18 | Y-11: mevcut manifestin tracked siniri wheel buildera baglandi; README yerel kurulum/kullanim girisi guncellendi; Y-12 final asamasi sirada |
 
 ### 15.3 Şimdiki Gerçek Durum
 

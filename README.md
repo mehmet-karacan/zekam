@@ -1,60 +1,62 @@
-# Zekam Nihai Uygulama ve Devam Paketi
+# Zekam — yerel bilgi ve gorev platformu
 
-Bu paket, boş veya yeni oluşturulmuş bir `zekam` repository'sine yerleştirilerek Zekam'nin
-modelden, istemciden ve oturumdan bağımsız biçimde uygulanmasını yönetmek için hazırlanmıştır.
+Zekam, native coding CLI icinden kullanilan yerel bilgi, gorev, kanit, bellek,
+yedekleme ve Java test olcumu aracidir. Guncel teslim hedefi Windows CPU ve
+`intfloat/multilingual-e5-small` ONNX INT8 modelidir. Model/ajan secimi coding
+CLI'a aittir. Aktif gelistirme ve kabul durumu [AKTIF_GOREV.md](AKTIF_GOREV.md)
+0.3 bolumundeki tek listede tutulur; kaynakta bulunmak final test kaniti degildir.
 
-Repository iki katmandan oluşur:
+## Kurulum ve ilk kullanim
 
-- **Sözleşme katmanı**: kanonik uygulama görevi, devam protokolü, mimari sözleşmeler, veri
-  şemaları, model envanteri, benchmark planları, kabul kapıları ve operasyon runbook'ları.
-- **Uygulama katmanı**: `src/zekam/` altındaki çalışan kod, `tests/` altındaki kanıt üreten
-  testler ve `scripts/`.
+Bu makinedeki kalici veri alani `%USERPROFILE%\.zekam`, kaynak bagli CLI
+`%USERPROFILE%\.zekam\yerel\python\Scripts\zekam.exe` yolundadir.
+Kaynak kod gercek repository'de kalir. Model agirliklari yeniden indirilmeden
+`%LOCALAPPDATA%\Zekam\models` altindaki sabit revision'dan kullanilir.
+PATH veya global instruction degisikligi gerekmez. Kullanilan Python ortaminda
+mevcut sistem paketleri paylasilir; temiz wheel kabul ortami finalde ayridir.
 
-Sözleşme katmanı üründen daha kalıcıdır; kod onu uygular, yerine geçmez.
+Native istemciyi bu repository'de acip istegi dogal dille ilet:
 
-## Kanonik kimlik
+- "GPU projesinde bu akis nasil calisiyor?"
+- "Bu belgeyi ilgili projenin bilgisine ekle."
+- "Acik isleri goster; kaldigimiz yerden devam et."
+- "Bu sinifin testlerini iyilestir."
 
-```text
-Ürün adı: Zekam
-Repository: zekam
-Python paketi: zekam
-CLI: zekam
-Kullanıcı veri kökü: ZEKAM_HOME
-Geçici gelecek adı: Zekam
+Ajan ortak [AGENTS.md](AGENTS.md) girisini kullanir ve gerekli komutlari kendi
+calistirir; kullanicidan digest, UUID veya JSON istemez. Proje kayitli degilse
+veya kaynak/indeks eksikse kapsam netlestirilir; baska proje kendiliginden taranmaz.
+
+Bakim icin mevcut kurulumun salt-okunur devam ciktisi:
+
+```powershell
+$zekamCmd = Join-Path $env:USERPROFILE '.zekam\yerel\python\Scripts\zekam.exe'
+& $zekamCmd resume --json
 ```
 
-Tekil package, CLI, environment, home, schema ve DB kimliği
-`mimari/ZEKAM_KIMLIK_SOZLESMESI.md` içinde tanımlıdır. Uyumluluk alias'ı yoktur.
+Yeni ve bos home icin `init` atomik kurulumdur; mevcut kullanici verisini reset
+etmek icin kullanilmaz. `--home`/`ZEKAM_HOME` farkli veri koku secer, kaynak kodu
+veya executable'i tasimaz. `memory prepare` eski learning v2 icin once plan,
+sonra exact digest ile online-backup korumali v3 gecisi sunar; arka planda upgrade
+olmaz. Duzeltme/arsivleme ayrintisi [OGRENME_VE_SKILL.md](docs/OGRENME_VE_SKILL.md).
 
-## İlk okuma sırası
+## Devam, yedekleme ve paket
 
-1. `00_BASLA.md`
-2. `DEVAM_PROTOKOLU.md`
-3. `PROJE_MANIFESTI.yaml`
-4. `AKTIF_GOREV.md`
-5. `AKTIF_GOREV.yaml` (salt-okunur generated projection)
-6. `GLOBAL_DEFINITION_OF_DONE.md`
-7. `NIHAI_UYGULAMA_PROMPTU.md` (superseded baseline/reference)
-8. Aktif işin referans verdiği mimari, güvenlik, harness, bellek, model ve kalite belgeleri
+Devam ve is durumu kanonik SQLite/receipt kayitlarindan okunur; eski sohbet yetki
+uretmez. Yedek `backup create --bundle <yeni-hedef>` ile online SQLite snapshot ve
+CAS/manifest'i kapsar. `backup verify` butunlugu dogrular; `backup restore` yalniz
+yeni ve acikca yetkili hedefte calisir. Mevcut home'u silmek veya uzerine restore
+etmek normal devam adimi degildir. Scheduler varsayilan run-once bakimdir;
+klasor acmak periyodik/native gorev kurmaz. Kaynak, model ve kullanici verisi Git'e
+birlikte paketlenmez; agirliklar ve kullanici DB'si release'e girmez.
 
-## Hızlı kullanım
-
-Paketi yeni repository köküne çıkar:
-
-```text
-zekam/
-  00_BASLA.md
-  NIHAI_UYGULAMA_PROMPTU.md
-  ...
-```
-
-Herhangi bir desteklenen istemciyi bu dizinde aç ve yalnız şunu söyle:
-
-```text
-00_BASLA.md dosyasini uygula ve kaldigin yerden devam et.
-```
-
-İstemci, sohbet geçmişine güvenmeden repository ve kanonik durum kayıtlarını doğrulamalıdır.
+Release wheel'i gercek checkout'taki tracked kaynaklardan uretmek icin mevcut
+manifest generator ve `scripts/build_tracked_wheel.py --output <repo-disi-artifact-dizini>`
+kullanilir. Builder source clone olusturmaz; mevcut manifestin exact sanal paket
+agacini Hatch'e iletir. Untracked moduller veya gecici kullanici dosyalari wheel'e
+girmez. `scripts/package_smoke.py` temiz wheel-only kabulunu Y-12de yurutur.
+MacOS destegi yoktur; kurum servisleri/credential veya native host kaniti eksikse
+sonuc blocked/not-run olarak aciklanir. Asagidaki genis yetenek referanslari guncel
+kapanis listesine yeni orkestrasyon/benchmark/yayin zorunlulugu eklemez.
 
 ## Modelden bağımsız kaldığın yer ve yetkinlikler
 

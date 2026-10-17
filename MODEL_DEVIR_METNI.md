@@ -1,3 +1,20 @@
+# Guncel devir — Y-12 final asamasi sirada
+
+Y-01..11 kaynak gelistirme teslimleri kayitli. Henuz test kosusu YAPILMADI.
+Simdi Y-12ye gec: tam Windows suite, gerekli bagimsiz review, tracked wheel-only
+kabul, gercek E5 CPU/384/normalization/TR-EN/performance, Maven ve backup/restore.
+Kullanici learning DBsi halen v2; v3 migration once negatif/parite testleri ve
+review gecmeden uygulanmaz. Yeni archive event eski revisionlari degistirmez.
+Untracked RAG modulu ve iki testi, Java target dizini korunuyor. Pytest kaynak
+kapsamini belirlerken unreviewed untracked iki testi sessizce sahiplenme; ayrimi
+raporda acik yaz. Wheel scripts/build_tracked_wheel.py ile mevcut manifestten
+repo disina uretilir; kaynak clone veya foreign dosya ekleme.
+Son kaynak karari AKTIF_GOREV.md 0.15; guncel HEAD/remote ve artifact sureclerini
+once oku. Test basarisizsa duzelt ve etkilenen kontrolleri ayni final asamada
+tekrar kos. Y-12/goal tamamlanmasini kanit yokken isaretleme.
+
+---
+
 # Guncel devir — Y-10 kaynak teslimi
 
 Y-01..10 gelistirme teslimleri kayitli. Siradaki Y-11, sonra tek final Y-12.
