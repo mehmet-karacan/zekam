@@ -31,7 +31,7 @@
 
 - [x] 1. WP-07.05 kaynak uygulamasi: spool candidate `startedAt` ile OS PID incarnation `processStartedAt` ayrimini ve native source-root drift reddini zaten uyguluyor. Gercek process-kill/race/full-spool ve native host kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [x] 2. WP-07.01..04 kaynak uygulamasi: dogal dil Work okuma, canonical job/Run/source-config fingerprint readback ve lease/recovery execution guard kaynakta baglandi. Gercek lease/grant yeniden edinimi, race/crash ve native client kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
-- [ ] 3. WP-02/03: native mutation admission, istemci ve shell/publication transport baglantilarini tamamla.
+- [x] 3. WP-02/03 kaynak uygulamasi: native mutation admission, canonical publication transportu ve istemci/publication evidence baglari kaynakta baglandi. Gercek host shell enforcement, signer/credential izolasyonu ve native kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [ ] 4. WP-04/05/06: discovery/parser/secret ve incremental publication/reconciliation; issue/history/provenance baglantilarinin kalan uygulamasini tamamla.
 - [ ] 5. WP-08/09/10: host capability, model/agent envelope, test muhendisligi ve memory/skill lifecycle baglantilarini tamamla.
 - [ ] 6. WP-11/12: scheduler/backup/restore/report ve canonical mimari/release ciktilarini tamamla.
@@ -51,6 +51,11 @@
   `workspace_resume`/`work show` yollarinin ortak bounded Run, source snapshot,
   config revision, lease/recovery ve binding guard okumalari kaynakta mevcut.
   Bu dilim uygulama kapsami acik kabul kapilarindan ayrildi; test CALISTIRILMADI.
+
+- 17 Ekim 2026 WP-02/03 kaynak denetimi: `LOCAL_EFFECT` admission, canonical
+  publication trust/evidence/verifier job baglari ve shell-free bounded transport
+  akislarinin source route'lari mevcut. Host signer/credential ve native shell
+  enforcement dogrulamasi ayri kabul kapisi olarak tutuldu; test CALISTIRILMADI.
 
 - 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
   alindi; `git publication` alt komutlari canonical surface denetiminde artik
