@@ -56,6 +56,13 @@
   kaynak degil, kurulu OpenCode/native host, verifier bagimsizligi ve final
   kabul kanitidir; testler CALISTIRILMADI.
 
+- 17 Ekim 2026 tek final test kapisi: `python -m pytest -q` exit code `1`,
+  `7831 passed, 1409 skipped, 149 failed, 3 warnings`, sure `1:11:38`.
+  Kirmizi kapsamlar eski BGE/remote sozlesmeleri, schema/projection driftleri
+  ve makineye bagli SQLite/skill/unit-test loop fixture'larinda toplandi.
+  Yeni pytest cagrisi yapilmayacak; E5 model smoke/kurulum kaniti bu genel suite
+  sonucundan ayri tutuluyor.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari

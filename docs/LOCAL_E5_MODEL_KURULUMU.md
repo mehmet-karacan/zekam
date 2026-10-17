@@ -78,15 +78,13 @@ sonra olusturulacaktir.
 
 Gercek kurulu modelle yapilan son provider smoke kontrolden gecti: route `local`,
 CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
-batch 6 ms olctu. Gelistirme dilimleri tamamlandiktan sonra 17 Ekim 2026'da
+batch 6 ms olculdu. Gelistirme dilimleri tamamlandiktan sonra 17 Ekim 2026'da
 calistirilan tek ve son toplu `python -m pytest -q` kosusu exit code `1` ile
-sonuclandi: `7825 passed, 1406 skipped, 145 failed, 6 errors` (1:11:34).
-Dört setup hatası eski BGE dual-index fixture'larının artık reddedilen
-`opencode-bge-m3` ayarını kurmaya çalışmasından, iki setup hatası ise bağımsız
-skill receipt fixture uyumsuzluklarından kaynaklandı. Başarısızlıkların geri
-kalanı eski BGE/remote sözleşmeleri ile mevcut makineye bağlı SQLite, skill ve
-unit-test loop fixture'larının uyumsuzluklarını içeriyor; bunlar E5 model
-doğrulama smoke kontrolünü geçersiz kılmıyor, ancak repository genelinde yeşil
-test kabulü için ayrı uyarlama işi olarak açık kaldı.
+sonuclandi: `7831 passed, 1409 skipped, 149 failed, 3 warnings` (1:11:38).
+Kirmizilarin agirligi eski BGE/remote sozlesmeleri, guncel schema/projection
+beklentileri ve makineye bagli SQLite, skill ve unit-test loop fixture'laridir.
+Bu sonuc repository genelinde yesil kabul degildir; yeni yerel E5 kurulumu ve
+runtime dogrulamasi ayri kanit olarak korunur. Kullanici kurali geregi bu
+kosudan sonra yeni pytest cagrisi yapilmadi.
 Üretim corpus indexi bu kontrolde oluşturulmadı; aktif ZEKAM_HOME indexi
 bulunmadığı için yeniden indekslenecek hedef de yoktu.
