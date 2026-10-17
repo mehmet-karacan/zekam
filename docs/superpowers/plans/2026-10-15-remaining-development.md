@@ -196,6 +196,14 @@
   platform `windows-amd64`, Python `3.13.15` verdi. Bu, onceki stale
   manifest hatasinin son paket subject'inde kapanmasidir.
 
+- 17 Ekim 2026 package validator readback: `scripts/paket_dogrula.py` son
+  `6349815` calisma agacinda repository disi sonuc yoluyla `status=passed`
+  verdi; 23 zorunlu dosya, 20 model, 18 faz/108 is, 42 schema, 83 Global DoD,
+  10.508 history blob, `git_security.findings=[]`, `warnings=[]` ve `errors=[]`.
+  Authority digest `sha256:33823274c1f0b22c43b39108523469ea935e1882d4cdba849fb48ba3646b5ccf`
+  ile projection eslesti. Bu read-only paket kanitidir; native/live/release
+  disi kapilari kapatmaz.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm
