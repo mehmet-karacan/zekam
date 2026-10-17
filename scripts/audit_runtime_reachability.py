@@ -1,8 +1,10 @@
 """Fail-closed audit for the local-first shipped runtime graph.
 
 The PostgreSQL-era implementations remain source-controlled reference material
-until their regression coverage is retired.  They are intentionally absent from
-the wheel and must not be reachable from a public Mac runtime composition root.
+until their regression coverage is retired. They are intentionally absent from
+the wheel and must not be reachable from a supported public runtime composition
+root. The active release target is Windows/Linux; historical platform adapters
+are outside that runtime graph.
 """
 
 from __future__ import annotations
