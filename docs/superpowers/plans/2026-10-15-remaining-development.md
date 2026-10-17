@@ -35,7 +35,7 @@
 - [x] 4. WP-04/05/06 kaynak uygulamasi: bounded discovery metadata, structural/document/XML parser sinirlari, local-only secret filtreleri, incremental RAG staging/reconciliation ve issue/history/provenance baglari kaynakta tamamlandi. Canli Jira/Oracle/embedding quality ve native kabul kanitlari final kapisinda kalir; testler final asamasina birakildi.
 - [x] 5. WP-08/09/10 kaynak uygulamasi: host capability/model envelope, native batch ve test evidence, memory/skill lifecycle, verifier ve tournament canonical baglari kaynakta tamamlandi. Gercek OpenCode/native child, Maven/quality, bagimsiz verifier ve live model kabul kanitlari final kapisinda kalir; testler final asamasina birakildi.
 - [x] 6. WP-11/12 kaynak uygulamasi: scheduler/backup/restore/report ve canonical architecture/release export kaynaklari tamamlandi. Gercek signed restore, clean wheel/native client, release chain ve live performance kabul kanitlari final kapisinda kalir; testler final asamasina birakildi.
-- [ ] 7. Butun gelistirme maddelerinin kaynak kapsamini yeniden denetle; gerekli gercek ortam/erisim eksiklerini exact kapilara bagla.
+- [x] 7. Kaynak kapsami ve erisim sinirlari yeniden denetlendi; runtime reachability ve PostgreSQL yasak erisim auditi temiz. Native/credential/live quality eksikleri exact kabul kapilarina baglandi.
 - [ ] 8. Yalniz tum gelistirmelerden sonra tek toplu test asamasi, gereken bagimsiz review ve kabul kanitlari. Hata varsa duzelt ve yalniz basarisiz kapsami yeniden dogrula.
 
 ## Yurutme kaydi
@@ -74,6 +74,12 @@
   architecture/release export kaynaklari mevcut. Signed restore, clean wheel,
   native client ve release-chain kabulleri gelistirme disi kapilar olarak
   ayrildi; test CALISTIRILMADI.
+
+- 17 Ekim 2026 kaynak kapsami final on-denetimi: `scripts/audit_runtime_reachability.py`
+  `passed=true`, 356 reachable module, 18 archive-only module ve hicbir finding
+  olmadan tamamlandi; legacy PostgreSQL data access yok. Bu static/read-only
+  denetimdi, pytest calistirilmadi. Native, credential, live provider/quality ve
+  release acceptance kapilari acik kaldigi icin Work kapanisi uretilmedi.
 
 - 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
   alindi; `git publication` alt komutlari canonical surface denetiminde artik
