@@ -79,6 +79,11 @@ ile `knowledge-index/vector/opencode-bge-m3/<proje>/` altindan silinir; E5
 dizinine dokunulmaz. Proje RAG ve continuity yollari eski BGE ayarini veya
 indeksini artik okumaz; yerel E5 profili disinda bir ayar fail-closed reddedilir.
 
+MacOS/Infinity BGE provider'i, MacOS'a bagli Codex v4 ingress ve bunlara ait test
+yuzeyleri aktif release'den cikarildi. Kaynak checkout'undaki eski adapterler yalniz
+tarihsel read-compatibility icin archive-only tutulur; Windows/Linux wheel'i ve test
+koleksiyonu yerel ONNX multilingual-e5-small profili disinda embedding yolu sunmaz.
+
 Kontrol edilen canonical kullanici index konumlarinda bu gecis baslangicinda
 aktif production index bulunmadi. Varsayilan operational home
 `C:\\Users\\mkaracan\\.zekam` mevcut degil; `%LOCALAPPDATA%/Zekam` altinda
