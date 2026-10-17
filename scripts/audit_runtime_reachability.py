@@ -54,6 +54,7 @@ ARCHIVE_ONLY_SOURCE_PATHS = (
     "src/zekam/infrastructure/clients/codex_macos_0151_lifecycle.py",
     "src/zekam/infrastructure/clients/codex_macos_0151_precompaction_client.py",
     "src/zekam/infrastructure/local_continuity_v4_composition.py",
+    "src/zekam/infrastructure/embedding/infinity_bge.py",
     "src/zekam/infrastructure/macos_precompaction_supervisor.py",
     "src/zekam/infrastructure/sqlite/local_continuity_v4_compaction.py",
     "src/zekam/infrastructure/sqlite/local_continuity_v4_ingress.py",

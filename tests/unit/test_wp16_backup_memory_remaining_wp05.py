@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import urllib.error
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -47,7 +46,6 @@ from zekam.domain.context_continuity import (
     verify_journal,
 )
 from zekam.domain.errors import (
-    ConfigurationError,
     NotFound,
     PolicyViolation,
     ValidationFailed,
@@ -60,7 +58,6 @@ from zekam.domain.markdown_projection import (
     ProjectionRecord,
     ProjectionSourceRef,
 )
-from zekam.domain.security import DataClassification
 from zekam.domain.session_continuity import (
     CompactionReceipt,
     CompactionStatus,
@@ -70,7 +67,6 @@ from zekam.domain.session_continuity import (
     DataClassification as ContinuityClassification,
 )
 from zekam.infrastructure import local_backup
-from zekam.infrastructure.embedding import infinity_bge as bge
 from zekam.infrastructure.storage import obsidian_projection_store as obsidian_store
 from zekam.infrastructure.storage.obsidian_projection_store import (
     LocalObsidianProjectionStore,
@@ -301,273 +297,6 @@ def test_context_remaining_handoff_and_resume_guards() -> None:
             checkpoint,
             current_source_revision="revision-1",
         )
-
-
-class _InfinityTransport:
-    def __init__(self, catalog: Any = None, embedding: Any = None, health: Any = None) -> None:
-        self.catalog = catalog
-        self.embedding = embedding
-        self.health = health
-
-    def get(self, url: str, *, timeout_seconds: float) -> Any:
-        del timeout_seconds
-        return self.health if url.endswith("/health") else self.catalog
-
-    def post(self, url: str, payload: bytes, *, timeout_seconds: float) -> Any:
-        del url, payload, timeout_seconds
-        return self.embedding
-
-
-def _bge_cache(tmp_path: Path) -> tuple[Path, bge.LocalBGEConfiguration]:
-    root = tmp_path / "models--BAAI--bge-m3"
-    revision = "1" * 40
-    snapshot = root / "snapshots" / revision
-    (root / "refs").mkdir(parents=True)
-    snapshot.mkdir(parents=True)
-    (root / "refs" / "main").write_text(revision)
-    payload = b"weights"
-    name = __import__("hashlib").sha256(payload).hexdigest()
-    (snapshot / name).write_bytes(payload)
-    (snapshot / "pytorch_model.bin").symlink_to(name)
-    for filename in ("tokenizer.json", "sentencepiece.bpe.model", "config.json"):
-        (snapshot / filename).write_bytes(b"{}")
-    return root, bge.LocalBGEConfiguration("http://127.0.0.1:7997", root)
-
-
-def _catalog(**changes: object) -> dict[str, Any]:
-    model: dict[str, Any] = {
-        "id": "BAAI/bge-m3",
-        "object": "model",
-        "owned_by": "infinity",
-        "capabilities": ["embed"],
-        "backend": "torch",
-        "stats": {"batch_size": 8},
-    }
-    model.update(changes)
-    return {"data": [model], "object": "list"}
-
-
-def test_bge_exact_json_transport_and_configuration_remaining(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    assert bge._exact_json(b'{"a":1}') == {"a": 1}
-    with pytest.raises(ConfigurationError, match="duplicate"):
-        bge._exact_json(b'{"a":1,"a":2}')
-    with pytest.raises(ConfigurationError, match="strict"):
-        bge._exact_json(b"\xff")
-
-    _, config = _bge_cache(tmp_path)
-    for changes in (
-        {"model_cache_root": Path("relative")},
-        {"exact_model_id": "other"},
-        {"dimension": 3},
-        {"timeout_seconds": True},
-        {"timeout_seconds": 0},
-        {"max_batch_size": True},
-        {"max_batch_size": 0},
-        {"compute_dtype": "bfloat16"},
-    ):
-        with pytest.raises(ConfigurationError):
-            replace(config, **changes)
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert bge.default_mac_bge_configuration().model_cache_root.is_absolute()
-
-
-class _Response:
-    def __init__(self, status: int, payload: bytes, declared: str | None = None) -> None:
-        self.status = status
-        self.payload = payload
-        self.headers = {"Content-Length": declared} if declared is not None else {}
-
-    def __enter__(self) -> _Response:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-    def read(self, _: int) -> bytes:
-        return self.payload
-
-
-def test_bge_loopback_transport_status_size_and_provider_failures() -> None:
-    transport = bge.LoopbackInfinityJsonTransport()
-    valid_response = _Response(200, b'{"ok":true}')
-    transport._opener = cast(Any, SimpleNamespace(open=lambda *a, **k: valid_response))
-    assert transport.get("http://127.0.0.1", timeout_seconds=1) == {"ok": True}
-    for response, message in (
-        (_Response(500, b"{}"), "status"),
-        (_Response(200, b"{}", str(bge._MAX_RESPONSE_BYTES + 1)), "oversized"),
-        (_Response(200, b"x" * (bge._MAX_RESPONSE_BYTES + 1)), "oversized"),
-    ):
-        transport._opener = cast(
-            Any, SimpleNamespace(open=lambda *a, response=response, **k: response)
-        )
-        with pytest.raises(ConfigurationError, match=message):
-            transport.get("http://127.0.0.1", timeout_seconds=1)
-
-    for exc, error in (
-        (urllib.error.HTTPError("x", 302, "redirect", cast(Any, {}), None), PolicyViolation),
-        (urllib.error.HTTPError("x", 500, "failure", cast(Any, {}), None), ConfigurationError),
-        (urllib.error.URLError("offline"), ConfigurationError),
-    ):
-
-        def fail(*args: object, exc: Exception = exc, **kwargs: object) -> Any:
-            raise exc
-
-        transport._opener = cast(Any, SimpleNamespace(open=fail))
-        with pytest.raises(error):
-            transport.post("http://127.0.0.1", b"{}", timeout_seconds=1)
-
-
-def test_bge_discovery_remaining_cache_and_catalog_guards(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    root, config = _bge_cache(tmp_path)
-    valid = _catalog()
-    discovery = bge.discover_local_bge(config, _InfinityTransport(valid))
-    assert discovery.backend == "torch"
-
-    catalogs: tuple[Any, ...] = (
-        [],
-        {"data": [], "object": "list"},
-        {"data": ["bad"], "object": "list"},
-        _catalog(id="other"),
-        _catalog(stats={"batch_size": 0}),
-    )
-    for catalog in catalogs:
-        with pytest.raises(ConfigurationError):
-            bge.discover_local_bge(config, _InfinityTransport(catalog))
-
-    (root / "refs" / "main").write_text("not-a-revision")
-    with pytest.raises(ConfigurationError, match="commit"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-    (root / "refs" / "main").write_text("1" * 40)
-    (root / "snapshots" / ("1" * 40) / "pytorch_model.bin").unlink()
-    with pytest.raises(ConfigurationError, match="eksik"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-    outside = tmp_path / "outside"
-    outside.write_bytes(b"x")
-    snapshot = root / "snapshots" / ("1" * 40)
-    (snapshot / "pytorch_model.bin").symlink_to(outside)
-    with pytest.raises(ConfigurationError, match="cache disinda"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-
-def test_bge_discovery_remaining_identity_guards(tmp_path: Path) -> None:
-    valid = _catalog()
-    root, config = _bge_cache(tmp_path / "root")
-    revision = "1" * 40
-
-    root.rename(tmp_path / "real-root")
-    root.symlink_to(tmp_path / "real-root", target_is_directory=True)
-    with pytest.raises(ConfigurationError, match="directory"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-    root, config = _bge_cache(tmp_path / "ref")
-    ref = root / "refs" / "main"
-    ref.unlink()
-    ref.symlink_to(tmp_path / "outside-ref")
-    with pytest.raises(ConfigurationError, match="refs/main"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-    root, config = _bge_cache(tmp_path / "snapshot")
-    target = tmp_path / "snapshot-target"
-    target.mkdir()
-    (root / "snapshots" / revision).rename(target / revision)
-    (root / "snapshots" / revision).symlink_to(target / revision, target_is_directory=True)
-    with pytest.raises(ConfigurationError, match="snapshot"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-    root, config = _bge_cache(tmp_path / "weight")
-    snapshot = root / "snapshots" / revision
-    weight = snapshot / "pytorch_model.bin"
-    weight.unlink()
-    weight.write_bytes(b"not-content-addressed")
-    with pytest.raises(ConfigurationError, match="content-address"):
-        bge.discover_local_bge(config, _InfinityTransport(valid))
-
-    directory = snapshot / "directory"
-    directory.mkdir()
-    with pytest.raises(ConfigurationError, match="regular file"):
-        bge._resolved_model_file(snapshot, root, "directory")
-
-
-def _discovery() -> bge.LocalBGEDiscovery:
-    return bge.LocalBGEDiscovery(
-        "1" * 40,
-        digest("model"),
-        digest("tokenizer"),
-        digest("preprocessor"),
-        digest("provider"),
-        digest("runtime"),
-        "windows-x64:cpu",
-        "torch",
-        8,
-    )
-
-
-def _embedding(rows: Any, **changes: object) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "object": "list",
-        "data": rows,
-        "model": "BAAI/bge-m3",
-        "usage": {},
-        "id": "response",
-        "created": 1,
-    }
-    value.update(changes)
-    return value
-
-
-def test_bge_vector_and_health_remaining_fail_closed(tmp_path: Path) -> None:
-    config = bge.LocalBGEConfiguration("http://127.0.0.1:7997", tmp_path)
-    documents: tuple[Any, ...] = (
-        [],
-        _embedding([], object="wrong"),
-        _embedding([]),
-        _embedding([{"object": "wrong", "embedding": [1.0] * 1024, "index": 0}]),
-        _embedding([{"object": "embedding", "embedding": [0.0] * 1024, "index": 0}]),
-    )
-    for document in documents:
-        provider = bge.LocalInfinityBGEProvider(
-            config, _discovery(), _InfinityTransport(embedding=document)
-        )
-        with pytest.raises((ConfigurationError, ValidationFailed)):
-            provider._vectors(("text",))
-    provider = bge.LocalInfinityBGEProvider(config, _discovery(), _InfinityTransport(health=[]))
-    assert provider.health().degraded_state is not None
-
-
-def test_bge_probe_classification_determinism_and_semantic_guards(tmp_path: Path) -> None:
-    config = bge.LocalBGEConfiguration("http://127.0.0.1:7997", tmp_path)
-    provider = bge.LocalInfinityBGEProvider(config, _discovery(), _InfinityTransport())
-    fixture = SimpleNamespace(classification=DataClassification.SECRET)
-    with pytest.raises(PolicyViolation, match="classification"):
-        provider.probe(cast(Any, fixture))
-
-    fixture = SimpleNamespace(
-        classification=DataClassification.PUBLIC,
-        query="query",
-        positive_passage="positive",
-        negative_passage="negative",
-        source_refs=("source",),
-        source_digests=(digest("source"),),
-    )
-    cast(Any, provider)._vectors = cast(
-        Any,
-        lambda texts: (
-            ((1.0, 0.0), (0.0, 1.0), (1.0, 0.0), (0.0, 1.0)) if len(texts) == 4 else ((0.0, 1.0),)
-        ),
-    )
-    with pytest.raises(ValidationFailed, match="determinism"):
-        provider.probe(cast(Any, fixture))
-    cast(Any, provider)._vectors = cast(
-        Any,
-        lambda texts: tuple((1.0, 0.0) for _ in texts),
-    )
-    with pytest.raises(ValidationFailed, match="semantic margin"):
-        provider.probe(cast(Any, fixture))
 
 
 def _projection_bundle(entity: str = "work-1") -> ObsidianProjectionBundle:

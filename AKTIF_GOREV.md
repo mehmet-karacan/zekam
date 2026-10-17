@@ -3892,6 +3892,16 @@ Degisiklik `1fda1ad` commit'inde origin/main'e push edildi. Bu statik paket sini
 final Windows/Linux suite, native, live, corpus, bagimsiz verifier ve release kabul
 kanitlarinin yerine gecmez.
 
+### 10.118 17 Ekim 2026 eski Mac BGE test yuzeyinin cikisi
+
+MacOS'a bagli Infinity/BGE-M3 provider modulu wheel'den archive-only olarak dislandi.
+Ona ait `test_local_bge_provider.py`, karma WP-16 testindeki BGE alt senaryolari ve
+bu senaryolara ait platform skip kayitlari kaynak test koleksiyonundan kaldirildi.
+Yerel E5 disindaki eski profil adlarini reddeden config/RAG uyumluluk kontrolleri
+tarihsel migration korumasi olarak tutuldu; yeni MacOS testi eklenmedi. Bu degisiklik
+icin pytest calistirilmadi; sonraki tek final Windows/Linux suite'inde bu testlerin
+toplanmadigi ve wheel'in MacOS/BGE modulunu icermedigi kanitlanacak.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
