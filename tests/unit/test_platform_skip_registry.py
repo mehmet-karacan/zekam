@@ -21,7 +21,7 @@ def _all_nodeids() -> list[tuple[str, str, str]]:
 
 
 def test_registry_groups_are_the_two_supported_ones() -> None:
-    assert set(PLATFORM_SKIPS) <= {"posix-mac-only", "needs-symlink"}
+    assert set(PLATFORM_SKIPS) <= {"posix-only", "needs-symlink"}
 
 
 def test_every_registered_nodeid_points_to_an_existing_test_file_and_is_unique() -> None:

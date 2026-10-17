@@ -11,6 +11,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -456,14 +457,114 @@ class _JsonProcessResult:
 
 
 def _terminate_process(process: subprocess.Popen[bytes]) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except OSError:
-        process.kill()
+    killpg = getattr(os, "killpg", None)
+    if os.name != "nt" and callable(killpg):
+        try:
+            killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            process.kill()
+    else:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
     with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=1)
+
+
+def _bounded_process_windows(
+    argv: tuple[str, ...],
+    request: bytes,
+    timeout: int,
+) -> tuple[int, bytes, bytes]:
+    """Run one bounded adapter with Windows-compatible pipe readers."""
+
+    process: subprocess.Popen[bytes] | None = None
+    stdout = bytearray()
+    stderr = bytearray()
+    overflow = threading.Event()
+
+    def read_stream(stream: Any, target: bytearray, cap: int) -> None:
+        try:
+            while True:
+                chunk = stream.read(65_536)
+                if not chunk:
+                    return
+                remaining = cap + 1 - len(target)
+                if remaining > 0:
+                    target.extend(chunk[:remaining])
+                if len(target) > cap or len(chunk) > remaining:
+                    overflow.set()
+                    return
+        except (OSError, ValueError):
+            return
+
+    def write_request(stream: Any) -> None:
+        try:
+            stream.write(request)
+            stream.close()
+        except (BrokenPipeError, OSError, ValueError):
+            with suppress(Exception):
+                stream.close()
+
+    readers: list[threading.Thread] = []
+    writer: threading.Thread | None = None
+    try:
+        process = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            env={"NO_COLOR": "1", "PATH": os.environ.get("PATH", "")},
+            creationflags=int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
+        )
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            raise PolicyViolation("Local benchmark process pipes unavailable")
+        readers = [
+            threading.Thread(
+                target=read_stream,
+                args=(process.stdout, stdout, 1_000_000),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=read_stream,
+                args=(process.stderr, stderr, 16_384),
+                daemon=True,
+            ),
+        ]
+        for reader in readers:
+            reader.start()
+        writer = threading.Thread(target=write_request, args=(process.stdin,), daemon=True)
+        writer.start()
+
+        deadline = time.monotonic() + timeout
+        while process.poll() is None:
+            if overflow.is_set():
+                raise PolicyViolation("Local benchmark adapter bounded output exceeded")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            time.sleep(min(0.01, remaining))
+        returncode = process.wait(timeout=1)
+        for reader in readers:
+            reader.join(timeout=1)
+        if writer is not None:
+            writer.join(timeout=1)
+        if overflow.is_set():
+            raise PolicyViolation("Local benchmark adapter bounded output exceeded")
+        return returncode, bytes(stdout), bytes(stderr)
+    except BaseException:
+        if process is not None:
+            _terminate_process(process)
+        raise
+    finally:
+        if process is not None:
+            for final_stream in (process.stdin, process.stdout, process.stderr):
+                if final_stream is not None and not final_stream.closed:
+                    final_stream.close()
 
 
 def _bounded_process(
@@ -473,6 +574,8 @@ def _bounded_process(
     *,
     read_allow_roots: tuple[Path, ...] = (),
 ) -> tuple[int, bytes, bytes]:
+    if os.name == "nt":
+        return _bounded_process_windows(argv, request, timeout)
     process: subprocess.Popen[bytes] | None = None
     selector = selectors.DefaultSelector()
     stdout = bytearray()

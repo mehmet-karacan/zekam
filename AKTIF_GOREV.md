@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `1.7` — Windows-only release scope karari
+**Belge sürümü:** `2.0` — Windows-only release scope ve final test kaydi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3848,6 +3848,23 @@ koleksiyonda bulunmayacak ve CI'da yer almayacaktir. Bu scope karari acik WP mad
 basarili saymaz; native, credential, corpus, bagimsiz verifier, restore/rollback ve
 release kanit kapilari exact kanit gelene kadar acik kalir.
 
+### 10.115 17 Ekim 2026 MacOS scope sonrasi tek final suite sonucu
+
+MacOS kapsam degisikliginden sonra kaynak seti `ac9fd054438c3fdff9e72498c5fa3719d22e7326`
+uzerindeyken tek final suite su komutla calistirildi:
+
+`PYTHONPATH=src python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final-macos-scope`
+
+Sonuc: `3 failed, 7969 passed, 1365 skipped, 3 warnings in 3908.22s (1:05:08)`;
+process exit code `1`. MacOS testleri bu koleksiyonda yoktu. Iki hata Windows'ta
+Mac sandbox kaldirilirken POSIX selector/`killpg` yolunun korunmasindan, ucuncu hata
+ise `posix-only` grup adinin eski test beklentisinde kalmasindan kaynaklandi.
+
+Suite sonrasinda Windows pipe okuyuculari ve process sonlandirma fallback'i duzeltildi;
+platform registry beklentisi `posix-only` olarak hizalandi. Bu takip duzeltmeleri icin
+`py_compile`, manifest uretimi ve `git diff --check` basarili oldu; kullanici talebi
+geregi pytest tekrar calistirilmadi. Bu nedenle temiz final suite kaniti henuz yoktur.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -4051,6 +4068,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.7 | 2026-10-17 | Stale package manifest düzeltildi; izole Windows wheel kabulü 23/23 geçti; native, canlı ve bağımsız doğrulama kapıları açık bırakıldı |
 | 1.8 | 2026-10-17 | OpenCode v2.0.30 text-only native olay parseri ve deny-all tool smoke kanıtı eklendi; native transport ve bağımsız verifier kapıları açık bırakıldı |
 | 1.9 | 2026-10-17 | Son kaynak sonrası final suite `7989 passed, 1409 skipped, 3 warnings`; paket validator, runtime reachability ve temiz wheel readback'i güncellendi |
+| 2.0 | 2026-10-17 | MacOS kapsamı kaldırıldı; tek final suite sonucu ve Windows process/registry takip düzeltmeleri kayda alındı; temiz suite kanıtı tekrar çalıştırılmadan açık bırakıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
