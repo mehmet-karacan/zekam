@@ -1479,7 +1479,7 @@ def apply_project_index(
     deadline_monotonic: float | None = None,
     max_provider_calls: int | None = None,
 ) -> ProjectIndexResult:
-    """Persist immutable CAS manifest and atomically commit all PostgreSQL index rows.
+    """Persist immutable CAS manifest and atomically commit all SQLite index rows.
 
     CAS content is digest-addressed and may safely pre-exist the database transaction;
     a database failure can leave only an unreachable immutable object, never a partial
