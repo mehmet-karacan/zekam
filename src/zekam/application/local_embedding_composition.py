@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from zekam.application.embedding_provider import (
@@ -21,6 +23,7 @@ from zekam.infrastructure.embedding.infinity_bge import (
     default_mac_bge_configuration,
 )
 from zekam.infrastructure.embedding.onnx_e5 import (
+    LocalE5Configuration,
     LocalOnnxE5Provider,
     build_local_e5_provider,
 )
@@ -35,6 +38,13 @@ class VerifiedLocalEmbeddingBinding:
     provider: EmbeddingProvider
     profile: EmbeddingProfile
     policy: EmbeddingPolicy
+
+
+_VERIFIED_E5_CACHE_MAX = 2
+_verified_e5_cache_lock = threading.Lock()
+_verified_e5_cache: OrderedDict[
+    tuple[LocalE5Configuration, DataClassification], VerifiedLocalEmbeddingBinding
+] = OrderedDict()
 
 
 _E5_PROBE_QUERY = "database connection pool configuration"
@@ -128,11 +138,21 @@ def build_verified_mac_embedding(
 
 
 def build_verified_local_e5_embedding(
-    *, classification: DataClassification = DataClassification.LOCAL_ONLY
+    *,
+    classification: DataClassification = DataClassification.LOCAL_ONLY,
+    configuration: LocalE5Configuration | None = None,
 ) -> VerifiedLocalEmbeddingBinding:
     """Build and probe the pinned Windows CPU E5 provider with public text only."""
 
-    provider: LocalOnnxE5Provider = build_local_e5_provider()
+    provider: LocalOnnxE5Provider = build_local_e5_provider(configuration)
+    cache_key = (provider.configuration, classification)
+    with _verified_e5_cache_lock:
+        cached = _verified_e5_cache.get(cache_key)
+        if cached is not None and cached.provider.health().healthy:
+            _verified_e5_cache.move_to_end(cache_key)
+            return cached
+        if cached is not None:
+            _verified_e5_cache.pop(cache_key, None)
     fixture = EmbeddingProbeFixture(
         query=_E5_PROBE_FIXTURE.query,
         positive_passage=_E5_PROBE_FIXTURE.positive_passage,
@@ -145,4 +165,10 @@ def build_verified_local_e5_embedding(
     policy = EmbeddingPolicy(classification, result.profile.profile_digest)
     if not provider.health().healthy:
         raise ValidationFailed("Verified local E5 embedding provider health gecemedi")
-    return VerifiedLocalEmbeddingBinding(provider, result.profile, policy)
+    binding = VerifiedLocalEmbeddingBinding(provider, result.profile, policy)
+    with _verified_e5_cache_lock:
+        _verified_e5_cache[cache_key] = binding
+        _verified_e5_cache.move_to_end(cache_key)
+        while len(_verified_e5_cache) > _VERIFIED_E5_CACHE_MAX:
+            _verified_e5_cache.popitem(last=False)
+    return binding

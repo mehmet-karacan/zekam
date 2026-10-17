@@ -369,6 +369,12 @@ class LocalOnnxE5Provider:
         return self._runtime_version
 
     @property
+    def configuration(self) -> LocalE5Configuration:
+        """Expose the verified immutable configuration for bounded composition caches."""
+
+        return self._configuration
+
+    @property
     def max_batch_size(self) -> int:
         """Expose the bounded batch policy to generic indexing callers."""
 

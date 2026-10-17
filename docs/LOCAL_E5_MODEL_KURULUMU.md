@@ -47,6 +47,11 @@ oturumu proses icinde en fazla iki farkli revision/thread kimligiyle sinirli
 olarak yeniden kullanilir. Model yolu, revision veya thread ayari degisirse
 ayri oturum acilir; cache kullanici verisine veya Git'e yazilmaz.
 
+Saglayici qualification sonucu da ayni sabit konfigurasyon ve veri sinifi icin
+proses icinde en fazla iki kayitla yeniden kullanilir. Her yeni kurulum once
+manifest/dosya digest kontrolunden gectigi icin driftli veya sagliksiz provider
+cache'e alinmaz; probe evidence ve policy sinifi anahtarin parcasi olarak kalir.
+
 Sinirli provider smoke dogrulamasinda CPU provider saglikli bulundu; 384 boyut,
 semantic margin `0.107487`, batch-sayi tekil farki `0.017548`, batch cosine
 `0.997012` olarak olculdu. Turkce, Ingilizce ve capraz dil teknik sorgu/passage

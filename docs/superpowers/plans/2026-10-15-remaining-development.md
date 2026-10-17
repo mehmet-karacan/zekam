@@ -835,3 +835,11 @@
   cache kullanici verisine yazilmaz. Regresyon kaynagi eklendi, test bu gelistirme
   diliminde calistirilmadi; final toplu test tum kaynak gelistirmeleri bittikten
   sonra yeniden tek sefer calistirilacaktir.
+
+- 17 Ekim 2026 yerel E5 qualification cache'i: Sabit `LocalE5Configuration` ve
+  `DataClassification` kimligine bagli bounded iki kayitli proses cache'i eklendi.
+  Her cagrida provider kurulumu manifest/dosya SHA256 kontrolunu surdurur; yalniz
+  saglikli ve ayni profile sahip binding'in semantic probe sonucu yeniden kullanilir.
+  Driftli/sagliksiz kayit atilir, cache kullanici verisi tasimaz. Regresyon kaynagi
+  eklendi; test bu dilimde calistirilmadi ve final test tum gelistirmeler bittiginde
+  tek sefer kosulacaktir.

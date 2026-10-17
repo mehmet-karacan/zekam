@@ -3738,6 +3738,22 @@ provider/model cagrisi calistirilmadi; tum kaynak gelistirmeleri bittikten sonra
 tek final toplu test kosusu yapilacaktir. Native/live kalite, credential, bagimsiz
 verifier, restore/rollback ve release-chain kabul kapilari acik kalir.
 
+### 10.108 17 Ekim 2026 yerel E5 qualification cache gelistirmesi
+
+Sabit `LocalE5Configuration` ve `DataClassification` kimligine bagli bounded iki
+kayitli proses cache'i eklendi. `build_verified_local_e5_embedding` her cagrida
+provider kurulumunun manifest ve dosya SHA256 kontrolunu surdurur; yalniz saglikli
+provider ile tamamlanmis semantic probe ve policy binding yeniden kullanilir.
+Model/revision/thread veya veri sinifi degisirse anahtar degisir; sagliksiz kayit
+atilir ve yeniden probe edilir. Cache kullanici verisi, secret veya model agirligi
+tasisamaz.
+
+Bu gelistirme tekrarlanan yerel query qualification maliyetini azaltir. Regresyon
+testi eklendi; bu kaynak diliminde pytest, Maven veya provider/model cagrisi
+calistirilmadi. Tum kaynak gelistirmeleri bittikten sonra tek final toplu test
+kosusu yapilacak; native/live kalite, credential, bagimsiz verifier,
+restore/rollback ve release-chain kabul kapilari acik kalir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
