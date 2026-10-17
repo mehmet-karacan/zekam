@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from types import SimpleNamespace
@@ -121,6 +122,57 @@ def test_manifest_requires_the_complete_pinned_file_set(tmp_path) -> None:
 
     with pytest.raises(subject.ConfigurationError, match="dosya kumesi"):
         subject._read_manifest(manifest_path, subject.LocalE5Configuration(tmp_path))
+
+
+def test_manifest_accepts_legacy_missing_upstream_digests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The local pinned digest remains authoritative for older installs."""
+
+    def file_sha(relative: str) -> str:
+        return hashlib.sha256(relative.encode("utf-8")).hexdigest()
+
+    records = {
+        relative: {
+            "path": relative,
+            "size_bytes": 1,
+            "sha256": subject.EXPECTED_MODEL_SHA256
+            if relative == subject.MODEL_FILE
+            else file_sha(relative),
+            "upstream_sha256": None,
+        }
+        for relative in subject._REQUIRED_INSTALL_FILES
+    }
+    manifest = _manifest() | {"files": list(records.values())}
+    manifest_path = tmp_path / "install-manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    for relative in subject._REQUIRED_INSTALL_FILES:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x")
+
+    expected = {
+        relative: (
+            1,
+            subject.EXPECTED_MODEL_SHA256
+            if relative == subject.MODEL_FILE
+            else file_sha(relative),
+        )
+        for relative in subject._REQUIRED_INSTALL_FILES
+    }
+    monkeypatch.setattr(
+        subject,
+        "_sha256_file_with_size",
+        lambda path: expected[str(path.relative_to(tmp_path)).replace("\\", "/")],
+    )
+
+    parsed, model_sha, tokenizer_sha = subject._assert_model_files(
+        subject.LocalE5Configuration(tmp_path)
+    )
+
+    assert parsed["files"] == list(records.values())
+    assert model_sha == subject.EXPECTED_MODEL_SHA256
+    assert tokenizer_sha == file_sha("tokenizer.json")
 
 
 def test_install_file_rejects_a_reparse_parent(tmp_path) -> None:

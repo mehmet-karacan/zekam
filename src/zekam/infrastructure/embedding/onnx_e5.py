@@ -269,7 +269,10 @@ def _assert_model_files(configuration: LocalE5Configuration) -> tuple[dict[str, 
             or not isinstance(expected_sha, str)
             or len(expected_sha) != 64
             or any(char not in "0123456789abcdef" for char in expected_sha)
-            or upstream_sha != expected_sha
+            # Older installs did not have a Hub-provided digest for every
+            # small metadata file.  The local pinned SHA remains mandatory;
+            # an optional upstream digest, when present, must agree with it.
+            or (upstream_sha is not None and upstream_sha != expected_sha)
         ):
             raise ConfigurationError(f"Local E5 manifest SHA/size kaydi gecersiz: {relative}")
         actual_size, actual_sha = _sha256_file_with_size(path)

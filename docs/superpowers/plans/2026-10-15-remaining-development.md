@@ -228,6 +228,20 @@
   ile projection eslesti; warnings/errors bos. Bu read-only kanit native/live
   ve bagimsiz kabul kapilarini kapatmaz.
 
+- 17 Ekim 2026 yerel E5 runtime readback: Kurulum verifier'i `status=verified`
+  dondu; sabit revision `761b726dd34fb83930e26aab4e9ac3899aa1fa78` ve tum
+  yedi dosyanin yerel SHA256 kayitlari eslesti. Gercek ONNX Runtime `1.31.0`
+  `CPUExecutionProvider` ile 2 intra/1 inter CPU thread ve batch 4 sinirinda
+  calisti. Ilk yukleme `1544.461 ms`, tek sorgu `3.832 ms`, batch-4
+  `13.388 ms`; 384 boyutlu ciktilar sonlu ve L2 normalize, `query: ` /
+  `passage: ` prefix'leri ve attention-mask-aware-average pooling dogrulandi.
+  Turkce sorgu ile Ingilizce teknik passage arasinda cosine `0.849835`,
+  alakasiz passage'a karsi margin `0.046819` olustu. Eski kurulumlarda bazi
+  metadata kayitlarinin `upstream_sha256=null` olmasi runtime tarafinda
+  gereksiz reddediliyordu; local pinned SHA zorunlu kalacak sekilde bu geriye
+  uyumluluk duzeltildi ve regresyon kaynagi eklendi. Final pytest bu kaynak
+  degisikliginden sonra henuz calistirilmadi.
+
 - 17 Ekim 2026 cbdf2d4 sonrasi tek final toplu test: kaynak gelistirmesi
   durdurulduktan sonra `python -m pytest -q --tb=short --basetemp
   C:\\temp\\zekam-final5` exit code `0` ile tamamlandi. Sonuc `7983 passed,
