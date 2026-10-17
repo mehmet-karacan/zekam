@@ -1,3 +1,16 @@
+# Guncel devir — 18 Ekim 2026 Y-03 kaynakli yanit
+
+Y-01 kuruldu; Y-02 ve Y-03 gelistirme teslimleri kaydedildi. Siradaki is Y-04'tur.
+Tek aktif liste AKTIF_GOREV.md 0.3, Y-03 kaydi 0.6'dadir. Isaretler test kabulunu
+veya kanonik Work kapanisini gostermez. Pytest, CLI integration senaryolari ve
+gercek embedding/semantic kabul Y-12 final asamasinda bekler.
+Y-03: ask duz metninde proje/locator kaynaklari, citation/kapsam butunlugu ve
+sanitize storage/config hatalari baglandi. Mevcut untracked RAG dosyalari ve Java
+target dizini korunuyor; otomatik stage etme. Her anlamli asama Turkce ASCII
+commit + origin/main push ile kaydedilir. Asagidaki devir notlari tarihseldir.
+
+---
+
 # Guncel devir — 18 Ekim 2026 Y-02 gelistirmesi
 
 Y-01 kuruldu, Y-02 gelistirme teslimi kaydedildi. Siradaki is Y-03'tur.

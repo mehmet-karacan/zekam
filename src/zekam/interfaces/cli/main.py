@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +33,10 @@ from zekam.application.mutation_admission import (
     CLI_MUTATION_REGISTRY_META_KEY,
     DEFAULT_CLI_MUTATION_ADMISSION_REGISTRY,
 )
-from zekam.application.natural_request_answer import answer_natural_request
+from zekam.application.natural_request_answer import (
+    answer_natural_request,
+    render_natural_request_answer,
+)
 from zekam.application.natural_request_retrieval import retrieve_natural_request
 from zekam.application.natural_request_scope import (
     NaturalRequestScope,
@@ -62,7 +66,7 @@ from zekam.application.setup import (
 )
 from zekam.application.workspace_resume import build_resume_packet, render_resume_prompt
 from zekam.domain.canonical import digest
-from zekam.domain.errors import PolicyViolation, ZekamError
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ZekamError
 from zekam.domain.identity import PRODUCT
 from zekam.domain.intake import normalize_text
 from zekam.domain.realm import DEFAULT_REALM_SLUG
@@ -920,13 +924,14 @@ def _ask_natural_request_retrieval(
     if output_json:
         _print_json(result)
         return
-    console.print(answer["answer"])
+    console.print(render_natural_request_answer(answer), markup=False, highlight=False)
 
 
 def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
     """Retrieval kanitindan metadata'siz, ayri aciklama onerisi olusturur."""
 
     excerpts: list[str] = []
+    multiple_projects = len(retrieval.get("project_refs", [])) > 1
     for entry in retrieval.get("results", []):
         if not isinstance(entry, dict) or entry.get("status") != "answered":
             continue
@@ -935,7 +940,11 @@ def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
             continue
         excerpt = payload.get("answer_excerpt")
         if isinstance(excerpt, str) and excerpt.strip():
-            excerpts.append(excerpt.strip())
+            excerpts.append(
+                f"{entry['project_ref']}: {excerpt.strip()}"
+                if multiple_projects
+                else excerpt.strip()
+            )
     return "\n\n".join(excerpts) or None
 
 
@@ -955,7 +964,7 @@ def _retrieval_for_answer(retrieval: dict[str, Any]) -> dict[str, Any]:
             citations = safe_result.get("citations")
             if not isinstance(citations, list):
                 safe_result["citations"] = []
-            safe_result.setdefault("evidence_found", bool(safe_result["citations"]))
+            safe_result.setdefault("evidence_found", False)
             normalized["result"] = safe_result
         normalized_results.append(normalized)
     body["results"] = normalized_results
@@ -984,12 +993,17 @@ def _single_natural_request_retrieval(
             "lexical-only-degraded",
             "abstained-low-evidence",
         }
+        and raw.get("grants_authority", False) is False
+        and all(
+            key not in raw or raw[key] == project_ref
+            for key in ("project_ref", "project_slug", "project")
+        )
     )
     if answered:
         citations = raw.get("citations")
         if not isinstance(citations, list):
             raw["citations"] = []
-        raw.setdefault("evidence_found", bool(raw.get("citations")))
+        raw.setdefault("evidence_found", False)
         entry: dict[str, Any] = {
             "project_ref": project_ref,
             "project_id": project_id,
@@ -1136,6 +1150,8 @@ def ask(
         )
     except ZekamError as exc:
         raise fail_from(exc) from exc
+    except (OSError, sqlite3.Error) as exc:
+        raise fail_from(ConfigurationError("Proje arama kaynagi su anda okunamiyor")) from exc
     result = {
         "schema": "zekam-ask-result/v1",
         "project_ref": selected_project,
@@ -1152,7 +1168,7 @@ def ask(
     if output_json:
         _print_json(result)
     else:
-        console.print(answer["answer"])
+        console.print(render_natural_request_answer(answer), markup=False, highlight=False)
 
 
 @app.command()

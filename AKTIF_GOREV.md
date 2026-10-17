@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.6` — Y-02 ortak giriste yerel CLI cozumlemesi
+**Belge sürümü:** `2.7` — Y-03 kaynakli yanit ve kontrollu erisilemezlik
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -135,7 +135,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   istemcinin kok/alt dizin girisi yeterli olsun; diger projede kendiliginden effect
   baslamasin. CLI model/ajan secimini ustlensin; native izin sinirini oldugu gibi raporla.
   Cikis: tekrar instruction kopyasi ve zorunlu Zekam koordinatoru olmadan giris.
-- [ ] **Y-03 — Dogal dil ve kaynakli yanit:** `natural_language_dispatch.py`,
+- [x] **Y-03 — Dogal dil ve kaynakli yanit:** `natural_language_dispatch.py`,
   `natural_request_scope.py`, `natural_request_retrieval.py`, `natural_request_answer.py`
   ve `research_runtime.py` uzerinden dogru proje, belirsizlik, kaynakli yanit ve
   desteklenmeyen istek davranisini tamamla. Arastirma mevcut bounded retrieval ile
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-03 dogal dil ve kaynakli yanit baglarini incele. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-04 guvenli bilgi alimi ve parser baglarini tamamla. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -280,6 +280,42 @@ Work kapanisi yoktur. Karar: kullanicinin son test sirasi ve gercek kaynak koku
 tercihi skill'in per-step test/worktree varsayimlarinin onundedir. Geri donus:
 yalniz bu dokuman degisikligini yeni commit ile geri al; native ayar/veri silme.
 Siradaki gelistirme Y-03'tur.
+
+### 0.6 Y-03 gelistirme kaydi — 18 Ekim 2026
+
+Mevcut tracked route/scope/retrieval/answer ve bounded research kaynagi incelendi;
+ikinci router, model platformu veya koordinator eklenmedi. Korunan untracked
+`natural_request_rag.py` ve ilgili iki test dosyasi okuma disinda benimsenmedi,
+degistirilmedi veya stage edilmedi; Java target dizinine dokunulmadi.
+
+Tek ve cok projeli `ask` duz metin ciktisi artik kabul edilen aciklamanin ardindan
+proje etiketi/source_ref ve varsa gercek satir/sayfa/baslik/blok/nesne konumunu
+listeler. Ayni adli kaynaklar proje bazinda ayri kalir; karsilastirma paragraflari
+proje etiketi tasir. JSON retrieval/citation yapisi korunur. Metin Rich markup
+olarak yorumlanmaz. Aciklama ve kaynak gosterimi yeni model/provider cagrisi yapmaz.
+
+Yanitta requested project_refs ile sonuc listesi tam eslesir; duplicate/dusurulmus
+proje reddedilir. Citation listesi bos olamaz ve tamami ayni projeye bagli gecerli
+Locator tasir; source_ref/relative_path uyumsuzlugu ve bozuk satir/sayfa reddedilir.
+Bos veya 64 KiB UTF-8 ustu aciklama kabul edilmez. Eksik evidence_found citation
+varligindan true uretilmez. Tek-proje wrapper yabanci proje etiketi ve authority
+iddiasini da reddeder. Kismi/kanitsiz sonucta kesin karsilastirma uretilmez.
+
+Dosya/SQLite/config kesintileri per-project unavailable olarak sanitize edilir;
+yetki reddi retry, indeksleme veya otomatik izin baslatmaz. Tek-proje CLI storage
+hatasi da ham hata/path yerine kontrollu kullanici mesaji verir. Mevcut research
+citation reopen, source revision/freshness ve evidence budget yolu korunur;
+dokumandaki zorunlu DAG/remote authorization talimati guncel kapsama uyarlandi.
+
+Regresyon kaynaklari mevcut iki unit ve bir CLI integration dosyasinda hazirlandi:
+bos/buyuk aciklama, foreign/mixed citation, hatali locator, dusurulmus proje,
+proje etiketli kaynak gosterimi, raw markup, storage/config kesintisi ve eksik
+kanıt bayragi. Testler CALISTIRILMADI; yalniz degisen alti Python dosyasinda
+py_compile sozdizimi ve git diff --check yapildi. Guncel projection deterministik
+olarak uretildi. Bu isaret gelistirme teslimidir; runtime/native semantik kabul,
+independent review veya Work kapanisi degildir; Y-12 final kapisi aciktir.
+Geri donus: bu kaynak/belge commitini yeni commit ile geri al; kullanici DB,
+model ve indeks verisine dokunma. Sonraki gelistirme Y-04'tur.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4356,6 +4392,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.4 | 2026-10-18 | Kullanici karariyla 59 eski acik satir tek 12 adimlik listeye birlestirildi; yerel kullanici veri hedefi belirlendi; gereksiz orkestrasyon, benchmark, signed publication, evolution ve yayin kapilari kapsamdan cikarildi; tamamlandi sayilmadi |
 | 2.5 | 2026-10-18 | Y-01: varsayilan kullanici home atomik kuruldu, yerel source-linked CLI olusturuldu, mevcut E5 dosyalari indirmesiz SHA256 kontrolunden gecti; testler finalde |
 | 2.6 | 2026-10-18 | Y-02 gelistirmesi: tek ortak girise mevcut yerel CLI yolu eklendi; kanonik ince giris generatoru korundu; native oturum kabul kosulari final Y-12de |
+| 2.7 | 2026-10-18 | Y-03: duz metinde proje/locator kaynaklari, citation ve kapsam tutarliligi, bos/buyuk aciklama reddi ve sanitize erisilemezlik baglandi; regresyon kodu hazir, testler Y-12de |
 
 ### 15.3 Şimdiki Gerçek Durum
 

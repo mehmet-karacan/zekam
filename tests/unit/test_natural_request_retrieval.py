@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,12 @@ from zekam.application.request_routing import (
     route_request,
 )
 from zekam.domain.canonical import digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    AuthorizationRequired,
+    ConfigurationError,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
 
@@ -622,3 +628,43 @@ def test_query_result_payload_is_never_leaked_in_failure_entries(
     dumped = json.dumps(outcome, default=str)
     assert "sensitive" not in dumped
     assert all(item.get("grants_authority") in (None, False) for item in outcome["results"])
+
+
+@pytest.mark.parametrize("failure", [OSError, sqlite3.OperationalError, ConfigurationError])
+@pytest.mark.parametrize("seam", ["project_rag_status", "query_registered_project"])
+def test_storage_and_configuration_outages_are_scoped_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: type[Exception], seam: str
+) -> None:
+    _install_fakes(monkeypatch)
+
+    def broken(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise failure("private-path-and-raw-error")
+
+    monkeypatch.setattr(subject, seam, broken)
+    result = retrieve_natural_request(
+        _selected_scope(("gpu-fusion",), "route"), tmp_path,
+        "GPU servisleri", registered_project_refs=REGISTERED,
+    )
+    assert result["status"] == "unavailable"
+    assert result["results"][0]["result"] is None
+    assert result["index_triggered"] is False
+    assert "private-path-and-raw-error" not in json.dumps(result)
+    assert result["query_count"] == (0 if seam == "project_rag_status" else 1)
+
+
+def test_authorization_refusal_does_not_retry_or_start_a_query(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = _install_fakes(monkeypatch)
+
+    def refused(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AuthorizationRequired("private-authorization-detail")
+
+    monkeypatch.setattr(subject, "project_rag_status", refused)
+    result = retrieve_natural_request(
+        _selected_scope(("gpu-fusion",), "route"), tmp_path,
+        "GPU servisleri", registered_project_refs=REGISTERED,
+    )
+    assert result["reason_codes"] == ["knowledge-scope-blocked"]
+    assert result["query_count"] == 0
+    assert _query_calls(calls) == []

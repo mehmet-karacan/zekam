@@ -24,6 +24,7 @@ Fonksiyon kaynaklara salt okunur erisir ve indekslemez. Alt katmandaki
 from __future__ import annotations
 
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any, Final
 
@@ -33,7 +34,12 @@ from zekam.application.project_rag_runtime import (
     query_registered_project,
 )
 from zekam.domain.canonical import digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import (
+    AuthorizationRequired,
+    ConfigurationError,
+    PolicyViolation,
+    ValidationFailed,
+)
 from zekam.domain.identifiers import validate_slug
 
 SCHEMA: Final = "zekam-natural-request-retrieval/v1"
@@ -142,7 +148,7 @@ def retrieve_natural_request(
         }
         try:
             probe: dict[str, Any] = project_rag_status(resolved_home, ref)
-        except PolicyViolation:
+        except (AuthorizationRequired, PolicyViolation):
             entry["status"] = "unavailable"
             entry["unavailable_reason"] = "knowledge-scope-blocked"
             entry["result"] = None
@@ -152,6 +158,11 @@ def retrieve_natural_request(
             entry["unavailable_reason"] = "project-unavailable"
             entry["result"] = None
             unavailable_reasons.append("project-unavailable")
+        except (ConfigurationError, OSError, sqlite3.Error):
+            entry["status"] = "unavailable"
+            entry["unavailable_reason"] = "index-unavailable"
+            entry["result"] = None
+            unavailable_reasons.append("index-unavailable")
         else:
             if probe.get("state") == "blocked":
                 entry["status"] = "unavailable"
@@ -179,7 +190,14 @@ def retrieve_natural_request(
                     query_kwargs["opencode_config"] = opencode_config
                 try:
                     answer = query_registered_project(resolved_home, ref, question, **query_kwargs)
-                except (PolicyViolation, ValidationFailed):
+                except (
+                    AuthorizationRequired,
+                    ConfigurationError,
+                    PolicyViolation,
+                    ValidationFailed,
+                    OSError,
+                    sqlite3.Error,
+                ):
                     entry["status"] = "unavailable"
                     entry["unavailable_reason"] = "query-unavailable"
                     entry["result"] = None

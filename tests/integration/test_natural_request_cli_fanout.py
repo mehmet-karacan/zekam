@@ -9,10 +9,12 @@ fixture'i YOKTUR, dolayisiyla "cevap" kaniti mock seam sonucu seviyesindedir.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
+from typer.testing import CliRunner
 
 from zekam.application import natural_request_retrieval as subject
 from zekam.application.home import HomeLayout
@@ -23,8 +25,10 @@ from zekam.application.request_routing import (
     load_project_families,
     route_request,
 )
+from zekam.domain.canonical import digest
 from zekam.infrastructure.sqlite.operational_schema import bootstrap
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
+from zekam.interfaces.cli import main as cli
 
 pytestmark = pytest.mark.integration
 
@@ -271,3 +275,82 @@ def test_unregistered_explicit_ref_clarifies_before_any_probe(
     assert "explicit-project-unregistered" in outcome["reason_codes"]
     assert outcome["query_count"] == 0
     assert calls == []
+
+
+@pytest.mark.parametrize("output_json", [False, True])
+def test_ask_comparison_outputs_scoped_sources_or_preserves_json_citations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, output_json: bool
+) -> None:
+    import json
+
+    home = _comparison_home(tmp_path)
+
+    def fake_status(_home: Path, slug: str) -> dict[str, Any]:
+        return dict(READY) | {"project_id": UI_ID if slug == "sky-spring-ui" else MS_ID}
+
+    def fake_query(_home: Path, slug: str, _question: str, **_kwargs: Any) -> dict[str, Any]:
+        project_id = UI_ID if slug == "sky-spring-ui" else MS_ID
+        return {
+            "state": "answered", "project_id": project_id, "project_slug": slug,
+            "answer_excerpt": "Servis [bold]veriyi[/bold] okur.", "evidence_found": True,
+            "citations": [{
+                "project_scope": project_id, "source_ref": "src/service.py",
+                "source_digest": digest({"source": slug}),
+                "locator": {"relative_path": "src/service.py", "line_start": 3, "line_end": 8},
+            }],
+        }
+
+    monkeypatch.setattr(subject, "project_rag_status", fake_status)
+    monkeypatch.setattr(subject, "query_registered_project", fake_query)
+    args = ["ask", COMPARISON_QUESTION, "--home", str(home)]
+    if output_json:
+        args.append("--json")
+    result = CliRunner().invoke(cli.app, args)
+    assert result.exit_code == 0, result.output
+    if output_json:
+        payload = json.loads(result.output)
+        assert payload["answer"]["proposed_explanation_accepted"] is True
+        assert len(payload["retrieval"]["results"]) == 2
+        for entry in payload["retrieval"]["results"]:
+            assert entry["result"]["citations"][0]["project_scope"] == entry["project_id"]
+    else:
+        assert "Kaynaklar:" in result.output
+        assert "sky-spring-ui: src/service.py (satir 3-8)" in result.output
+        assert "sky-microservis: src/service.py (satir 3-8)" in result.output
+        assert "[bold]veriyi[/bold]" in result.output
+
+
+@pytest.mark.parametrize("change", [{"project_slug": "foreign"}, {"grants_authority": True}])
+def test_single_answer_wrapper_rejects_foreign_scope_or_authority(change: dict[str, Any]) -> None:
+    payload = {"project_id": UI_ID, "state": "answered", **change}
+    wrapped = cli._single_natural_request_retrieval(
+        "sky-spring-ui", SINGLE_QUESTION, payload, authorize_remote_query=False,
+    )
+    assert wrapped["status"] == "unavailable"
+    assert wrapped["results"][0]["result"] is None
+
+
+def test_legacy_citations_do_not_invent_an_evidence_found_flag() -> None:
+    payload = {"project_id": UI_ID, "state": "answered", "citations": [{"chunk_id": "legacy"}]}
+    wrapped = cli._single_natural_request_retrieval(
+        "sky-spring-ui", SINGLE_QUESTION, payload, authorize_remote_query=False,
+    )
+    assert wrapped["results"][0]["result"]["evidence_found"] is False
+
+
+@pytest.mark.parametrize("failure", [OSError, sqlite3.OperationalError])
+def test_single_ask_storage_outage_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: type[Exception]
+) -> None:
+    home = _comparison_home(tmp_path)
+
+    def broken(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise failure("private-path-and-raw-error")
+
+    monkeypatch.setattr(cli, "query_registered_project", broken)
+    result = CliRunner().invoke(
+        cli.app, ["ask", SINGLE_QUESTION, "--project", "sky-spring-ui", "--home", str(home)]
+    )
+    assert result.exit_code != 0
+    assert "Proje arama kaynagi su anda okunamiyor" in result.output
+    assert "private-path-and-raw-error" not in result.output

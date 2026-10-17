@@ -21,7 +21,7 @@ guvensiz aciklama onerisini birlestirir; kapsam ve kurallar:
   ve bos olmayan bir ``locator`` icinde ``relative_path`` ya da
   ``object_name`` tasmalidir.
 - Onerilen metin kabul edilmek icin: tum istenen projeler yanitlanmis
-  VE her yanitlanmis proje en az bir gecerli citation tasmalidir.
+  VE her yanitlanmis proje bos olmayan, tamami gecerli citation listesi tasimalidir.
   Herhangi bir proje erisilemezse ya da yanitlanmis bir projede
   gecerli citation yoksa, karsilastirma dahil onerilen metin asla
   kabul edilmez.
@@ -44,10 +44,12 @@ from __future__ import annotations
 import re
 from typing import Any, Final
 
-from zekam.domain.canonical import parse_digest
+from zekam.domain.canonical import digest, parse_digest
 from zekam.domain.errors import ValidationFailed
+from zekam.domain.knowledge import Locator
 
 SCHEMA: Final = "zekam-natural-request-answer/v1"
+MAX_EXPLANATION_BYTES: Final = 64 * 1024
 
 #: Retrieval govdesi icin tam eslesen schema (exact allowlist).
 _RETRIEVAL_SCHEMAS: Final = frozenset({"zekam-natural-request-retrieval/v1"})
@@ -119,6 +121,15 @@ def _validate_retrieval(retrieval: Any) -> tuple[str, list[dict[str, Any]]]:
             raise ValidationFailed("Retrieval entry status gecersiz")
     if status == "answered" and not results:
         raise ValidationFailed("Answered retrieval bos results tasiyamaz")
+    if status == "answered":
+        refs = retrieval.get("project_refs")
+        actual_refs = [entry["project_ref"] for entry in results]
+        if (
+            not isinstance(refs, list)
+            or refs != actual_refs
+            or len(set(actual_refs)) != len(actual_refs)
+        ):
+            raise ValidationFailed("Retrieval proje kapsami sonuc listesiyle eslesmiyor")
     return status, results
 
 
@@ -150,6 +161,13 @@ def _locator_is_nonempty(locator: Any) -> bool:
     """Locator'un ``relative_path`` ya da ``object_name`` tasiyip tasimadigina bakar."""
     if not isinstance(locator, dict) or not locator:
         return False
+    object_name = locator.get("object_name")
+    if object_name is not None and (not isinstance(object_name, str) or not object_name.strip()):
+        return False
+    try:
+        Locator(**locator)
+    except (TypeError, ValidationFailed):
+        return False
     relative_path = locator.get("relative_path")
     object_name = locator.get("object_name")
     has_relative = isinstance(relative_path, str) and bool(relative_path.strip())
@@ -177,19 +195,23 @@ def _citation_matches(citation: Any, *, project_id: str) -> bool:
         parse_digest(source_digest)
     except ValidationFailed:
         return False
-    return _locator_is_nonempty(citation.get("locator"))
+    locator = citation.get("locator")
+    if not _locator_is_nonempty(locator):
+        return False
+    relative_path = locator.get("relative_path")
+    return relative_path is None or relative_path == source_ref
 
 
 def _has_valid_citation(entry: dict[str, Any]) -> bool:
-    """Yanitlanmis entry'nin en az bir gecerli citation tasiyip tasimadigina bakar."""
+    """Require a nonempty citation set without foreign or malformed references."""
     if entry["result"].get("state") not in {"answered", "lexical-only-degraded"}:
         return False
     if entry["result"].get("evidence_found") is not True:
         return False
     project_id: str = entry["result"]["project_id"]
-    return any(
-        _citation_matches(citation, project_id=project_id)
-        for citation in entry["result"]["citations"]
+    citations = entry["result"]["citations"]
+    return bool(citations) and all(
+        _citation_matches(citation, project_id=project_id) for citation in citations
     )
 
 
@@ -203,8 +225,10 @@ def _evaluate(
         return FAILURE_ANSWER, ["project-unavailable"], False
     if any(not _has_valid_citation(entry) for entry in answered):
         return UNCERTAINTY_ANSWER, ["citation-invalid"], False
-    if proposed_explanation is None:
+    if proposed_explanation is None or not proposed_explanation.strip():
         return UNCERTAINTY_ANSWER, ["proposed-explanation-missing"], False
+    if len(proposed_explanation.encode("utf-8")) > MAX_EXPLANATION_BYTES:
+        return UNCERTAINTY_ANSWER, ["proposed-explanation-too-large"], False
     if _MUTATION_CLAIM_RE.search(proposed_explanation) is not None:
         return UNCERTAINTY_ANSWER, ["proposed-mutation-claim"], False
     return proposed_explanation, [], True
@@ -227,6 +251,49 @@ def _envelope(
     }
 
 
+def render_natural_request_answer(answer: dict[str, Any]) -> str:
+    """Render accepted evidence with project labels and original source locators.
+
+    Only the existing citation gate can admit the explanation. This renderer
+    does not generate prose, infer missing line/page positions or call a model.
+    """
+
+    if answer.get("proposed_explanation_accepted") is not True:
+        return answer["answer"]
+    admitted = answer_natural_request(answer["retrieval"], answer["answer"])
+    text = admitted["answer"]
+    if not admitted["proposed_explanation_accepted"]:
+        return text
+    sources: list[str] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for entry in admitted["retrieval"]["results"]:
+        for citation in entry["result"]["citations"]:
+            locator = citation["locator"]
+            identity = (
+                entry["project_ref"],
+                citation["source_ref"],
+                citation["source_digest"],
+                digest(locator),
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            position: list[str] = []
+            if locator.get("line_start") is not None:
+                position.append(f"satir {locator['line_start']}-{locator['line_end']}")
+            if locator.get("page") is not None:
+                position.append(f"sayfa {locator['page']}")
+            if locator.get("heading_path"):
+                position.append(" > ".join(locator["heading_path"]))
+            if locator.get("object_name"):
+                position.append(locator["object_name"])
+            if locator.get("block_index") is not None:
+                position.append(f"blok {locator['block_index']}")
+            suffix = f" ({'; '.join(position)})" if position else ""
+            sources.append(f"- {entry['project_ref']}: {citation['source_ref']}{suffix}")
+    return text + "\n\nKaynaklar:\n" + "\n".join(sources)
+
+
 def answer_natural_request(
     retrieval: dict[str, Any],
     proposed_explanation: str | None,
@@ -243,7 +310,7 @@ def answer_natural_request(
       ``project_scope`` degerini zincir halinde dogrular.
     - ``proposed_explanation`` modelden gelen guvensiz metindir; kabul
       edilmek icin tum istenen projeler yanitlanmis, her yanitlanmis
-      proje en az bir gecerli citation (eslesen proje, ``source_ref``,
+      proje bos olmayan ve tamami gecerli citation (eslesen proje, ``source_ref``,
       ``source_digest`` ve bos olmayan locator) tasmalidir. Aksi halde
       sabit Turkce yanit doner.
     - Onerilen metin tamamlanmis islem/mutation basarisi iddia ediyorsa

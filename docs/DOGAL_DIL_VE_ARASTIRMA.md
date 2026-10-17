@@ -13,10 +13,12 @@ sorusu iki hedefe fan-out edilir. Belirsiz coklu-repository mutation ise durur.
 `GPU` ve `Gelir Paylasimi Uygulamasi` ayni `gpu` ailesidir. `SKY`,
 `Satis Kanallari Yonetim`, `TTBP` ve `Turk Telekom Bayi Portali` ayni `sky` ailesidir.
 
-Route `single-project-rag` dondururse
-`zekam ask "<dogal dil>" --project <exact-project-ref> --authorize-remote-query` aktif hybrid
-indeksi sorgular. `parallel-project-rag` kararinda coordinator ayni exact soruyu her hedefe
-ayri yollar ve citation sonuclarini fan-in eder. `general` sorular project RAG'a dusmez.
+Route `single-project-rag` dondururse ajan `zekam ask "<dogal dil>"` ile secili
+projenin yerel hybrid indeksini sorgular; kullanicidan komut veya proje digest'i istemez.
+`--project` yalniz acik hedef secimidir; yerel E5 icin remote authorization gerekmez.
+`parallel-project-rag` kararinda acik karsilastirma istegi her proje icin ayri scoped
+sonuc verir. Bu akis yeni bir coordinator veya model platformu kurmaz.
+`general` sorular project RAG'a dusmez.
 Tek turda ayni soru/proje/config icin basarisiz RAG cagrisi tekrarlanmaz. Yerel ACL/layout
 hatasinda coordinator alternatif query komutuyla dolasmaz; tek doctor repair plani tanisi
 sonrasinda exact onarim adimini bildirir veya durur.
@@ -43,8 +45,33 @@ Kurallar:
   SKY/TTBP/Satis Kanallari Yonetim sayisal Jira isi `TLCSKY` prefix'ine cozulur.
 - Route `provider_calls = 0` ve `grants_authority = false` tasir.
 
-Belirsizlik varsa CLI `5` (ambiguous) cikis kodu dondurur ve netlestirme sorusu
-yazar. Belirsiz istek asla sessizce ise donusmez.
+Route preview belirsizliginde CLI `5` (ambiguous), `ask` proje netlestirmesinde
+`65` doner ve netlestirme sorusu yazar. Belirsiz istek sessizce ise donusmez.
+
+## Y-03 kaynakli yanit gelistirmesi — 18 Ekim 2026
+
+Duz metin `ask` yaniti kabul edilen aciklamadan sonra `Kaynaklar` listesi gosterir:
+her kaynak proje etiketi, source ref ve varsa gercek satir/sayfa/baslik/blok/nesne
+konumunu tasir. Konum uydurulmaz; JSON'daki retrieval/citation govdesi korunur.
+Karsilastirma aciklamalari proje etiketi tasir. Kaynak metni Rich markup olarak
+yorumlanmaz; yeni bir model cagrisi veya indeksleme baslatilmaz.
+
+Aciklama ancak tum secili projeler yanitlanmissa, gercek `evidence_found=true`
+gelmisse ve bos olmayan citation listesinin tamami ayni proje ve gecerli Locator
+sozlesmesine uyuyorsa kabul edilir. Listeye karisan yabanci/bozuk kaynak,
+source_ref/relative_path uyusmazligi, bos metin veya 64 KiB UTF-8 ustundeki
+aciklama kesin yanita donusmez. Eksik evidence flag citation varligindan uretilmez.
+
+Proje probe/query asamasindaki dosya, SQLite ve yapilandirma kesintileri scoped
+unavailable sonucu verir; ham hata, path veya authorization detayi sonuc metnine
+kopyalanmaz. Yetki reddi retry veya otomatik izin/indeksleme baslatmaz. Tek-proje
+CLI yolundaki dosya/SQLite kesintisi de sanitize hata ile sonlanir.
+
+Unit ve CLI integration regresyon kaynaklari guncellendi; testler ve gercek
+embedding/semantic kabul kosulari Y-12'ye ertelendi. Kaynak gelistirmesi veya
+sozdizimi kontrolu test basarisi ve kanonik Work kapanisi sayilmaz. Mevcut bounded
+research citation reopen/freshness yolu korunur; asagidaki eski DAG yeni teslimin
+zorunlu orkestrasyon gereksinimi degildir.
 
 ## Arastirma sorusu, scope ve butce
 
@@ -70,9 +97,9 @@ Her kaynak immutable snapshot olarak kaydedilir:
 Absolute path, traversal ve secret benzeri locator fail-closed reddedilir; ayni
 kurallar veritabani check constraint'i olarak da uygulanir.
 
-## Research DAG
+## Tarihsel Research DAG — aktif teslim kapisi degil
 
-Kanonik rol DAG'i:
+Onceki implementasyonun rol DAG'i (AKTIF_GOREV 0.3 ile zorunlu kapsamdan cikarildi):
 
 ```text
 coordinator

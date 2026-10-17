@@ -16,8 +16,10 @@ from zekam.application import natural_request_retrieval as retrieval_subject
 from zekam.application.natural_request_answer import (
     CLARIFICATION_ANSWER,
     FAILURE_ANSWER,
+    MAX_EXPLANATION_BYTES,
     UNCERTAINTY_ANSWER,
     answer_natural_request,
+    render_natural_request_answer,
 )
 from zekam.application.natural_request_retrieval import retrieve_natural_request
 from zekam.application.natural_request_scope import NaturalRequestScope
@@ -588,3 +590,96 @@ def test_status_probe_project_id_must_match_rag_result() -> None:
 def test_non_string_proposed_explanation_raises() -> None:
     with pytest.raises(ValidationFailed, match="proposed_explanation"):
         answer_natural_request(_valid_single_retrieval(), 123)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("proposed", ["", "  ", "\n\t"])
+def test_empty_explanation_is_not_accepted(proposed: str) -> None:
+    outcome = answer_natural_request(_valid_single_retrieval(), proposed)
+    assert outcome["answer"] == UNCERTAINTY_ANSWER
+    assert outcome["reason_codes"] == ["proposed-explanation-missing"]
+    assert outcome["proposed_explanation_accepted"] is False
+
+
+def test_explanation_utf8_budget_is_enforced() -> None:
+    outcome = answer_natural_request(
+        _valid_single_retrieval(), "\u00e7" * (MAX_EXPLANATION_BYTES // 2 + 1)
+    )
+    assert outcome["reason_codes"] == ["proposed-explanation-too-large"]
+    assert outcome["proposed_explanation_accepted"] is False
+
+
+def test_valid_citation_cannot_hide_a_foreign_citation() -> None:
+    retrieval = _valid_single_retrieval()
+    retrieval["results"][0]["result"]["citations"].append(
+        _citation(project_scope=SKY_UI_PROJECT_ID)
+    )
+    outcome = answer_natural_request(retrieval, "AuditService kaynagi bulundu.")
+    assert outcome["reason_codes"] == ["citation-invalid"]
+    assert outcome["proposed_explanation_accepted"] is False
+
+
+@pytest.mark.parametrize(
+    "locator",
+    [
+        {"relative_path": "src/foreign.py"},
+        {"relative_path": "src/service/audit_service.py", "line_start": True, "line_end": 4},
+        {"relative_path": "../private.py"},
+        {"relative_path": "src/service/audit_service.py", "page": 0},
+    ],
+)
+def test_invalid_or_mismatched_source_position_is_rejected(locator: dict[str, Any]) -> None:
+    retrieval = _valid_single_retrieval()
+    retrieval["results"][0]["result"]["citations"][0]["locator"] = locator
+    outcome = answer_natural_request(retrieval, "AuditService kaynagi bulundu.")
+    assert outcome["reason_codes"] == ["citation-invalid"]
+
+
+def test_answer_cannot_silently_drop_a_requested_project() -> None:
+    retrieval = _valid_single_retrieval()
+    retrieval["project_refs"].append("sky-spring-ui")
+    with pytest.raises(ValidationFailed, match="proje kapsami"):
+        answer_natural_request(retrieval, "Iki proje icin kaynak bulundu.")
+
+
+def test_plain_answer_shows_project_source_and_exact_position_without_changing_json() -> None:
+    retrieval = _valid_single_retrieval()
+    citation = retrieval["results"][0]["result"]["citations"][0]
+    citation["locator"].update(line_start=4, line_end=9)
+    outcome = answer_natural_request(retrieval, "AuditService kaynagi bulundu.")
+    rendered = render_natural_request_answer(outcome)
+    assert rendered == (
+        "AuditService kaynagi bulundu.\n\nKaynaklar:\n"
+        "- gpu-fusion: src/service/audit_service.py (satir 4-9)"
+    )
+    assert outcome["answer"] == "AuditService kaynagi bulundu."
+    assert outcome["retrieval"] is retrieval
+
+
+def test_plain_answer_does_not_publish_sources_for_rejected_explanation() -> None:
+    outcome = answer_natural_request(_valid_single_retrieval(), "Islem tamamlandi")
+    assert render_natural_request_answer(outcome) == UNCERTAINTY_ANSWER
+
+
+def test_plain_outage_preserves_failure_message() -> None:
+    retrieval = _retrieval(
+        "unavailable", [_entry("gpu-fusion", "unavailable", None)]
+    )
+    outcome = answer_natural_request(retrieval, None)
+    assert render_natural_request_answer(outcome) == FAILURE_ANSWER
+
+
+def test_plain_comparison_keeps_same_named_sources_separate_by_project() -> None:
+    retrieval = _retrieval(
+        "answered",
+        [
+            _entry("gpu-fusion", "answered", _rag_result(GPU_PROJECT_ID, [_citation()])),
+            _entry(
+                "sky-spring-ui", "answered",
+                _rag_result(SKY_UI_PROJECT_ID, [_citation(project_scope=SKY_UI_PROJECT_ID)]),
+            ),
+        ],
+    )
+    outcome = answer_natural_request(retrieval, "Her iki projede servis kaynagi var.")
+    rendered = render_natural_request_answer(outcome)
+    assert "- gpu-fusion: src/service/audit_service.py" in rendered
+    assert "- sky-spring-ui: src/service/audit_service.py" in rendered
