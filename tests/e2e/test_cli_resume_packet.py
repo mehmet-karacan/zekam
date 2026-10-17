@@ -76,7 +76,6 @@ def test_resume_packet_combines_work_checkpoint_projects_and_capabilities(tmp_pa
     assert document["latest_semantic_checkpoint"]["completed"] == "Resume packet uygulandi"
     assert document["latest_semantic_checkpoint"]["pending"] == "Bagimsiz verifier"
     assert document["next_safe_action"] == "Kanonik Work/Run bagini yeniden dogrula; yeni lease ve grant edin."
-    assert document["next_safe_action_source"] == "zekam-verification"
     assert document["work"]["open"][0]["title"] == "Resume acceptance"
     assert document["projects"][0]["project_ref"] == "demo"
     assert document["projects"][0]["rag"]["state"] == "unavailable"

@@ -184,9 +184,10 @@ def test_ask_work_status_reports_events_and_unknown_usage_without_inventing_metr
         "reason": "analytics-events-missing",
         "grants_authority": False,
     }
-    assert item["bound_jobs"] == []
-    assert item["bound_jobs_truncated"] is False
-    assert item["bound_jobs_scope"] == "returned-open-work-window"
+    project = document["projects"][0]
+    assert project["bound_jobs"] == []
+    assert project["bound_jobs_truncated"] is False
+    assert project["bound_jobs_scope"] == "returned-open-work-window"
     assert (home / "state" / "operational.db").read_bytes() == before
 
 

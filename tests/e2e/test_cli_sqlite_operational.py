@@ -564,6 +564,20 @@ def test_work_resume_reads_canonical_activity_and_runs(tmp_path: Path) -> None:
             "terminal_receipt_digest": None,
             "source_snapshot_id": None,
             "config_revision_id": config.id,
+                "fingerprints": {
+                    "source": {
+                        "snapshot_id": None,
+                        "binding_id": None,
+                        "revision_ref": None,
+                        "tree_digest": None,
+                        "content_digest": None,
+                        "config_digest": None,
+                    },
+                    "config": {"revision_id": config.id, "digest": config.config_digest},
+                    "complete": True,
+                    "consistent": True,
+                    "revalidation_required": False,
+                },
         }
     ]
     assert document["recent_activity"][0]["work_item_id"] == work.id
