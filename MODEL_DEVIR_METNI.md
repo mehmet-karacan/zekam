@@ -1,3 +1,10 @@
+# Guncel devir — Y-07 gelistirmesi
+
+Y-01..07 gelistirme teslimleri kayitli. Siradaki Y-08. Testler Y-12de.
+Aktif liste AKTIF_GOREV.md 0.3, son kayit 0.10. Untracked girdileri koru.
+
+---
+
 # Guncel devir — Y-06 kaynak baglari
 
 Y-01..06 gelistirme teslimleri kayitli. Siradaki Y-07. Testler Y-12de.

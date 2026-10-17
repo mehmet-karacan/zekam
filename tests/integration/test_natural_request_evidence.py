@@ -87,11 +87,27 @@ def test_missing_work_fails_closed(bound_context: tuple[Path, Path, str]) -> Non
         read_work_project(home, "missing-work")
 
 
-def test_locked_work_readback_reports_unavailable(bound_context: tuple[Path, Path, str]) -> None:
+def test_work_readback_does_not_take_a_write_lock(bound_context: tuple[Path, Path, str]) -> None:
     home, _source, work_id = bound_context
     connection = sqlite3.connect(home / "state" / "operational.db")
     try:
         connection.execute("begin immediate")
+        evidence = read_work_project(home, work_id)
+        assert evidence.work_id == work_id
+        assert evidence.project_slug == "sky-spring-ui"
+        assert evidence.as_dict()["grants_authority"] is False
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+def test_exclusively_locked_work_readback_reports_unavailable(
+    bound_context: tuple[Path, Path, str],
+) -> None:
+    home, _source, work_id = bound_context
+    connection = sqlite3.connect(home / "state" / "operational.db")
+    try:
+        connection.execute("begin exclusive")
         with pytest.raises(PolicyViolation, match="work-readback-unavailable"):
             read_work_project(home, work_id)
     finally:

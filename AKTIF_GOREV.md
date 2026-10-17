@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.0` — Y-06 mevcut entegrasyon baglari
+**Belge sürümü:** `3.1` — Y-07 Work okumasinda salt okunur transaction
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -160,7 +160,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   korunur; unresolved iliski kesin bilgi diye sunulmaz. Mevcut Confluence pagination/version
   yolu korunur; yeni connector kurma. Cikis: desteklenen yerel fixture/dosya akisi calisir;
   gercek credentials/kaynak yoksa ilgili canli kontrol blocked/not-run olarak raporlanir.
-- [ ] **Y-07 — Work/checkpoint/devam:** `work_graph.py`, `natural_work_read.py`,
+- [x] **Y-07 — Work/checkpoint/devam:** `interfaces/cli/work.py`, `natural_work_read.py`,
   `workspace_resume.py`, `cross_client_resume.py` ve SQLite runtime uzerinden is/proje/plan/
   source bagini tamamla. Index/arastirma/test ayni canonical kayitlara baglansin;
   stale revision, lease/fencing, unknown effect ve missing artifact recovery korunur.
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-07 Work/checkpoint/devam. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-08 Java test muhendisligi urunu. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -365,6 +365,21 @@ Y-12 final kapsamindadir; bu asamada CALISTIRILMADI. Canli kurum kaynagi/izin yo
 ilgili kontrol blocked/not-run olacak; kaynak incelemesi canli kabul sayilmaz.
 Y-06 checkbox gelistirme teslimidir, Work kapanisi degildir. Geri donus yalniz
 bu belge revizyonudur; uretim verisi veya dis sistem degistirilmedi.
+
+### 0.10 Y-07 gelistirme kaydi — 18 Ekim 2026
+
+Aktif Work CLI/SQLite store, natural Work okuma, workspace resume, canonical
+cross-client resume ve source/config snapshot baglari incelendi. Legacy wheel
+disi work_graph.py yerine aktif interfaces/cli/work.py listeye baglandi.
+Mevcut index/research/test canonical job, lease/claim/receipt, outbox ve recovery
+kaynaklari korunur; yeni JSON authority veya sohbetten Work kaydi uretilmez.
+Natural request Work-project evidence artik read_only_unit_of_work kullanir;
+BEGIN IMMEDIATE gereksiz write lock'u kaldirildi. Mevcut writer transaction'i
+altinda okuma ve gercek exclusive lock'ta unavailable davranisi icin regresyon
+kaynaklari guncellendi. Py_compile ve diff/projection disinda kosu yapilmadi.
+Y-07 checkbox gelistirme teslimidir; race/crash/cross-client/receipt ve native
+kabul Y-12de bekler. DB/veri migration veya Work kapanisi yapilmadi. Geri donus:
+kaynak commitini geri al; mevcut state/proje/receipt kayitlarini koru.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4447,6 +4462,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.9 | 2026-10-18 | Y-05: yayin lock beklemesi sonrasi cancel/deadline yeniden kontrolu; final regresyon kodu hazir |
 
 | 3.0 | 2026-10-18 | Y-06 mevcut ODI/Jira/Confluence/Oracle/Git kaynak baglari kaydedildi; canli kabul ve testler finalde |
+
+| 3.1 | 2026-10-18 | Y-07: Work-project evidence salt okunur transactiona baglandi; active Work yuzeyi ve final concurrency regresyonlari guncellendi |
 
 ### 15.3 Şimdiki Gerçek Durum
 

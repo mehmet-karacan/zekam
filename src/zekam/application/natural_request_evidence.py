@@ -109,7 +109,7 @@ def read_work_project(home: Path, work_id: str) -> WorkProjectEvidence:
     _required_bounded_text(work_id, "Work kimligi", 128)
     try:
         store = SQLiteOperationalStore(Path(home) / "state" / "operational.db")
-        with store.unit_of_work() as uow:
+        with store.read_only_unit_of_work() as uow:
             try:
                 work = uow.get_work(work_id)
             except ValidationFailed as exc:
