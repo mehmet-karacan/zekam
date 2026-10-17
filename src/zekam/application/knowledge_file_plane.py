@@ -50,6 +50,12 @@ _PUBLIC_PII_RULES = (
 _TCKN_CANDIDATE = re.compile(r"(?<!\d)[1-9]\d{10}(?!\d)")
 _IBAN_CANDIDATE = re.compile(r"(?i)(?<![A-Z0-9])TR[0-9A-Z]{24}(?![A-Z0-9])")
 _CARD_CANDIDATE = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
+# Canonical UUID ve digest metinleri, kart numarasi regex'inin kapsadigi sayisal
+# parcalari icerebilir. Bu token'lar kimlik/icerik adresidir; kart adayi olarak
+# degerlendirilmemelidir.
+_HEX_IDENTITY_TOKEN = re.compile(
+    r"(?i)(?<![0-9a-f])(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{32,})(?![0-9a-f])"
+)
 _MAX_NOTE_BYTES = 2 * 1024 * 1024
 
 # Phone PII match is a false positive when it is a contiguous hex segment embedded in a
@@ -140,9 +146,15 @@ def _contains_sensitive_number(text: str) -> bool:
         return True
     if any(_valid_iban(match.group(0)) for match in _IBAN_CANDIDATE.finditer(text)):
         return True
-    return any(
-        _valid_luhn(re.sub(r"[ -]", "", match.group(0))) for match in _CARD_CANDIDATE.finditer(text)
-    )
+    for match in _CARD_CANDIDATE.finditer(text):
+        if any(
+            token.start() <= match.start() and match.end() <= token.end()
+            for token in _HEX_IDENTITY_TOKEN.finditer(text)
+        ):
+            continue
+        if _valid_luhn(re.sub(r"[ -]", "", match.group(0))):
+            return True
+    return False
 
 
 class KnowledgeClassification(StrEnum):
