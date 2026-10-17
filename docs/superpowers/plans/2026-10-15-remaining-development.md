@@ -47,6 +47,14 @@
   yazilmaz; partial/unknown sonuc fail-closed kalir. Paket manifesti yenilendi, import
   denetimi yapildi; pytest final asamasina birakildi. Commit: `5870efb`.
 
+- 17 Ekim 2026 final toplu test: kaynak `5870efb` ve kanit plani `7c06449` sonrasinda
+  tek final `python -m pytest -q --tb=short --basetemp C:\\temp\\zekam-final7`
+  kosusu exit code 0 ile tamamlandi: `7984 passed, 1409 skipped, 3 warnings`;
+  sure `52:59`. Skip'ler Windows symlink/POSIX, kurulu olmayan native istemci,
+  kullanici corpus'u ve acik remote/live provider kapilarina aittir. Bu yerel test
+  kapisini gunceller; native host, signer/credential, live kalite ve bagimsiz review
+  kabul kapilarini kapatmaz. Test bu kaynak degisikligi icin yeniden calistirilmayacak.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
