@@ -80,9 +80,10 @@ production index olusturulmadi.
 
 Gercek kurulu modelle yapilan provider smoke kontrolden gecti: route `local`,
 CPU provider, 384 boyut, birim norm ve saglik `True`; tek sorgu 4 ms, iki belgeli
-batch 6 ms olculdu. Kaynak revizyonu `ce57d3c7d772f5c9bb5c50951b49413dfd05cf11`
-sonrasinda tek son toplu `python -m pytest -q --tb=short` kosusu exit code `0`
-ile sonuclandi: `7987 passed, 1409 skipped, 3 warnings` (54:33). Uyarilar
+batch 6 ms olculdu. OpenCode text-only native parseri ve deny-all smoke kaynaklari
+`3fb420b` sonrasinda, tek son toplu `python -m pytest -q --tb=short
+--basetemp C:\\temp\\zekam-final-db710cd` kosusu exit code `0` ile sonuclandi:
+`7989 passed, 1409 skipped, 3 warnings` (54:12). Uyarilar
 duplicate ZIP fixture ve iki capability-worker `runpy` RuntimeWarning'idir.
 Skip'ler Windows'ta kullanilamayan symlink/POSIX izinleri, kurulu olmayan native
 istemci veya gercek kullanici corpus'u gibi host sinirlarina aittir; remote/live
@@ -90,11 +91,11 @@ provider ve gercek production corpus yeniden indeksleme kosulari bu makinede
 calistirilmadi. Uretim corpus indexi olusturulmadi; canonical home ve legacy
 index adayi bulunmadigi icin silinecek veya yeniden indekslenecek hedef yoktu.
 
-Paket kabul betigi de repository disi sonuc dosyasiyla basariyla tamamlandi:
-`status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]`.
-Son HEAD clean archive wheel smoke'u `23/23` kontrol ve `status=passed` verdi;
-manifest `sha256:c17060e155b184f5bb2700f86fa4a077963cefb246701e7afd38058a15999506`,
-artifact `sha256:8c697351a51b5295c6c948b3482ffcbc23d8d219f97eb99afbce926a47a202de`.
+Paket kabul betigi de son authority digest'iyle repository disi sonuc olarak
+`status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]` verdi.
+Son clean archive wheel smoke'u `23/23` kontrol ve `status=passed` verdi;
+manifest `sha256:10ed0bd1ff1dddbb57557ccef19a80201cd90da9bf0190b2aa347be90d1db86`,
+artifact `sha256:4660768ac7a3861dd372f665b6d7cdcbb3e7b6ad8dc1a276acd843f8e6a20bea`.
 Kontrol; zorunlu dosyalar, aktif gorev projection'i, model envanteri, is grafigi,
 schema/YAML, bellek yonlendirme politikasi, Git gecmisi ve secret taramasini
 kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
