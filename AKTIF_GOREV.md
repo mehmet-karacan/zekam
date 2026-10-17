@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.3` — MacOS kaynak cikisi ve manifest hizasi
+**Belge sürümü:** `2.4` — Tek yapilacaklar listesi ve yerel kurulum kapsami
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -33,6 +33,15 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 ## 0. Yetki, Aşama Ve Devir Sözleşmesi
 
 ### 0.1 Güncel Kullanıcı Kararı
+
+**18 Ekim 2026 kapsam sadelestirme karari:** Kullanici kalan gereksiz islerin
+cikarilmasini ve tek yapilacaklar listesi istedi. Guncel teslim kapsami ve sirasi
+asagidaki **0.3** bolumudur. Onceki WP metinleri, 13 yinelenen final checkbox'i,
+eski Global DoD ve devir notlari bu kararla celistiginde tarihsel referanstir;
+cikarilan gereksinimler tamamlanmis veya dogrulanmis sayilmaz. Kurulum hedefi
+Windows kullanici profilindeki `.zekam` veri alanidir. Bu tur plan revizyonudur;
+gelistirme duraklamasi devam eder, otomatik kurulum baslamaz. Hedef/sayac durumu
+uygulamanin kendi kaydindan okunur; belge bu kaydi degistirmez.
 
 **16 Ekim 2026 devam karari:** Kullanici 07:40 checkpoint'inden sonra yeniden
 devam et talimati verdi. Conversational duraklama kaldirildi; kaynak gelistirmesi
@@ -86,6 +95,133 @@ beklet; bağımsız ve güvenli işleri durdurma.
    Kaynakta yalnız ayrıca onaylı tracked değişiklikler yapılır.
 7. Ek A'daki eski metin salt tarihsel kanıttır. Eski durdurma ifadeleri, örnek onaylar
    ve geçmiş durumlar bu bölümün yerine geçmez; otomatik başlangıç bağlamına yüklenmez.
+
+### 0.3 Tek yapilacaklar listesi — 18 Ekim 2026
+
+**Hedef:** Windows CPU'da yerel E5 ile calisan; proje arama, belge/kod bilgisi,
+Work/devam, temel bellek, Java test muhendisligi ve backup islerini kullanilabilir
+halde teslim etmek. Once mevcut implementasyon okunur; calisan akis yeniden yazilmaz.
+**Mimari:** SQLite operational state ve mevcut CAS/indeks yapisi korunur. CLI'in
+model, arac, skill, subagent ve izin mekanizmalari kullanilir; yeni koordinator kurulmaz.
+**Teknoloji:** Windows, Python, SQLite/FTS5/sqlite-vec, ONNX Runtime CPU, multilingual-e5-small;
+Java test akisi icin Maven/JaCoCo.
+**Kaynak:** Bu gorevin REQ-001..007 maddeleri ve asagidaki kapsam kararlari.
+Uygulama ayni gercek kaynak kokunde, mevcut CLI/application/infrastructure yuzeylerinden
+yapilir. Gerektiginde `superpowers:executing-plans` ile bu liste sirayla uygulanir.
+
+**Ortak kurallar:** Test kodu gerekli gelistirmeyle hazirlanabilir; test kosulari
+12. adima birakilir. Her anlamli gelistirme asamasi Turkce ASCII commit ve
+`origin/main` push ile kaydedilir; bu commit test basarisi veya Work kapanisi degildir.
+Gereksiz yeni framework, servis, schema veya tekrar arastirma eklenmez. Secret ve
+kurumsal ham icerik dis servise gitmez. Veriler, kullanici ayarlari, source binding,
+claim/receipt ve recovery guvenceleri korunur. MacOS kapsam disidir. Linux icin yeni
+native kurulum/kabul matrisi bu teslimin kapisi degildir; mevcut portable kod bozulmaz.
+Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
+
+- [ ] **Y-01 — Yerel veri kurulumu:** `ZEKAM_HOME=%USERPROFILE%\.zekam` hedefini
+  mevcut `application/home.py`, `composition.py`, `fresh_bootstrap.py` ve CLI kurulum
+  akisindan cozumle. Mevcut veri/model
+  dosyalarini kontrol et; yeniden indirme, mevcut DB'yi sifirlama veya sessizce tasima
+  yapma. Gereken tasimada once backup ve geri donus plani olustur. Model, config,
+  operational DB, CAS ve proje indeksleri kaynak repodan ayri kalsin. CPU E5 mevcutsa
+  yeniden kurma. Cikis: tek etkin veri koku, calisan yerel profil ve acik geri donus yolu.
+- [ ] **Y-02 — Ince CLI girisi:** `client_instruction_bootstrap.py`, `client_integrations.py`
+  ve proje-yerel instruction/MCP projection'larindaki eksigi tamamla. Kurulu ve kullanilan
+  istemcinin kok/alt dizin girisi yeterli olsun; diger projede kendiliginden effect
+  baslamasin. CLI model/ajan secimini ustlensin; native izin sinirini oldugu gibi raporla.
+  Cikis: tekrar instruction kopyasi ve zorunlu Zekam koordinatoru olmadan giris.
+- [ ] **Y-03 — Dogal dil ve kaynakli yanit:** `natural_language_dispatch.py`,
+  `natural_request_scope.py`, `natural_request_retrieval.py`, `natural_request_answer.py`
+  ve `research_runtime.py` uzerinden dogru proje, belirsizlik, kaynakli yanit ve
+  desteklenmeyen istek davranisini tamamla. Arastirma mevcut bounded retrieval ile
+  calissin; yeni model router/ajan platformu ekleme. Cikis: istek dogru projeye gider,
+  kaynak/citation veya eksik bilgi acikca doner. Korunan untracked RAG dosyalari sahipligi
+  ve mevcut degisiklikleri incelenmeden benimsenmez veya stage edilmez.
+- [ ] **Y-04 — Guvenli bilgi alimi:** `source_discovery.py`, `source_security.py`,
+  `knowledge_parsers.py`, `knowledge/document_parsers.py` ve mevcut code graph yolunda
+  metadata/icerik ayrimi, kaynak/revision/rename kimligi, desteklenen kod/belge locator'lari,
+  secret korumasi ve bounded ZIP/XML davranisini tamamla. Desteksiz format icin parser
+  uydurma; acik unsupported/partial sonucu ver. Cikis: mevcut desteklenen dosya turleri
+  kaynak dosyayi degistirmeden ve secret sizdirmadan indekse hazirlanir.
+- [ ] **Y-05 — Yerel RAG ve indeks devami:** `project_knowledge_index.py`,
+  `knowledge_index.py`, yerel ONNX provider ve SQLite indeks store'unda eksik baglari
+  tamamla. Sadece yeni/degisen chunk'lar embed edilsin; batch/token/payload sinirlari,
+  kota, iptal, retry ve hata sonrasi resume korunsun. Staging tamamlanmadan aktif indeks
+  degismesin; baska proje/model vektoru karismasin. Cikis: yerel E5 dense 384 + lexical
+  arama, dogru citation ve tamamlanmis embedding'i gereksiz tekrarlamayan indeks akisi.
+- [ ] **Y-06 — ODI/Jira/Oracle baglari:** `odi11g_export.py`, `odi11g_binding_runtime.py`,
+  `oracle_metadata_index.py`, `jira_knowledge_import.py` ve mevcut Jira/Git history yolunda
+  eksik baglantilari tamamla. ODI 11g XML, salt-okunur metadata ve issue/ek/provenance
+  korunur; unresolved iliski kesin bilgi diye sunulmaz. Mevcut Confluence pagination/version
+  yolu korunur; yeni connector kurma. Cikis: desteklenen yerel fixture/dosya akisi calisir;
+  gercek credentials/kaynak yoksa ilgili canli kontrol blocked/not-run olarak raporlanir.
+- [ ] **Y-07 — Work/checkpoint/devam:** `work_graph.py`, `natural_work_read.py`,
+  `workspace_resume.py`, `cross_client_resume.py` ve SQLite runtime uzerinden is/proje/plan/
+  source bagini tamamla. Index/arastirma/test ayni canonical kayitlara baglansin;
+  stale revision, lease/fencing, unknown effect ve missing artifact recovery korunur.
+  Cikis: baska oturum/model kaldigi isi kaynak/config kontroluyle bulur; sohbet veya
+  Markdown'dan sahte Work durumu uretilmez.
+- [ ] **Y-08 — Java test muhendisligi urunu:** `unit_test_runtime.py`, `unit_test_loop.py`
+  ve `unit_test_runner/` yolunu mevcut native CLI/model yetenegiyle tamamla. Dogru Maven
+  modulu, test-only patch, gercek Surefire/JaCoCo olcumu, tazelik ve plateau/devam sonucu
+  tek akista baglansin; production/pom veya basarili test silinerek coverage artirilmasin.
+  Cikis: anlamli test degisikligi ve kanitli olcum ureten akis; bu urunun Maven denemesi
+  de 12. adimdaki final dogrulama asamasinda yapilir.
+- [ ] **Y-09 — Temel bellek ve skill:** `memory_service.py`, `memory_control.py`, mevcut
+  skill CLI ve SQLite skill store yolunda kaydet/oku/duzelt/arsivle, scope/provenance ve
+  surum/rollback baglarini tamamla. Mevcut fikir kayit akisi korunur. Memory/skill execution
+  izni sayilmaz. Cikis: kullanici/proje bilgisi ve onayli skill yasam dongusu calisir;
+  otomatik kendi kendine degisen evolution sistemi bu teslimin parcasi degildir.
+- [ ] **Y-10 — Durum raporu ve backup:** `backup.py`, `local_backup.py`,
+  `sqlite/operational_backup.py` ve mevcut Work/usage rapor yolunu tamamla. SQLite online
+  snapshot, CAS/manifest ve ayri hedefe restore; kesinti/disk hatasinin acik sonucu kalsin.
+  Scheduler varsayilan kapali, mevcut pause/disable davranisi korunur; yeni Windows servisi
+  veya periyodik is kurma. Cikis: gercek kayittan durum raporu ve guvenli backup/restore.
+- [ ] **Y-11 — Paket ve kisa kullanim belgesi:** `package_acceptance.py`,
+  `PACKAGE_RELEASE_MANIFEST.json`, mevcut manifest generator ve kurulum/kullanim belgelerini
+  son kaynakla hizala. Tek kurulum/ilk kullanim/devam/backup aciklamasi yeterli; desteklenen
+  ve eksik akislar acik yazilsin. Cikis: finalde kurulacak wheel ve guncel belge; ayri
+  mimari HTML/ZIP/diyagram veya uzak yayin projesi acilmaz.
+- [ ] **Y-12 — Tek final dogrulama ve teslim:** Y-01..11 gelistirmeleri tamamlaninca
+  ilgili tum Windows testlerini bir final asamasinda calistir; temiz wheel kabulunu,
+  E5 gercek CPU embedding (384/finite/L2, query/passage, mask pooling), Turkce/Ingilizce
+  arama ve cold/unchanged/delta/sorgu olcumunu, Maven/JaCoCo akisina ve checkpoint/restore
+  senaryolarina ayni asamada bak. E5 icin baslangic 2 CPU thread ve batch 4'tur.
+  Gereken riskli/yikici veya Work kapanisinda gercek bagimsiz inceleme ekle; her kucuk
+  adim icin ayri verifier/signer platformu kurma. Basarisizlik varsa duzelt ve etkilenen
+  kontrolu yeniden kos; bir kere kosuldu diye hatayi kabul etme. Cikis: tek sonuc raporu
+  (passed/failed/blocked/not-run), son commit/remote, kalan gercek engeller ve kanitlar.
+  Gecmeyen zorunlu davranis varken teslim tamamlandi denmez.
+
+**Eski maddelerin kapsama eslenmesi (ikinci is listesi degildir):**
+
+| Onceki acik kapsam | Guncel yer veya karar |
+|---|---|
+| WP-02.01 | Y-02; yalniz kurulu/kullanilan native istemci kabul edilir |
+| WP-02.03 | Native izin siniri Y-02; yeni signed push/signer/key provisioning ve evrensel dolayli shell sandbox gelistirmesi kapsam disi |
+| WP-04.01/03/04/05/06 | Y-04 |
+| WP-05.03/04 | Y-05 |
+| WP-05.06 | Y-12'de tek yerel kalite/hiz olcumu; tekrar eden karsilastirma kampanyasi yok |
+| WP-06.01/02/04/05 | Y-06; olmayan canli kaynaga erisim vaat edilmez |
+| WP-07.01..05 | Y-07; crash/race ve recovery kosulari Y-12 |
+| WP-08.01..03 | Model/arac/subagent yonetimi CLI'a aittir; Zekam'in zorunlu ajan orkestrasyonu ve rol/DAG katmani bu teslimden cikarildi |
+| WP-08.04/05 | Model envanter/otomatik router, cok modelli qualification ve ucretli benchmark kampanyasi kapsam disi; mevcut kod silinmez |
+| WP-08.06 | Y-03 kaynakli bounded yanit; yeni fusion/arastirma platformu yok |
+| WP-09.01..06 | Y-08; gercek Maven ve coverage kabul kosusu Y-12 |
+| WP-10.01..03 | Y-09; yeni her lesson/skill icin ayri otomatik promotion/reviewer platformu kurma |
+| WP-10.05/06 | Otomatik radar/tournament/evolution shadow/canary/activation bu teslimin kapanis sartindan cikarildi; mevcut veri/kod korunur |
+| WP-11.01/03/04 | Y-10; recovery/restore kabul kosusu Y-12 |
+| WP-11.02 | Y-10'da varsayilan kapali mevcut scheduler siniri; yeni native scheduler kurulumu kapsam disi |
+| WP-12.01/02/03/06 | Paket hazirligi Y-11, tum kabul/olcum/kapanis Y-12 |
+| WP-12.04/05 | Y-11'de gerekli belge/manifest; Miro/GitBook yayini ve cok formatli mimari export kapsam disi |
+| GATE-I 6 + GATE-U 7 yinelenen madde | Y-12'de birlesik kabul; 13 ayri gelistirme gorevi sayilmaz |
+
+**Odak:** Yanlis proje/secret sizintisi Y-03/04; mevcut veriyi ezme Y-01/10;
+yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
+eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
+veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
+**Sonraki guvenli adim:** Kullanici devam dediginde Y-01 ile basla. Yeni arac/servis,
+CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -407,7 +543,7 @@ kanıt üretildikten sonra yapılır.
 | P26 | Regresyon, doğal dil ve gerçek kabul | Tüm paketler, WP-12 |
 | P27 | Kayıpsız geçiş ve kullanıcı içeriği koruma | WP-00, WP-02, WP-07, WP-11, WP-12 |
 
-## 8. Araştırma Ve Uygulama İş Paketleri
+## 8. Onceki Arastirma Ve Uygulama Is Paketleri — Tarihsel Referans
 
 **Çalıştırma kuralı:** Şimdi WP-00 ve WP-01'in araştırma/plan kısmını tamamla;
 WP-02..WP-12 için exact uygulama değişikliklerini ve testleri planla. Uygulama onayı
@@ -469,9 +605,9 @@ Seçim ölçülmemiş hız üstünlüğüne dayanmıyor; ayrıntı repo dışı 
 
 **İncelenecek/değişecek konumlar:** `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `opencode.json`, `config/zekam.default.yaml`, `client_integrations`, `client_instruction_bootstrap`, `mcp_integrations`, native adapter ve izin üreticileri; eski global parçalar yalnız migration kanıtıdır.
 
-- [ ] **WP-02.01** — Kök ve alt dizin için ince giriş üret; tekrar eden instruction/skill kopyalarını mevcut kanonik generator üzerinden tekilleştir. Zekam dışı yeni oturumda inert davranışı gerçek hostta sınayarak göster.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-02.01** — Kök ve alt dizin için ince giriş üret; tekrar eden instruction/skill kopyalarını mevcut kanonik generator üzerinden tekilleştir. Zekam dışı yeni oturumda inert davranışı gerçek hostta sınayarak göster.
 - [x] **WP-02.02** — İstemci metadata/instruction/hook/MCP/shell/subagent desteğini sürüm bazında ayrı kaydet. Destek yoksa manual komut ezberi yerine açık destek sınırı ve kurulabilir adapter planı ver.
-- [ ] **WP-02.03** — Onaylı görevde shell allow hedefini host-native policy ile uygula. Push/yayın exception'ını model prompt'una değil uygulanabilir araç/transport sınırına bağla; başarısız guard'ı başarı sayma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-02.03** — Onaylı görevde shell allow hedefini host-native policy ile uygula. Push/yayın exception'ını model prompt'una değil uygulanabilir araç/transport sınırına bağla; başarısız guard'ı başarı sayma.
 
   16 Ekim 2026 publication typed config: registry trust pin'i normal Settings
   ve sanitized active config yoluna baglandi; configured public digest kaybolmaz.
@@ -739,12 +875,12 @@ ayri kalir.
 
 **İncelenecek/değişecek konumlar:** `source_discovery.py`, `ignore_rules.py`, `project_knowledge_index.py`, `knowledge_ingestion.py`, `knowledge_parsers.py`, `secret_detection.py`, `knowledge_file_plane.py`, `infrastructure/knowledge/document_parsers.py`; öneri `index_selection_policy.py`.
 
-- [ ] **WP-04.01** — Discovery metadata ve içerik eligibility adımlarını ayır. Seçili ağacın `.git`, `node_modules`, `.env`, binary ve generated dosyaları dahil metadata envanterini tut; içerik okuma veya embedding için ayrı politika uygula.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-04.01** — Discovery metadata ve içerik eligibility adımlarını ayır. Seçili ağacın `.git`, `node_modules`, `.env`, binary ve generated dosyaları dahil metadata envanterini tut; içerik okuma veya embedding için ayrı politika uygula.
 - [x] **WP-04.02** — Traversal'ı streaming ve limitli yap; junction/symlink döngüsü veya kök dışına kaçışı engelle. Limit/erişim hatası varsa tam envanter demek yerine partial + devam checkpoint'i ver.
-- [ ] **WP-04.03** — Kaynak türleri için AST/structural parçalama; belge türleri için başlık/paragraf/tablo locator; XML için özel parser seç. Unknown formatı ham UTF-8 sayma; PDF/DOCX tablo/sayfa bilgisi uydurma.
-- [ ] **WP-04.04** — `.env` ve `.properties` safe key/structure parser'ını local-only uygula. Synthetic secrets'ın prompt/cache/index/log/artifact'a sızmadığını denetle; secret içeriğe birebir public hash üretme.
-- [ ] **WP-04.05** — ZIP'te traversal, symlink, entry count/byte/ratio limitleri; XML'de DTD/external entity/network expansion reddi; belgede çalışabilir macro/script yürütmeme sınırlarını uygula.
-- [ ] **WP-04.06** — Proje+logical source+revision kimliğini koru. Aynı adlı farklı dosya, aynı içeriğin başka proje kopyası ve gerçek rename olayları farklı sözleşmeler taşısın; kaynak dosyaya yazma yapma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-04.03** — Kaynak türleri için AST/structural parçalama; belge türleri için başlık/paragraf/tablo locator; XML için özel parser seç. Unknown formatı ham UTF-8 sayma; PDF/DOCX tablo/sayfa bilgisi uydurma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-04.04** — `.env` ve `.properties` safe key/structure parser'ını local-only uygula. Synthetic secrets'ın prompt/cache/index/log/artifact'a sızmadığını denetle; secret içeriğe birebir public hash üretme.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-04.05** — ZIP'te traversal, symlink, entry count/byte/ratio limitleri; XML'de DTD/external entity/network expansion reddi; belgede çalışabilir macro/script yürütmeme sınırlarını uygula.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-04.06** — Proje+logical source+revision kimliğini koru. Aynı adlı farklı dosya, aynı içeriğin başka proje kopyası ve gerçek rename olayları farklı sözleşmeler taşısın; kaynak dosyaya yazma yapma.
 
   16 Ekim 2026 XML parser kaynak dilimi: bounded stdlib Expat parser'i DTD/external
   entity ve yapi limitlerini reddeder; element yolu ve satir locator'i tasiyan
@@ -946,10 +1082,10 @@ kesfine gecmeden reddediyor.
 
 - [x] **WP-05.01** — Cache key'ini proje/realm, içerik, parser/chunk profil, exact model/revision/dimension/normalization sözleşmesine bağla. HEAD değişimi aynı content'i tek başına pahalı embedding miss'ine çevirmesin.
 - [x] **WP-05.02** — Yalnız new/changed chunk'ları embed et; silinmiş kaynağın vektörünü tombstone/yeniden yayınla görünümden çıkar. Rename'de uygun vektörü yeniden kullanırken locator/source ownership'i yeni path'e doğru bağla.
-- [ ] **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
-- [ ] **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-05.03** — Batch'leri sayı+token+payload limitiyle kur; bounded concurrency, timeout, transient backoff, quota ve cancellation uygula. Partial batch sonucunu slot sırasıyla varsayma; provider kimliğini doğrula.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-05.04** — Staging generation + transaction/CAS pointer yayını ile önceki hazır indeksi koru. Crash ve tekrar halinde kanıtlı biten embedding'leri yeniden çağırma; sonucu belirsiz dış etkiyi uzlaştır.
 - [x] **WP-05.05** — Exact/lexical/dense/graph sinyallerini skor toplamıyla körlemesine karıştırma. Reranker yoksa açıklanmış fallback; query için gereksiz full-tree içerik/qualification tekrarı yapma; selected citation freshness'ini koru.
-- [ ] **WP-05.06** — Performans karşılaştırmasında aynı anlamı arayan Türkçe soru, exact sembol ve ilişki qrels kullan. Source-only filtre yüzünden belgelerin yok olmasını veya kalite düşüşünü hız kazancı sayma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-05.06** — Performans karşılaştırmasında aynı anlamı arayan Türkçe soru, exact sembol ve ilişki qrels kullan. Source-only filtre yüzünden belgelerin yok olmasını veya kalite düşüşünü hız kazancı sayma.
 
 **Üretilen sözleşme/çıktı:** Versioned `IndexPlan/Generation/EmbeddingCacheKey/RetrievalEvidence` kontratları; öneri `tests/integration/test_incremental_project_index.py`, `tests/e2e/test_natural_language_document_update.py`, benchmark raw JSON.
 
@@ -1176,11 +1312,11 @@ halen gereklidir. Regresyon kodu hazir, CALISTIRILMADI; kabul/kapanis yoktur.
 
 **İncelenecek/değişecek konumlar:** `odi11g_smart_export.py`, `oracle_metadata_index.py`, `code_graph*`, `atlassian_mcp_server.py`, `project_history_query.py`, ilgili SQLite graph ve CLI/MCP adapter'ları.
 
-- [ ] **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
-- [ ] **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-06.01** — 11g exporttan doğrulanmış model/datastore/column/package/scenario ve referans bağlarını sürümüne göre çıkar. 11g/12c isimlerini/şemalarını eşdeğer varsayma; unresolved relation'ları sakla, sahte lineage kurma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-06.02** — Oracle yalnız metadata amaçlı yetkili okunsun; row data/DDL varsayılan kapsam dışı. Kullanıcı klasöründeki credentials otomatik bağlantı izni değildir. PL/SQL dynamic SQL ilişkilerinde belirsizliği göster.
 - [x] **WP-06.03** — Java/JS/TS/TSX/PLSQL graph kapsamını mevcut Python kapsamıyla karıştırma. Hangi ilişkilerin parser/resolver ile kesin, hangilerinin çıkarım olduğunu schema'da ayır; gövde-benzerliğinden kesin çağrı zinciri üretme.
-- [ ] **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
-- [ ] **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-06.04** — Jira key çözümü → gerçek issue/ek → revision/provenance → proje knowledge bağlantısını kur; Confluence pagination, version, permission ve locator'ı koru. Yerleşik read-only MCP'nin güvenlik paritesini kontrol et.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-06.05** — “Bu talepte ne değişti?” sorusunu sadece issue özetiyle değil bounded Git history/diff ile bağla. Markdown bilgi güncellemesini issue yazma talimatı sayma.
 
   16 Ekim 2026 Git history scope: root commit gercek read-only diff-tree --root
   yoluna alindi; first-parent merge bagi raporda explicit. Omitted file/hunk,
@@ -1385,11 +1521,11 @@ ayni read-only UoW yolunu kullanir.
 
 **İncelenecek/değişecek konumlar:** `operational_store.py`, `infrastructure/sqlite/operational_store.py`, `operational_schema.py`, `local_runtime.py`, `workspace_resume.py`, `native_continuity.py` (varlığı teyit), `continuity` ve OpenCode lifecycle/spool bileşenleri.
 
-- [ ] **WP-07.01** — Work create/list/show/transition/history/dependency/checkpoint/close yollarını doğal dile bağla; mevcut durum makinesi ve optimistic revision'ı koru. Cycle, stale revision ve evidence'sız kapanış reddedilsin.
-- [ ] **WP-07.02** — Index, araştırma ve test işlerini aynı project/work/plan/source bağlarıyla checkpoint'e al; ikinci operational authority veya ayrı gerçeklik JSON'u üretme. SQLite'ta kullanıcı projesine göre ayrım gerçek olsun.
-- [ ] **WP-07.03** — Lease, fencing, single-writer, outbox ve recovery'yi gerçek race/crash testleriyle doğrula; provider veya Maven çalışırken DB write lock tutulmasın.
-- [ ] **WP-07.04** — Yeni model/CLI eski işin artifacts, source/test/config fingerprint'lerini doğrulayarak devam etsin. Yetki sadece eski sohbetten miras alınmasın; mevcut geçerli grant kendi kaynağından yeniden doğrulansın.
-- [ ] **WP-07.05** — Native checkpoint anlatısını doğrulanmış Work geçişinden ayır. Stale PID/spool ownership, out-of-order event, missing CAS ve interrupted close recovery açıklanabilir olsun.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-07.01** — Work create/list/show/transition/history/dependency/checkpoint/close yollarını doğal dile bağla; mevcut durum makinesi ve optimistic revision'ı koru. Cycle, stale revision ve evidence'sız kapanış reddedilsin.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-07.02** — Index, araştırma ve test işlerini aynı project/work/plan/source bağlarıyla checkpoint'e al; ikinci operational authority veya ayrı gerçeklik JSON'u üretme. SQLite'ta kullanıcı projesine göre ayrım gerçek olsun.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-07.03** — Lease, fencing, single-writer, outbox ve recovery'yi gerçek race/crash testleriyle doğrula; provider veya Maven çalışırken DB write lock tutulmasın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-07.04** — Yeni model/CLI eski işin artifacts, source/test/config fingerprint'lerini doğrulayarak devam etsin. Yetki sadece eski sohbetten miras alınmasın; mevcut geçerli grant kendi kaynağından yeniden doğrulansın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-07.05** — Native checkpoint anlatısını doğrulanmış Work geçişinden ayır. Stale PID/spool ownership, out-of-order event, missing CAS ve interrupted close recovery açıklanabilir olsun.
 
 **Üretilen sözleşme/çıktı:** `CheckpointEnvelope` ve semantic resume paketi mevcut ledger/CAS'a bağlı; öneri `tests/e2e/test_cross_client_task_resume.py`, `tests/concurrency/test_project_work_resume_race.py`.
 
@@ -1791,12 +1927,12 @@ kodu hazir; testler CALISTIRILMADI. Gercek native host ve kapanis kabulleri acik
 
 **İncelenecek/değişecek konumlar:** `agent_dispatch.py`, `agent_control.py`, `research_runtime.py`, `research_service.py`, `model_registry.py`, `model_gateway.py`, `model_decision_service.py`, `provider_adapter.py`, `infrastructure/clients/adapters.py`, mevcut benchmark/role policy.
 
-- [ ] **WP-08.01** — Host-neutral çalışma kontratını native host capability'lerine bağla; OpenCode'a ait named-agent gereksinimi diğer client'ı sessizce devre dışı bırakmasın. Gerçek child tool yoksa sahte delegate oluşturma.
-- [ ] **WP-08.02** — Researcher/explorer, builder, tester, reviewer/verifier, synthesizer ve curator rollerini bütçe/permission/identity/result envelope ile yönet. Ana context'e tüm source veya bütün alt ajan konuşmaları taşınmasın.
-- [ ] **WP-08.03** — Paralel salt-okunur araştırma mümkün; aynı writable kaynağa tek builder. Verifier gerçek farklı execution'a ve acceptance subject'ine bağlı olsun; bir modelin başka başlıkla verdiği onay bağımsız sayılmasın.
-- [ ] **WP-08.04** — Model ID/provider prefix/catalog revision gerçek config'ten çözülsün. Quality, tools, structured output, context, latency, failure ve cost sinyallerini ayrı ölç; bilinmeyen kotayı yüzde uydurarak doldurma.
-- [ ] **WP-08.05** — Canlı benchmark için hedef/fixture/repetition/call/token/maliyet bütçesi göster ve yetki al. Mock pipeline başarısını üretim modeli qualification'ına çevirmeden, veri/model/host snapshot'ını bağla.
-- [ ] **WP-08.06** — Araştırma tam soru kapsamını sabit sayıda chunk'a zorlamadan budget ve evidence-gap ile yönetilsin. Kaynak/citation doğrulaması, çelişki, partial ve yanıt üretimini ayrı raporla.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.01** — Host-neutral çalışma kontratını native host capability'lerine bağla; OpenCode'a ait named-agent gereksinimi diğer client'ı sessizce devre dışı bırakmasın. Gerçek child tool yoksa sahte delegate oluşturma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.02** — Researcher/explorer, builder, tester, reviewer/verifier, synthesizer ve curator rollerini bütçe/permission/identity/result envelope ile yönet. Ana context'e tüm source veya bütün alt ajan konuşmaları taşınmasın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.03** — Paralel salt-okunur araştırma mümkün; aynı writable kaynağa tek builder. Verifier gerçek farklı execution'a ve acceptance subject'ine bağlı olsun; bir modelin başka başlıkla verdiği onay bağımsız sayılmasın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.04** — Model ID/provider prefix/catalog revision gerçek config'ten çözülsün. Quality, tools, structured output, context, latency, failure ve cost sinyallerini ayrı ölç; bilinmeyen kotayı yüzde uydurarak doldurma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.05** — Canlı benchmark için hedef/fixture/repetition/call/token/maliyet bütçesi göster ve yetki al. Mock pipeline başarısını üretim modeli qualification'ına çevirmeden, veri/model/host snapshot'ını bağla.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-08.06** — Araştırma tam soru kapsamını sabit sayıda chunk'a zorlamadan budget ve evidence-gap ile yönetilsin. Kaynak/citation doğrulaması, çelişki, partial ve yanıt üretimini ayrı raporla.
 
 **Üretilen sözleşme/çıktı:** Versioned `AgentTaskEnvelope/AgentResultEnvelope/ModelQualification` mevcut tiplerden türetilir; öneri `tests/e2e/test_host_neutral_research.py`, `tests/security/test_independent_verifier_subject.py`.
 
@@ -1847,12 +1983,12 @@ Gercek native tool bridge kurulum/enforcement ve client kabulleri acik;
 
 **İncelenecek/değişecek konumlar:** `unit_test_intent.py`, `unit_test_plan.py`, `unit_test_runtime.py`, `unit_test_measurement.py`, `unit_test_loop.py`, `unit_test_plateau.py`, `unit_test_ledger.py` ve mevcut Maven/JaCoCo/native helper adapter'ları.
 
-- [ ] **WP-09.01** — Hedef .java, Maven reactor/modül, package/class ve var olan başarılı testleri çöz. Kullanıcıdan IDE coverage veya teknik digest istemeden gerçek baseline ölç.
-- [ ] **WP-09.02** — Analiz→anlamlı test senaryosu→test yazımı→compile/test→taze coverage→bağımsız kalite doğrulama döngüsünü bütçeli ve kalıcı yap. Line/branch ile per-file/aggregate hedeflerini ayır.
-- [ ] **WP-09.03** — Varsayılan test-only çalışmada production kaynak, build/pom ayarı, coverage exclusion, mevcut başarılı test silme veya API'yi public yapma yok. Reflection/private-only ve assertionsız/duplicate test yasak.
-- [ ] **WP-09.04** — Regresyon, exception, boundary, state/side-effect, tarih, precision/rounding ve bağımlılık hatası ihtiyacını gerçek koddan çıkar. Bir testin yüksek coverage'ını davranış doğruluğu sayma.
-- [ ] **WP-09.05** — Fresh Surefire/JaCoCo exec/XML/HTML, test tree/source/toolchain fingerprint ve gerçek exit status ile sonucu bağla. Test yok/failed/stale/wrong-module durumları coverage success değildir.
-- [ ] **WP-09.06** — Plateau'da son doğrulanmış kazancı koru, erişilemeyen branch/line ve nedenleri göster; hedef altını başarı sayma. Refactoring ayrı iş/onaydır. Kesintide görev sıfırlanmasın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.01** — Hedef .java, Maven reactor/modül, package/class ve var olan başarılı testleri çöz. Kullanıcıdan IDE coverage veya teknik digest istemeden gerçek baseline ölç.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.02** — Analiz→anlamlı test senaryosu→test yazımı→compile/test→taze coverage→bağımsız kalite doğrulama döngüsünü bütçeli ve kalıcı yap. Line/branch ile per-file/aggregate hedeflerini ayır.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.03** — Varsayılan test-only çalışmada production kaynak, build/pom ayarı, coverage exclusion, mevcut başarılı test silme veya API'yi public yapma yok. Reflection/private-only ve assertionsız/duplicate test yasak.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.04** — Regresyon, exception, boundary, state/side-effect, tarih, precision/rounding ve bağımlılık hatası ihtiyacını gerçek koddan çıkar. Bir testin yüksek coverage'ını davranış doğruluğu sayma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.05** — Fresh Surefire/JaCoCo exec/XML/HTML, test tree/source/toolchain fingerprint ve gerçek exit status ile sonucu bağla. Test yok/failed/stale/wrong-module durumları coverage success değildir.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-09.06** — Plateau'da son doğrulanmış kazancı koru, erişilemeyen branch/line ve nedenleri göster; hedef altını başarı sayma. Refactoring ayrı iş/onaydır. Kesintide görev sıfırlanmasın.
 
 **Üretilen sözleşme/çıktı:** Mevcut request/attempt/receipt/terminal ledger; insan okunur rapor + JSON + raw JaCoCo/log/diff/checkpoint referansları. Öneri `tests/e2e/test_natural_language_test_engineering.py`.
 
@@ -1912,9 +2048,9 @@ tool-denial enforcement, credential/provisioning ve bagimsiz verifier kabuludur;
 
 **İncelenecek/değişecek konumlar:** `memory_*`, `skill_packages.py`, `skill_runtime.py`, `experience_skill_bridge.py`, `evolution_*`, `research_campaign_runtime.py`, radar/tournament/measured-loop katmanları ve ilgili SQLite ledger'ları.
 
-- [ ] **WP-10.01** — Kayıt türlerini karar/deneyim/başarısızlık/ders/skill olarak ayır. Provenance, scope, freshness, superseded, conflict ve yetkili düzeltme/arşivleme yollarını doğal dile bağla.
-- [ ] **WP-10.02** — Doğrulanmış kök nedenden lesson candidate üret; aynı evidence'ı iki bağımsız gözlem sayma. Memory'yi kullanıcı talimatı veya execution authority'si gibi uygulama.
-- [ ] **WP-10.03** — Skill adayını değerlendir, independent review, sürüm, active pointer, dağıtım, gerçek invocation, deprecation ve rollback ile tamamla. Kaynak paket/projection drift'i okunabilir raporlansın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-10.01** — Kayıt türlerini karar/deneyim/başarısızlık/ders/skill olarak ayır. Provenance, scope, freshness, superseded, conflict ve yetkili düzeltme/arşivleme yollarını doğal dile bağla.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-10.02** — Doğrulanmış kök nedenden lesson candidate üret; aynı evidence'ı iki bağımsız gözlem sayma. Memory'yi kullanıcı talimatı veya execution authority'si gibi uygulama.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-10.03** — Skill adayını değerlendir, independent review, sürüm, active pointer, dağıtım, gerçek invocation, deprecation ve rollback ile tamamla. Kaynak paket/projection drift'i okunabilir raporlansın.
 
   16 Ekim 2026 receipt consumption dilimi: mevcut exact terminal evaluator/verifier/reviewer
   kaniti scoped evaluation-record/review-record CLI ile ayri canonical recording claim ve
@@ -2020,7 +2156,7 @@ tool-denial enforcement, credential/provisioning ve bagimsiz verifier kabuludur;
   Regresyonlar CALISTIRILMADI. Native kaynak zinciri eklendi; gercek host,
   passing full kalite/preference/provenance ve genel kabul kapilari aciktir.
 - [x] **WP-10.04** — Projede ve Zekam'da iyileştirme fikirleri üret; impact/cost/risk/kanıt ve benzer aday dedup bilgisi olsun. Öneriden Work'a geçiş açık scope/approval bağını korusun.
-- [ ] **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-10.05** — Radar/tournament için gerçek kaynak/alternatif, objective/fixture/baseline ve bütçe/no-progress stop kur. Öz değişikliği otomatik kendi kendine onaylatma; root instructions/security/schema/retention kritik değişiklikler ayrı karar gerektirir.
 
   16 Ekim 2026 native usage: exact desteklenen OpenCode v2.0.29 step_finish
   token component ve host USD estimate schema'si arastirildi. Optional usage
@@ -2063,7 +2199,7 @@ tool-denial enforcement, credential/provisioning ve bagimsiz verifier kabuludur;
   sonrasinda finally-close uygular; read ve write dosya handle'i GC'ye birakilmaz.
   Retained gercek connection regresyon kaynaklari hazir, CALISTIRILMADI. Schema
   veya migration version degismedi; genel kabul kapilari aciktir.
-- [ ] **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-10.06** — Evolution shadow/canary/activation/rollback ve disabled/paused/grant-drift durumlarını gerçek state ile raporla. Model veya ağ yoksa hayali öğrenme sonucu üretme.
 
 **Üretilen sözleşme/çıktı:** Mevcut candidate/eval/activation/invocation/evolution ledger; öneri `tests/e2e/test_natural_language_memory_skill.py`, `tests/integration/test_idea_to_verified_work.py`.
 
@@ -2156,10 +2292,10 @@ Gercek native kabul ve genel WP kapanisi aciktir; runbook ayrintilari korunur.
 
 **İncelenecek/değişecek konumlar:** `infrastructure/local_backup.py`, `local_analytics.py`, CAS/store/file-plane, scheduler/worker/evolve/doctor ve native scheduler adapter'ları.
 
-- [ ] **WP-11.01** — Kullanıcı “ne yaptın, ne kaldı, hangi model ne kadar sürdü?” dediğinde kanonik events/receipt/usage'dan rapor üret. Ölçülmeyen maliyet bilinmiyor; yüzde/tutar uydurma.
-- [ ] **WP-11.02** — Scheduler varsayılanını klasör açmakla etkinleştirme. Onaylı standing grant varsa kapsam/bütçe/expiry/pause/disable/recovery ve exact native kayıt readback'ini uygula.
-- [ ] **WP-11.03** — Backup'ı SQLite online snapshot + CAS/manifest ile al; çalışan DB'yi gelişigüzel kopyalama. Restore yalnız yeni/hedefi onaylı alanda, logical digest ve dosya sahipliği doğrulamasıyla yapılır.
-- [ ] **WP-11.04** — Derived index/analytics'in yeniden kurulabileceğini, operational state'in oralardan türetilmediğini göster. Missing/corrupt CAS, disk full, outbox backlog ve cancelled recovery'de güvenli davranışı test et.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-11.01** — Kullanıcı “ne yaptın, ne kaldı, hangi model ne kadar sürdü?” dediğinde kanonik events/receipt/usage'dan rapor üret. Ölçülmeyen maliyet bilinmiyor; yüzde/tutar uydurma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-11.02** — Scheduler varsayılanını klasör açmakla etkinleştirme. Onaylı standing grant varsa kapsam/bütçe/expiry/pause/disable/recovery ve exact native kayıt readback'ini uygula.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-11.03** — Backup'ı SQLite online snapshot + CAS/manifest ile al; çalışan DB'yi gelişigüzel kopyalama. Restore yalnız yeni/hedefi onaylı alanda, logical digest ve dosya sahipliği doğrulamasıyla yapılır.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-11.04** — Derived index/analytics'in yeniden kurulabileceğini, operational state'in oralardan türetilmediğini göster. Missing/corrupt CAS, disk full, outbox backlog ve cancelled recovery'de güvenli davranışı test et.
 - [x] **WP-11.05** — Salt “core healthy” sonucunu bütün model/CLI/feature'lar hazır diye sunma. Rapor her CAP'nin gerçek eksik kurulum/kanıt/izin ayrımını taşısın.
 
 **Üretilen sözleşme/çıktı:** Runtime health + usage + backup/restore evidence; öneri `tests/e2e/test_natural_language_operations.py` ve var olan restore/fault testlerinin genişletilmesi.
@@ -2208,10 +2344,10 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
 
 **İncelenecek/değişecek konumlar:** Mevcut `tests/architecture`, `tests/unit`, `tests/integration`, `tests/e2e`, `tests/security`, concurrency testleri; `pyproject.toml`, paket validator/reachability; mimari paket katalog/üreticileri.
 
-- [ ] **WP-12.01** — Temiz wheel-only kurulumda gerçek public komut/MCP/skill yollarını doğrula. Checkout'ta kalan ama dağıtıma girmeyen modülü hazır diye raporlama. Tüm testleri son değişikliklerden sonra tekrar çalıştır.
-- [ ] **WP-12.02** — Bölüm 10 doğal dil kabul senaryolarını gerçek desteklenen istemci/model/OS matrisinde çalıştır; beklenen tool çağrısı, project/effect/citation/response'u ölç. Fixture ve live sonuçlar ayrı kalsın.
-- [ ] **WP-12.03** — Baseline'a göre end-to-end kalite, cold/unchanged/delta index ve query tail latency raporunu üret. İyileşmeyen zorunlu hedefi gizleme veya ölçüm sonrası eşiği değiştirip başarı yapma.
-- [ ] **WP-12.04** — CAP, arayüz, tablo/migration, test, açık karar ve kaynak hash'lerini tek kanonik mimari girdide güncelle; Markdown/HTML/ZIP/diyagram yerel çıktılarının link/hash/ID tutarlılığını doğrula.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.01** — Temiz wheel-only kurulumda gerçek public komut/MCP/skill yollarını doğrula. Checkout'ta kalan ama dağıtıma girmeyen modülü hazır diye raporlama. Tüm testleri son değişikliklerden sonra tekrar çalıştır.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.02** — Bölüm 10 doğal dil kabul senaryolarını gerçek desteklenen istemci/model/OS matrisinde çalıştır; beklenen tool çağrısı, project/effect/citation/response'u ölç. Fixture ve live sonuçlar ayrı kalsın.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.03** — Baseline'a göre end-to-end kalite, cold/unchanged/delta index ve query tail latency raporunu üret. İyileşmeyen zorunlu hedefi gizleme veya ölçüm sonrası eşiği değiştirip başarı yapma.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.04** — CAP, arayüz, tablo/migration, test, açık karar ve kaynak hash'lerini tek kanonik mimari girdide güncelle; Markdown/HTML/ZIP/diyagram yerel çıktılarının link/hash/ID tutarlılığını doğrula.
 
   16 Ekim 2026 kaynak mimarisi: bounded tracked working-tree catalog ureticisi
   guncel REQ/CAP/WP/karar kapilarini, AST interface/literal table/test declaration
@@ -2229,13 +2365,13 @@ readback regresyon kodu hazir, CALISTIRILMADI; gercek restore kabul kapisi acik.
   okunur kontrol runtime/test/acceptance basarisi uretmez. Regresyon kaynaklari
   hazir, test/generator/verify CALISTIRILMADI; WP ve final kabul aciktir.
 
-- [ ] **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.05** — Miro/GitBook için yalnız yerel export/plan oluştur; gerçek yayın ayrı onay. Araç/kaynak kullanım günlüğünü, hangi kontrolün yapılmadığını ve version drift yöntemini koru.
 
   16 Ekim 2026 yerel hedef planlari: Mimari katalogdan `miro-plan.json` ve
   `gitbook-plan.json` ayni source/catalog digest bagiyla uretilir. Planlar remote
   cagrisi, credential veya yayin yapmaz; kullanilmayan kontrolleri ve drift'te
   yeniden uretim kuralini tasir. Gercek import/yayin ve kabul testi aciktir.
-- [ ] **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
+- (Onceki kapsam; guncel karar icin 0.3) **WP-12.06** — REQ→CAP→WP→test→run→evidence→commit zincirini tamamla. Kullanıcı senaryosu açıkken ürün tamamlandı deme. Son tam suite, bağımsız review ve release-scope kabul olmadan final Work kapanışı üretme.
 
   16 Ekim 2026 kaynak traceability: current WP Girdi/kapsam REQ/CAP kimlikleri
   ve explicit test path referanslari task satirina, tracked source hash'ine ve
@@ -3997,7 +4133,7 @@ edebilmeli. Tüm mimari paketi ve geçmişin tamamını her seferinde context'e 
 Yeni HEAD veya dosya drift'i varsa yalnız etkilenen karar/kanıtı tekrar doğrula.
 Bitmiş research veya test, model değişti diye sebepsiz yere baştan çalıştırılmaz.
 
-## 12. Deliverable Ve Gerçek Tamamlanma Kapıları
+## 12. Onceki Deliverable Ve Kabul Kapilari — Guncel Kapsam 0.3
 
 ### 12.1 Araştırma Sonu — GATE-R
 
@@ -4013,24 +4149,24 @@ Bitmiş research veya test, model değişti diye sebepsiz yere baştan çalışt
 
 ### 12.2 Uygulama Sonu — GATE-I
 
-- [ ] Uygulama onayı ve exact scope/plan gerçek kayıtta var; WP-02..12 kodla tamam.
-- [ ] Onaylı tüm partial/scaffold kapsamı çalışan dikey akışa dönüştü veya açık kabul
+- (Onceki kapsam; guncel karar icin 0.3) Uygulama onayı ve exact scope/plan gerçek kayıtta var; WP-02..12 kodla tamam.
+- (Onceki kapsam; guncel karar icin 0.3) Onaylı tüm partial/scaffold kapsamı çalışan dikey akışa dönüştü veya açık kabul
   kararıyla eşdeğer yola bağlandı; yalnız etiket değişmedi.
-- [ ] Yeni native startup/shell/push politikası gerçek host capability'siyle doğrulandı.
-- [ ] Şema/claim/receipt/context/cache/projection kuralları testle korunuyor.
-- [ ] Kullanıcı dosyaları, başarılı eski testler ve önceki aktif işler kaybolmadı.
-- [ ] Son kod değişikliğinden sonra zorunlu regresyon, package/reachability ve güvenlik
+- (Onceki kapsam; guncel karar icin 0.3) Yeni native startup/shell/push politikası gerçek host capability'siyle doğrulandı.
+- (Onceki kapsam; guncel karar icin 0.3) Şema/claim/receipt/context/cache/projection kuralları testle korunuyor.
+- (Onceki kapsam; guncel karar icin 0.3) Kullanıcı dosyaları, başarılı eski testler ve önceki aktif işler kaybolmadı.
+- (Onceki kapsam; guncel karar icin 0.3) Son kod değişikliğinden sonra zorunlu regresyon, package/reachability ve güvenlik
   kapıları tekrar çalıştı; kaynak/test denetimi güncel subject'e bağlı.
 
 ### 12.3 Kullanıcı Ve Release Kabulü — GATE-U
 
-- [ ] Doğal dil senaryoları ve varyantları, kabul edilen gerçek client/model/OS kapsamıyla geçti.
-- [ ] Cold/delta/unchanged/query performansı ve retrieval/citation/graph kalite hedefleri geçti.
-- [ ] Gerçek yerel test fixture'ında Maven/JaCoCo ve test-only koruma sınırı geçti.
-- [ ] Kesinti→başka model/client→devam, backup→restore ve rollback gerçek kanıtla geçti.
-- [ ] Canlı kaynak/model gerektiren kritik testler yetkili ortamda tamam; eksikler gizlenmedi.
-- [ ] Mimari tek kaynak güncellendi; üretim geçmişi/araç kullanımı/kimlikler korunuyor.
-- [ ] Final raporu `completed`, `blocked`, `not-run`, bilinen risk ve kullanıcı kararlarını ayırıyor.
+- (Onceki kapsam; guncel karar icin 0.3) Doğal dil senaryoları ve varyantları, kabul edilen gerçek client/model/OS kapsamıyla geçti.
+- (Onceki kapsam; guncel karar icin 0.3) Cold/delta/unchanged/query performansı ve retrieval/citation/graph kalite hedefleri geçti.
+- (Onceki kapsam; guncel karar icin 0.3) Gerçek yerel test fixture'ında Maven/JaCoCo ve test-only koruma sınırı geçti.
+- (Onceki kapsam; guncel karar icin 0.3) Kesinti→başka model/client→devam, backup→restore ve rollback gerçek kanıtla geçti.
+- (Onceki kapsam; guncel karar icin 0.3) Canlı kaynak/model gerektiren kritik testler yetkili ortamda tamam; eksikler gizlenmedi.
+- (Onceki kapsam; guncel karar icin 0.3) Mimari tek kaynak güncellendi; üretim geçmişi/araç kullanımı/kimlikler korunuyor.
+- (Onceki kapsam; guncel karar icin 0.3) Final raporu `completed`, `blocked`, `not-run`, bilinen risk ve kullanıcı kararlarını ayırıyor.
 
 Zorunlu hedefi karşılamayan durum `partial/blocked`, başarılı uygun kapsam ise
 `verified-for-tested-scope` olarak raporlanır. Tüm kapsam tamamlanmadıysa **“iş bitti”**
@@ -4159,6 +4295,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.1 | 2026-10-17 | Aktif MacOS/CI/benchmark kapsam drift kapısı genişletildi; testler final aşamaya bırakıldı |
 | 2.2 | 2026-10-17 | Kullanıcı checkpoint'i: son HEAD, kapsam denetimleri ve embedding kota düzeltmesi kayda alındı; geliştirme duraklatıldı |
 | 2.3 | 2026-10-17 | MacOS'a bagli dokuz kaynak modul checkout'tan kaldirildi; wheel, manifest ve runtime audit hizalandi; pytest final asamaya birakildi |
+| 2.4 | 2026-10-18 | Kullanici karariyla 59 eski acik satir tek 12 adimlik listeye birlestirildi; yerel kullanici veri hedefi belirlendi; gereksiz orkestrasyon, benchmark, signed publication, evolution ve yayin kapilari kapsamdan cikarildi; tamamlandi sayilmadi |
 
 ### 15.3 Şimdiki Gerçek Durum
 

@@ -1,3 +1,17 @@
+# Guncel devir — 18 Ekim 2026 kapsam sadelestirme
+
+Tek guncel yapilacaklar listesi `AKTIF_GOREV.md` bolum 0.3, Y-01..12'dir.
+Onceki 59 acik satir tarihsel referansa donustu; kapanmis/basarili sayilmadi.
+Yerel veri hedefi `%USERPROFILE%\.zekam`, kaynak ayni gercek repository kokudur.
+Bu revizyonda kurulum, test veya gelistirme baslatilmadi; hedef duraklamasi korunur.
+Kullanici devam dediginde Y-01'den basla; testleri Y-12 final asamasinda calistir.
+Her anlamli gelistirme sonunda Turkce ASCII commit + origin/main push yap.
+Korunan untracked RAG dosyalari ve Java target dizinine bu plan degisikliginde dokunulmadi.
+Eski devir notlarindaki sonraki gorev/HEAD talimatlari tarihsel referanstir; gercek
+HEAD ve operational store yeni oturumda okunur. Sohbetten Work/lease yetkisi turetme.
+
+---
+
 # Model devir metni - 16 Ekim 2026 17:45 checkpoint
 
 ## Guncel devam notu
