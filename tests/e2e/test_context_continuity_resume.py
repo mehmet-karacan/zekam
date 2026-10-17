@@ -123,7 +123,9 @@ def test_codex_claude_opencode_resume_without_transcript_or_inherited_authority(
                 client_id=client_id,
                 executable=str(FIXTURE),
                 version="test-v1",
-                capabilities=frozenset({"chat", "code", "structured-result", "cancellation"}),
+                capabilities=frozenset(
+                    {"chat", "code", "structured-result", "cancellation", "child-dispatch"}
+                ),
                 permission_manifest=ClientPermissionManifest(
                     f"{client_id}-test",
                     ("filesystem.read", "process.run"),

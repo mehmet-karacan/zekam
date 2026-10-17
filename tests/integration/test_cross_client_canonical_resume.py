@@ -101,7 +101,9 @@ def _descriptor(client_id: str, kind: ClientKind) -> ClientDescriptor:
         kind=kind,
         client_id=client_id,
         executable="fixture-client",
-        capabilities=frozenset({"chat", "code", "structured-result", "cancellation"}),
+        capabilities=frozenset(
+            {"chat", "code", "structured-result", "cancellation", "child-dispatch"}
+        ),
         version="fixture-v1",
         permission_manifest=ClientPermissionManifest(
             f"{client_id}-permissions",
