@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.7` — Y-03 kaynakli yanit ve kontrollu erisilemezlik
+**Belge sürümü:** `2.8` — Y-04 guvenli kaynak okumasi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -142,7 +142,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   calissin; yeni model router/ajan platformu ekleme. Cikis: istek dogru projeye gider,
   kaynak/citation veya eksik bilgi acikca doner. Korunan untracked RAG dosyalari sahipligi
   ve mevcut degisiklikleri incelenmeden benimsenmez veya stage edilmez.
-- [ ] **Y-04 — Guvenli bilgi alimi:** `source_discovery.py`, `source_security.py`,
+- [x] **Y-04 — Guvenli bilgi alimi:** `source_discovery.py`, `source_security.py`,
   `knowledge_parsers.py`, `knowledge/document_parsers.py` ve mevcut code graph yolunda
   metadata/icerik ayrimi, kaynak/revision/rename kimligi, desteklenen kod/belge locator'lari,
   secret korumasi ve bounded ZIP/XML davranisini tamamla. Desteksiz format icin parser
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-04 guvenli bilgi alimi ve parser baglarini tamamla. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-05 yerel RAG ve indeks devami. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -316,6 +316,20 @@ olarak uretildi. Bu isaret gelistirme teslimidir; runtime/native semantik kabul,
 independent review veya Work kapanisi degildir; Y-12 final kapisi aciktir.
 Geri donus: bu kaynak/belge commitini yeni commit ile geri al; kullanici DB,
 model ve indeks verisine dokunma. Sonraki gelistirme Y-04'tur.
+
+### 0.7 Y-04 gelistirme kaydi — 18 Ekim 2026
+
+Metadata/icerik eligibility, bounded traversal/checkpoint, local-only config key
+parser, kaynak/revision kimligi, format router ve DOCX ZIP/XML sinirlari mevcut
+kaynakta incelendi; desteklenmeyen formata yeni parser uydurulmadi. Kaynak okuma
+strict UTF-8 oldu; gecersiz kodlama artik replacement karakterlerle metin sayilmaz,
+metadata ve byte kimligiyle non-text kalir. Dosya lstat/fstat kimligi, boyut,
+mtime/ctime acilis/okuma/sonrasinda eslestirilir; ayni boyutlu drift unreadable ve
+partial envanter olarak kalir. Kaynak agacina yazma veya embedding baslatilmaz.
+Iki regresyon kaynagi hazirlandi; test kosusu yapilmadi. Yalniz py_compile ve
+diff kontrolu yapildi; parser/secret/rename ve gercek kaynak kabul testleri Y-12'de.
+Y-04 checkbox gelistirme teslimidir, final test veya Work kapanisi degildir.
+Geri donus: kaynak/belge commitini geri al; kullanici verisini degistirme.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4393,6 +4407,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.5 | 2026-10-18 | Y-01: varsayilan kullanici home atomik kuruldu, yerel source-linked CLI olusturuldu, mevcut E5 dosyalari indirmesiz SHA256 kontrolunden gecti; testler finalde |
 | 2.6 | 2026-10-18 | Y-02 gelistirmesi: tek ortak girise mevcut yerel CLI yolu eklendi; kanonik ince giris generatoru korundu; native oturum kabul kosulari final Y-12de |
 | 2.7 | 2026-10-18 | Y-03: duz metinde proje/locator kaynaklari, citation ve kapsam tutarliligi, bos/buyuk aciklama reddi ve sanitize erisilemezlik baglandi; regresyon kodu hazir, testler Y-12de |
+| 2.8 | 2026-10-18 | Y-04: strict UTF-8 ve descriptor/path kimlik kontrolu ile kaynak drift korumasi; regresyonlar hazir, kosular Y-12de |
 
 ### 15.3 Şimdiki Gerçek Durum
 

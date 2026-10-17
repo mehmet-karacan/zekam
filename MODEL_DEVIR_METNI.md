@@ -1,3 +1,10 @@
+# Guncel devir — Y-04 gelistirmesi
+
+Y-01..04 gelistirme teslimleri kayitli. Siradaki Y-05. Tek liste AKTIF_GOREV.md
+0.3, son kayit 0.7. Testler Y-12de; korunan untracked girdileri stage etme.
+
+---
+
 # Guncel devir — 18 Ekim 2026 Y-03 kaynakli yanit
 
 Y-01 kuruldu; Y-02 ve Y-03 gelistirme teslimleri kaydedildi. Siradaki is Y-04'tur.

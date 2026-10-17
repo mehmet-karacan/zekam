@@ -1179,3 +1179,37 @@ def test_discovery_budget_interrupts_before_full_tree_read(tmp_path: Path, stop_
     with pytest.raises(ProviderCallCancelled, match="during discovery"):
         discover(tmp_path, check_budget=check_budget)
     assert checks == stop_after
+
+
+def test_non_utf8_source_is_not_rewritten_into_text(tmp_path: Path) -> None:
+    (tmp_path / "unknown.txt").write_bytes(b"plain prefix \xff suffix")
+    report = discover(tmp_path)
+    item = next(item for item in report.files if item.relative_path == "unknown.txt")
+    assert item.is_text is False
+    assert item.content_digest == DIGEST_PREFIX + hashlib.sha256(b"plain prefix \xff suffix").hexdigest()
+    assert next(item for item in report.inventory if item.relative_path == "unknown.txt").is_text is False
+
+
+def test_same_size_source_change_during_open_is_not_admitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "change.txt"
+    target.write_bytes(b"alpha")
+    before = target.stat()
+    original_open = Path.open
+    replaced = False
+
+    def replace_before_open(path: Path, *args: Any, **kwargs: Any) -> Any:
+        nonlocal replaced
+        if path == target and not replaced:
+            replaced = True
+            with original_open(target, "wb") as handle:
+                handle.write(b"omega")
+            os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replace_before_open)
+    report = discover(tmp_path)
+    assert not any(item.relative_path == "change.txt" for item in report.files)
+    assert any(item.relative_path == "change.txt" and item.reason is SkipReason.UNREADABLE for item in report.skipped)
+    assert report.inventory_status is InventoryStatus.PARTIAL

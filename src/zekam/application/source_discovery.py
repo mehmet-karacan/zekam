@@ -863,7 +863,23 @@ def _process_file(
     """
     hasher = hashlib.sha256()
     payload = bytearray()
+    before = resolved.lstat()
+    if (
+        not stat_module.S_ISREG(before.st_mode)
+        or _is_symlink_or_junction(resolved)
+        or before.st_size != size
+    ):
+        raise OSError("Kaynak dosya okuma oncesinde degisti")
+
+    def identity(info: os.stat_result) -> tuple[int, ...]:
+        return (
+            info.st_dev, info.st_ino, info.st_mode, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns,
+        )
+
     with resolved.open("rb") as handle:
+        if identity(os.fstat(handle.fileno())) != identity(before):
+            raise OSError("Kaynak dosya acilirken degisti")
         while True:
             chunk = handle.read(min(_CHUNK_SIZE, size + 1 - len(payload)))
             if not chunk:
@@ -872,20 +888,29 @@ def _process_file(
             if len(payload) > size or len(payload) > policy.max_file_bytes:
                 raise OSError("Kaynak dosya okuma sirasinda buyudu")
             hasher.update(chunk)
+        if identity(os.fstat(handle.fileno())) != identity(before):
+            raise OSError("Kaynak dosya okuma sirasinda degisti")
+    if identity(resolved.lstat()) != identity(before):
+        raise OSError("Kaynak dosya okuma sonrasinda degisti")
     if len(payload) != size:
         raise OSError("Kaynak dosya okuma sirasinda degisti")
     probe = bytes(payload[:BINARY_PROBE_BYTES])
     digest = DIGEST_PREFIX + hasher.hexdigest()
 
-    if _is_binary(probe):
+    text: str | None = None
+    if not _is_binary(probe):
+        try:
+            text = payload.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            # Preserve metadata and byte identity without inventing UTF-8 text.
+            pass
+    if text is None:
         discovered = DiscoveredFile(
             relative_path=relative, size_bytes=size, content_digest=digest, is_text=False
         )
         files.append(discovered)
         _count_extension(extensions, relative)
         return size, discovered
-
-    text = payload.decode("utf-8", errors="replace")
 
     if policy.scan_secrets:
         found = scan_text(text, relative_path=relative)
