@@ -11,8 +11,10 @@ measurement bu yoldan bagimsizdir; OpenCode/model/provider gerektirmez.
 3. Exact builder/verifier provider/model ve remote/network onayi gerekir. Default provider
    secilmez. Kisitli profilde custom global config alinmaz; istege bagli reviewed
    provider projection kullanilir. Local istek remote cagrisiymis gibi calismaz.
-4. Direct executable `--version` probe'u yalniz 2.0.29 protokolunu kabul eder.
-   Baska surum provider cagrisi baslatmadan gorunur failure olur. Probe ve
+4. Direct executable `--version` probe'u yalniz incelenmis 2.0.29 ve 2.0.30
+   protokol surumlerini kabul eder. Eski fixture ciktisi olan `2.0.29` ile
+   guncel binary ciktisi olan `opencode v2.0.30` exact allow-list'e girer;
+   baska surum provider cagrisi baslatmadan gorunur failure olur. Probe ve
    prompt hazirligi assignment timeout butcesinden duser.
 5. `run --standalone --format json --agent zekam-test-batch --model <exact>`
    bounded stdin kullanir. Prompt komut satirina eklenmez. `--auto`, session

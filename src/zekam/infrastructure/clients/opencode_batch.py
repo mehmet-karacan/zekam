@@ -50,7 +50,13 @@ from zekam.infrastructure.process import runner
 MAX_CONTEXT_BYTES = 200_000
 MAX_INSTRUCTION_BYTES = 16_384
 MAX_RESULT_BYTES = 1_000_000
+# Keep the oldest reviewed protocol as the canonical descriptor version.  The
+# Windows binary currently installed on the target host reports the same V2
+# run protocol as 2.0.30, while older fixtures emit the bare 2.0.29 string.
+# Both versions remain exact allow-list entries; unknown versions still fail
+# closed before a provider process can start.
 SUPPORTED_VERSION = "2.0.29"
+SUPPORTED_VERSIONS = frozenset({SUPPORTED_VERSION, "2.0.30"})
 _AGENT = "zekam-test-batch"
 
 
@@ -74,6 +80,18 @@ def _json(raw: str) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise ValidationFailed("OpenCode batch JSON object olmali")
     return document
+
+
+def _parse_supported_version(raw: bytes) -> str | None:
+    """Parse an exact OpenCode V2 version line without loosening the gate."""
+
+    try:
+        text = raw.decode("ascii", errors="strict").strip()
+    except UnicodeDecodeError:
+        return None
+    if text.startswith("opencode v"):
+        text = text[len("opencode v") :]
+    return text if text in SUPPORTED_VERSIONS else None
 
 
 def _identifier(value: Any) -> str:
@@ -450,7 +468,7 @@ class OpenCodeBatchAdapter(SubprocessClientAdapter):
             )
             if version.result.timed_out:
                 return result("timeout", version.result.exit_code, timeout=True)
-            if not version.result.succeeded or version.stdout.strip() != SUPPORTED_VERSION.encode():
+            if not version.result.succeeded or _parse_supported_version(version.stdout) is None:
                 return result("unsupported-opencode-version", version.result.exit_code)
             remaining = int(deadline - time.monotonic())
             if remaining < 1:

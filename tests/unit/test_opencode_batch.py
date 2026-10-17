@@ -200,6 +200,21 @@ def test_unknown_version_never_starts_provider(tmp_path, monkeypatch):
     assert len(calls) == 1 and calls[0][-1] == "--version"
 
 
+@pytest.mark.parametrize("raw", [b"2.0.29\n", b"opencode v2.0.29\n", b"opencode v2.0.30\n"])
+def test_reviewed_opencode_versions_accept_native_output_prefix(tmp_path, monkeypatch, raw):
+    adapter, request, permit = _setup(tmp_path)
+    monkeypatch.setattr(subject, "resolve_opencode_executable", lambda value: value)
+
+    def run(spec, **kwargs):
+        if spec.argv[-1] == "--version":
+            return _output(spec, raw)
+        return _output(spec, _stream(_events()))
+
+    monkeypatch.setattr(subject.runner, "run", run)
+    result = adapter.dispatch(request, cwd=tmp_path, permit=permit)
+    assert result.is_success
+
+
 def test_no_network_authorization_starts_no_process(tmp_path, monkeypatch):
     from dataclasses import replace
 

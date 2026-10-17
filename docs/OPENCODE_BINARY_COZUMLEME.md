@@ -26,6 +26,26 @@ disinda ayrik, daha gevsek bir arama yapilmaz.
 `--model`, `--agent` arayuzunu gosterdi. Bu okuma model cagrisi degildir.
 Resolver bir surum/capability veya tool-denial guvenlik kaniti uretmez.
 
+## 2.0.29 -> 2.0.30 uyumluluk karari
+
+17 Ekim 2026 resmi GitHub tag kaynaklari salt okunur olarak karsilastirildi.
+`packages/cli/src/run/{index,noninteractive,run,ui,v1}.ts` dosyalarinin her biri
+2.0.29 ve 2.0.30 tag'lerinde ayni SHA-256 byte kimligine sahipti. Ayrica
+`packages/core/src/permission.ts` ve `packages/core/src/session/session.ts`
+ayniydi. `packages/core/src/config.ts` farki yalniz adapter tarafindan
+kullanilmayan opsiyonel `claude` ayarinin eklenmesiydi. Kaynaklar:
+
+- https://github.com/anomalyco/opencode/tree/v2.0.29/packages/cli/src/run
+- https://github.com/anomalyco/opencode/tree/v2.0.30/packages/cli/src/run
+- https://github.com/anomalyco/opencode/blob/v2.0.29/packages/core/src/config.ts
+- https://github.com/anomalyco/opencode/blob/v2.0.30/packages/core/src/config.ts
+
+Bu dar protokol kanitina dayanarak `OpenCodeBatchAdapter` exact allow-list'e
+2.0.30'u ekledi ve `opencode vX` binary cikti bicimini kabul ediyor; bilinmeyen
+surumler hala provider baslatmadan fail-closed kaliyor. Bu degisiklik native
+tool-denial, credential izolasyonu veya gercek provider/model kabul kaniti
+degildir; bunlar ayri canli kabul kapisi olarak acik tutulur.
+
 ## Acik native adapter baglantisi
 
 Genel `SubprocessClientAdapter` icin kullanilan assignment/digest flag'leri

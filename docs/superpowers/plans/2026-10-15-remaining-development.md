@@ -40,6 +40,15 @@
 
 ## Yurutme kaydi
 
+- 17 Ekim 2026 OpenCode 2.0.30 uyumlulugu: Host direct binary `opencode v2.0.30`
+  dondugu halde adapter eski `2.0.29` ciktisini exact bekliyordu. Resmi v2.0.29
+  ve v2.0.30 `packages/cli/src/run` dosyalari ile permission/session kaynaklari
+  ayni SHA-256 byte kimligini verdi; config farki adapter disi opsiyonel `claude`
+  alanidir. `OpenCodeBatchAdapter` exact 2.0.29/2.0.30 allow-list ve `opencode vX`
+  parser'iyle guncellendi; bilinmeyen surum provider baslatmadan reddedilir.
+  Test kaynagi eklendi, CALISTIRILMADI; native child/tool-denial ve provider kabul
+  kapilari hala ayri final kanitidir.
+
 - 17 Ekim 2026 WP-05.03 embedded generation batch siniri: `build_embedded_project_generation`
   artik canonical 4'lu local E5 batch, token/payload sinirlari, bounded transient retry,
   cancellation, toplam deadline ve provider-call quota'yi provider etkisi sonrasi
