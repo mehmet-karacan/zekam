@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.1` — Windows/Linux CI kapsam drift kapisi
+**Belge sürümü:** `2.2` — Checkpoint ve gelistirme duraklatma kaydi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -3922,6 +3922,21 @@ Bu kapi MacOS testinin, CI matrisinin veya benchmark suite'inin geri eklenmesini
 fail-closed yakalar; tarihsel arsiv metinleri ve archive-only kaynaklar bu aktif
 kapsam kanitina dahil degildir. Pytest calistirilmadi.
 
+### 10.121 17 Ekim 2026 checkpoint ve duraklatma
+
+Kullanici talebiyle gelistirme bu noktada duraklatildi. Son uzak HEAD
+`ea3f183fa706b36a2268034ef1834a858834f2b7` ve `origin/main` ile aynidir.
+Checkpoint'e kadar MacOS aktif test/CI/benchmark scope denetimi
+`passed=true`, `forbidden_test_count=0`, `forbidden_scope_file_count=0` ve
+`findings=[]` verdi; runtime reachability audit de `passed=true` verdi.
+Embedding batch akisi, minimum batch sayisi kota altindaysa provider etkisi
+baslamadan fail-closed reddedecek sekilde guncellendi ve push edildi.
+Pytest bu checkpoint'e kadar calistirilmadi; kullanici karari geregi final
+gelistirme adimina kadar calistirilmayacak. Devam komutu geldiginde kalan kaynak
+gelistirmeleri uygulanacak, her dilim Turkce ASCII commit/push ile kapatilacak ve
+testler yalniz tum gelistirmelerin sonunda tek final Windows/Linux suite'inde
+calistirilacak. Korunan untracked dosyalara dokunulmadi.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
@@ -4127,6 +4142,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.9 | 2026-10-17 | Son kaynak sonrası final suite `7989 passed, 1409 skipped, 3 warnings`; paket validator, runtime reachability ve temiz wheel readback'i güncellendi |
 | 2.0 | 2026-10-17 | MacOS kapsamı kaldırıldı; tek final suite sonucu ve Windows process/registry takip düzeltmeleri kayda alındı; temiz suite kanıtı tekrar çalıştırılmadan açık bırakıldı |
 | 2.1 | 2026-10-17 | Aktif MacOS/CI/benchmark kapsam drift kapısı genişletildi; testler final aşamaya bırakıldı |
+| 2.2 | 2026-10-17 | Kullanıcı checkpoint'i: son HEAD, kapsam denetimleri ve embedding kota düzeltmesi kayda alındı; geliştirme duraklatıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
