@@ -40,6 +40,21 @@
 
 ## Yurutme kaydi
 
+- 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
+  alindi; `git publication` alt komutlari canonical surface denetiminde artik
+  gorunur. Kaynak manifesti yenilendi; AST/diff kontrolleri yapildi, pytest
+  calistirilmadi. Commit: `c7872e3`.
+
+- 17 Ekim 2026 aktif gorev projection: `AKTIF_GOREV.md` degisikligi sonrasi
+  eski digest tasiyan generated YAML projection canonical contract ureticisiyle
+  yenilendi. Commit: `28056f7`.
+
+- 17 Ekim 2026 research/analytics sinirlari: research plan RAG source identity
+  alanlarini raw `KeyError` yerine bounded policy gate ile dogruluyor; bos,
+  yeni analytics source census'i `analytics-events-missing` olarak raporluyor.
+  AST/diff kontrolleri yapildi, pytest calistirilmadi. Commitler: `419dd03`,
+  `40d4029`.
+
 - 17 Ekim 2026 yerel E5 runtime guvenligi: kurulum manifesti artik sabitlenen
   yedi dosyanin tamamini source revision, boyut, SHA256 ve upstream SHA bagiyla
   yeniden okur; model agirligi beklenen SHA256 ile tekrar eslesir. Model yolu
