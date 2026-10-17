@@ -358,7 +358,7 @@ def test_malformed_persisted_locator_fails_closed(tmp_path: Path) -> None:
                 "stable-id",
             ),
         )
-        with pytest.raises(ValidationFailed, match="locator"):
+        with pytest.raises(ValidationFailed, match="satir baslangici"):
             index.views("akilli-kasa", ("stable-id",))
 
 
