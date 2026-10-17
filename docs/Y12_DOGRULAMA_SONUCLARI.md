@@ -84,6 +84,14 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
   Run2+run3b JUnit'lerinden tam biten dosyalarda 2270 case dogrulandi; kalan
   7092 case yeni declaration/sayi/source-hash kontrolunden eksiksiz gecti.
 
+- Run4: 2841 passed / 873 skipped / 1 failed. Strict UTF-8 discovery
+  bozuk metni is_text=false yaptigindan plan bunu encoding yerine unsupported
+  sayiyordu. Transient encoding_error metadata'si eklendi; desteklenen ama
+  decode edilemeyen dosya skipped_encoding sayilir, NUL/binary ayri kalir.
+  Bozuk icerik indekse alinmaz; normal dosyanin canonical body/digest'i degismez
+  (false flag serialize edilmez). Discovery + project plan tekrarinda
+  121 passed / 3 platform skip. Kalici schema veya kullanici verisi degismedi.
+
 ## Bagimsizlik ve kalan is
 
 `1739a5f..c4a1e5e` kaynak araligi ayri gpt-6-astra reviewer tarafindan incelendi.
@@ -133,3 +141,5 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `spawn-runner-fix-junit.xml` | `sha256:38881467f18e65089b6719c35299113639f6e80c75d8528fb14ea0919d53ce12` |
 | `test-continuation-plan-run4.json` | `sha256:5e9543b4045e824b03457852aca3f493fa6477380188ab9e435beafda3a0bace` |
 | `remaining-scope-check-run4.json` | `sha256:a690813dc5debc4b7fc497c04561ad4bc9111c7b1006320e61e84dc0b3240278` |
+| `junit-run4.xml` | `sha256:34b23a5033bea81591d815e809e14df7094808a652ae7e5ce12d33163ce5311b` |
+| `encoding-fix-junit.xml` | `sha256:c67213d2ead981717bc40c39c4010c1e1de6ff52edf0a67be73f55e5bafc4e34` |

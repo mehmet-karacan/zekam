@@ -741,8 +741,8 @@ def test_project_plan_selects_only_allowed_eligible_file(
 def test_project_plan_selection_ignores_eligible_binary_file(tmp_path: Path) -> None:
     # Kesifin `is_text` metadata'si (NUL bayt saptamasi) eligibility karariyla
     # birlikte secimi belirler: ikili (NUL'lu) eligible girdi metin filtresi
-    # ile secime giremez; decode-edilemeyen ama NUL'suz girdi secime girer ve
-    # ikinci okumada sessiz atlanir (geriye uyum).
+    # ile secime giremez. UTF-8 olmayan NUL'suz kaynak da secilmez, ancak
+    # encoding sayacinda ikili dosyadan ayri raporlanir.
     root = tmp_path / "gpu"
     (root / "src").mkdir(parents=True)
     (root / "src" / "Service.java").write_text(
@@ -752,8 +752,10 @@ def test_project_plan_selection_ignores_eligible_binary_file(tmp_path: Path) -> 
     (root / "src" / "nul.java").write_bytes(b"class Nul { // \x00 }")
     report = discover(root)
     by_path = {item.relative_path: item for item in report.files}
-    assert by_path["src/legacy.java"].is_text is True
+    assert by_path["src/legacy.java"].is_text is False
+    assert by_path["src/legacy.java"].encoding_error is True
     assert by_path["src/nul.java"].is_text is False
+    assert by_path["src/nul.java"].encoding_error is False
 
     plan = build_project_index_plan(
         project_id=uuid4(),

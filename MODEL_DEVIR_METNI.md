@@ -1,3 +1,24 @@
+# Guncel devir - Y12 encoding sayaci duzeltildi, run4 terminal
+
+Exec13275 TERMINAL exit1: run4 2841 passed / 873 skipped / 1 failed, 471.98sn.
+Hata test_project_knowledge_index skipped_encoding1 yerine0 goruyordu. Discovery
+strict UTF8 ile invalid kaynagi is_text=false yaptigi icin plan onu unsupported
+sayiyordu. Transient DiscoveredFile.encoding_error flag'i eklendi; invalid text
+encoding sayilir, NUL/binary ayri kalir ve hicbiri iceri alinmaz. False flag
+serialize edilmez; normal dosya canonical body/tree kimligi ayni kalir.
+Discovery + index plan hedefli tekrar121passed/3platformskip (encoding-fix-junit.xml).
+Source_discovery.py ve project_knowledge_index.py ile iki test dosyasi degisti;
+kalici schema/model/kullanici verisi degismedi. Final wheel rebuild halen gerekli.
+
+Siradaki: yeni source HEAD ile yeni census al (ilk test-census.json'i ezme).
+JUnit run2+run3b+run4 union'undan tam bitmis dosyalari uzlastir; source degisen
+iki test modulunu tekrar dahil et. Guarded runner'in __main__ korumasini koru;
+UUID label yerine declaration/parametre sira-sayisi ve kaynak hash'ini kullan.
+Kalan kosuyu yeni basetemp/JUnit/log ile baslat, yeni handle'i kaydet.
+Dort korunan untracked girdi korunur. Y12 ve goal henuz bitmedi.
+
+---
+
 # Guncel devir - Y-12 guarded devam kosusu AKTIF
 
 Canli exec session13275, suite-run4.log, junit-run4.xml, pytest-run4.

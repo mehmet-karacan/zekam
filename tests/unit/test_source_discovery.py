@@ -1183,9 +1183,15 @@ def test_discovery_budget_interrupts_before_full_tree_read(tmp_path: Path, stop_
 
 def test_non_utf8_source_is_not_rewritten_into_text(tmp_path: Path) -> None:
     (tmp_path / "unknown.txt").write_bytes(b"plain prefix \xff suffix")
+    (tmp_path / "valid.txt").write_text("valid source", encoding="utf-8")
     report = discover(tmp_path)
     item = next(item for item in report.files if item.relative_path == "unknown.txt")
     assert item.is_text is False
+    assert item.encoding_error is True
+    assert item.as_dict()["encoding_error"] is True
+    valid = next(item for item in report.files if item.relative_path == "valid.txt")
+    assert valid.is_text is True and valid.encoding_error is False
+    assert "encoding_error" not in valid.as_dict()
     assert item.content_digest == DIGEST_PREFIX + hashlib.sha256(b"plain prefix \xff suffix").hexdigest()
     assert next(item for item in report.inventory if item.relative_path == "unknown.txt").is_text is False
 

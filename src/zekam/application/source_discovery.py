@@ -328,12 +328,17 @@ class DiscoveryPolicy:
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredFile:
-    """Kesfedilen tek bir dosya (icerik eligibility'li, indekslenebilir)."""
+    """Eligible file metadata; invalid UTF-8 stays outside the text path.
+
+    ``encoding_error`` distinguishes failed text decoding from binary data.
+    Its false default is omitted from the body to preserve valid-file identity.
+    """
 
     relative_path: str
     size_bytes: int
     content_digest: str
     is_text: bool
+    encoding_error: bool = False
 
     @property
     def extension(self) -> str:
@@ -341,12 +346,15 @@ class DiscoveredFile:
         return suffix.lower() if "." in self.relative_path else ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        body = {
             "path": self.relative_path,
             "size_bytes": self.size_bytes,
             "content_digest": self.content_digest,
             "is_text": self.is_text,
         }
+        if self.encoding_error:
+            body["encoding_error"] = True
+        return body
 
 
 @dataclass(frozen=True, slots=True)
@@ -902,15 +910,17 @@ def _process_file(
     digest = DIGEST_PREFIX + hasher.hexdigest()
 
     text: str | None = None
+    encoding_error = False
     if not _is_binary(probe):
         try:
             text = payload.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             # Preserve metadata and byte identity without inventing UTF-8 text.
-            pass
+            encoding_error = True
     if text is None:
         discovered = DiscoveredFile(
-            relative_path=relative, size_bytes=size, content_digest=digest, is_text=False
+            relative_path=relative, size_bytes=size, content_digest=digest, is_text=False,
+            encoding_error=encoding_error,
         )
         files.append(discovered)
         _count_extension(extensions, relative)

@@ -1343,7 +1343,11 @@ def build_project_index_plan(
         raise ValidationFailed("Indekslenebilir kaynak dosyasi bulunamadi")
     units: list[ContentUnit] = []
     manifest_files: list[dict[str, Any]] = []
-    skipped_encoding = 0
+    skipped_encoding = sum(
+        1 for item in discovery.files
+        if item.encoding_error and _is_supported(item.relative_path)
+        and (allowed is None or item.relative_path in allowed)
+    )
     for item in selected:
         if check_budget is not None:
             check_budget()
@@ -1458,7 +1462,10 @@ def build_project_index_plan(
             1
             for item in discovery.files
             if (allowed is None or item.relative_path in allowed)
-            and (not item.is_text or not _is_supported(item.relative_path))
+            and (
+                not _is_supported(item.relative_path)
+                or (not item.is_text and not item.encoding_error)
+            )
         ),
         skipped_encoding=skipped_encoding,
     )
