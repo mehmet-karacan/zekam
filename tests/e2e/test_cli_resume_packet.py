@@ -75,7 +75,8 @@ def test_resume_packet_combines_work_checkpoint_projects_and_capabilities(tmp_pa
     assert document["semantic_state"] == "ready"
     assert document["latest_semantic_checkpoint"]["completed"] == "Resume packet uygulandi"
     assert document["latest_semantic_checkpoint"]["pending"] == "Bagimsiz verifier"
-    assert document["next_safe_action"] == "Verifier sonucunu kontrol et"
+    assert document["next_safe_action"] == "Kanonik Work/Run bagini yeniden dogrula; yeni lease ve grant edin."
+    assert document["next_safe_action_source"] == "zekam-verification"
     assert document["work"]["open"][0]["title"] == "Resume acceptance"
     assert document["projects"][0]["project_ref"] == "demo"
     assert document["projects"][0]["rag"]["state"] == "unavailable"
@@ -109,7 +110,7 @@ def test_capabilities_expose_ready_partial_and_scaffold_without_claiming_authori
     assert result.exit_code == 0, result.output
     document = json.loads(result.output)
     assert document["schema"] == "zekam-capability-inventory/v1"
-    assert document["counts"] == {"ready": 7, "partial": 10, "scaffold": 0}
+    assert document["counts"] == {"ready": 6, "partial": 11, "scaffold": 0}
     assert document["read_only"] is True
     assert document["grants_authority"] is False
     assert all(item["verified_by"] for item in document["capabilities"])
