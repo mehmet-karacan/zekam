@@ -121,7 +121,7 @@ def test_resume_surfaces_canonical_dependency_blockers(tmp_path: Path, monkeypat
     packet = workspace_resume.build_resume_packet(home)
     assert packet["work"]["blocked_count"] == 1
     assert packet["navigation"]["blocked"] == [a.title]
-    assert "bagimlilik" in packet["next_safe_action"]
+    assert packet["next_safe_action"] == "Kanonik Work/Run bagini yeniden dogrula; yeni lease ve grant edin."
     assert packet["grants_authority"] is False
     monkeypatch.setattr(main, "_work_status_refs", lambda *_args: (("dependencies",), None))
     main._ask_work_status(home, "kalan isler", explicit_project=None, output_json=True)

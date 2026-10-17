@@ -12,6 +12,7 @@ from zekam.application.oracle_metadata_index import (
     build_oracle_metadata_index_plan,
     load_project_oracle_datasource,
 )
+from zekam.application.project_knowledge_index import LOCAL_E5_DIMENSION
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import ConfigurationError, PolicyViolation
 
@@ -92,7 +93,7 @@ def test_oracle_metadata_plan_is_ddl_digest_bound_and_local_only() -> None:
     assert plan.document.unit_count == 1
     assert len(plan.chunks) == 1
     assert plan.chunks[0].locator.object_name == "GPU_APP.PRODUCT:TABLE"
-    assert plan.embedding_profile.dimension == 1024
+    assert plan.embedding_profile.dimension == LOCAL_E5_DIMENSION
     assert plan.as_dict()["row_data_included"] is False
     embedding = plan.as_dict()["embedding"]
     assert isinstance(embedding, dict)
