@@ -79,6 +79,17 @@
   ile tamamlandi. Bu kaynak duzeltmesinden sonra pytest henuz yeniden
   calistirilmadi; tek son toplu test gelistirme donduktan sonra yapilacak.
 
+- 17 Ekim 2026 son kaynak kapsam readback: `scripts/audit_runtime_reachability.py`
+  `passed=true`, 356 reachable ve 18 archive-only module, finding yok;
+  legacy PostgreSQL data access `false`. `scripts/paket_dogrula.py` de dis sonuc
+  yolunda `status=passed`, 23 zorunlu dosya, 20 model, 18 faz/108 is, 42 schema,
+  83 Global DoD, 2.197 tracked blob ve 10.597 history blob ile tamamlandi.
+  Git security `findings=[]`, warnings/errors bos; authority digest
+  `sha256:33823274c1f0b22c43b39108523469ea935e1882d4cdba849fb48ba3646b5ccf`
+  projection ile eslesti. Bu read-only kanitlar pytest yerine gecmez ve native,
+  signer/credential, live quality, bagimsiz verifier ve restore kabul kapilarini
+  kapatmaz.
+
 - 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
   incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
   kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
