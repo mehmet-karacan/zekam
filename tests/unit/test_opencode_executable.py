@@ -69,6 +69,32 @@ def test_explicit_binary_without_path_lookup(tmp_path: Path, monkeypatch):
     assert subject.resolve_opencode_executable(str(binary)) == binary.resolve()
 
 
+def test_windows_global_npm_package_without_path(tmp_path: Path, monkeypatch):
+    root = tmp_path / "roaming"
+    target = root / "npm/node_modules/@opencode/cli/bin/opencode.exe"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"fixture only")
+    monkeypatch.setattr(subject.os, "name", "nt")
+    monkeypatch.setattr(subject.shutil, "which", lambda _: None)
+    monkeypatch.setenv("APPDATA", str(root))
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    assert subject.resolve_opencode_executable() == target.resolve()
+
+
+def test_windows_global_npm_package_ambiguity_is_rejected(tmp_path: Path, monkeypatch):
+    root = tmp_path / "roaming"
+    for package in ("@opencode/cli", "opencode-ai"):
+        target = root / "npm/node_modules" / package / "bin/opencode.exe"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"fixture only")
+    monkeypatch.setattr(subject.os, "name", "nt")
+    monkeypatch.setattr(subject.shutil, "which", lambda _: None)
+    monkeypatch.setenv("APPDATA", str(root))
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    with pytest.raises(PolicyViolation, match="global npm"):
+        subject.resolve_opencode_executable()
+
+
 def test_research_and_test_cli_use_common_resolver(monkeypatch, tmp_path):
     from zekam.infrastructure import opencode_research
     from zekam.interfaces.cli import unit_test

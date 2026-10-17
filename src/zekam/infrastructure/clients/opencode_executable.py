@@ -15,12 +15,19 @@ from zekam.domain.errors import PolicyViolation, ValidationFailed
 
 _MAX_SHIM_BYTES = 64 * 1024
 _PACKAGES = (("@opencode", "cli"), ("opencode-ai",))
+_DEFAULT_ALIASES = frozenset({"opencode", "opencode2"})
 
 
 def resolve_opencode_executable(value: str = "opencode") -> Path:
     """Return the actual executable, rejecting missing/ambiguous shell shims."""
 
     found = shutil.which(value)
+    if found is None:
+        global_candidates = _global_npm_executables(value)
+        if len(global_candidates) > 1:
+            raise PolicyViolation("OpenCode global npm kurulumu belirsiz")
+        if global_candidates:
+            found = str(global_candidates[0])
     if found is None:
         candidate = Path(value)
         if candidate.is_file():
@@ -38,6 +45,34 @@ def resolve_opencode_executable(value: str = "opencode") -> Path:
         return path
     except OSError as exc:
         raise ValidationFailed("OpenCode executable okunamadi") from exc
+
+
+def _global_npm_executables(value: str) -> tuple[Path, ...]:
+    """Find the exact Windows npm global package layout without invoking npm.
+
+    npm's command shim may be absent from PATH in a restricted host while the
+    package's direct executable remains installed. Only the two supported
+    package names and the default aliases are considered; an ambiguous global
+    installation is reported by the caller instead of silently choosing one.
+    """
+
+    if os.name != "nt" or value.casefold() not in _DEFAULT_ALIASES:
+        return ()
+    roots: list[Path] = []
+    for variable in ("APPDATA", "LOCALAPPDATA"):
+        raw = os.environ.get(variable)
+        if not raw:
+            continue
+        root = Path(raw) / "npm" / "node_modules"
+        if root not in roots:
+            roots.append(root)
+    found: list[Path] = []
+    for root in roots:
+        for package in _PACKAGES:
+            candidate = root.joinpath(*package, "bin", "opencode.exe")
+            if candidate.is_file() and candidate not in found:
+                found.append(candidate)
+    return tuple(found)
 
 
 def _resolve_npm_shim(path: Path) -> Path:

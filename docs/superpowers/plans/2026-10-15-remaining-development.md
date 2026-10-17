@@ -153,6 +153,14 @@
   Bu read-only paket kanitidir; native host, credential, live kalite ve release
   kabul kapilarini kapatmaz. Pytest bu adimda calistirilmadi.
 
+- 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
+  direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
+  `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm
+  calistirmadan Windows `APPDATA`/`LOCALAPPDATA` global npm koklerinde tek
+  destekli direct binary'yi bulacak, iki paket varsa fail-closed kalacak sekilde
+  genisletildi. Test kaynaklari eklendi, pytest CALISTIRILMADI. Native lifecycle,
+  tool-denial ve provider kabul kaniti bu kaynak degisikligiyle otomatik kapanmaz.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari
