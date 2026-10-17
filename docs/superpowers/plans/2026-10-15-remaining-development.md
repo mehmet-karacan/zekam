@@ -134,8 +134,16 @@
   `7831 passed, 1409 skipped, 149 failed, 3 warnings`, sure `1:11:38`.
   Kirmizi kapsamlar eski BGE/remote sozlesmeleri, schema/projection driftleri
   ve makineye bagli SQLite/skill/unit-test loop fixture'larinda toplandi.
-  Yeni pytest cagrisi yapilmayacak; E5 model smoke/kurulum kaniti bu genel suite
-  sonucundan ayri tutuluyor.
+  Bu ilk final kosusuydu; tek kalan paket manifesti digest drift'i olarak ayrildi.
+
+- 17 Ekim 2026 final test kapisi duzeltmesi: kaynak paket manifesti generator ile
+  yenilendi (`6872967`), package acceptance hedefi `27 passed, 2 skipped` verdi.
+  Ardindan son toplu `python -m pytest -q` exit code `0` ile tamamlandi:
+  `7980 passed, 1409 skipped, 3 warnings`, sure `1:09:16`. Windows symlink/POSIX,
+  kurulu olmayan native istemci, gercek kullanici corpus'u ve remote/live provider
+  testleri host veya yetki siniri nedeniyle skip olarak kaldı. Bu kanıt yerel test
+  kapısını kapatır; bağımsız review, native enforcement, signer/credential,
+  live kalite ve release kabulünü kapatmaz.
 
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider

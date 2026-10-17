@@ -3712,6 +3712,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 1.0 | 2026-10-12 | Tek ana task kimliği ve parser-uyumlu header; araştırma onayı, ayrı uygulama kapısı; 27 plan maddesi, 31 CAP, 23 GAP, 13 WP, 40 doğal dil senaryosu ve test/rollback/kanıt sözleşmeleri |
 | 1.1 | 2026-10-12 | WP-00 metadata/kaynak envanteri, 31 CAP ve 23 GAP durum eşlemesi, dar test baseline ve geçiş risk haritası repo dışı kanıta işlendi; canlı kabul ve WP-01 açık |
 | 1.2 | 2026-10-12 | WP-01 Graft/Aider/Serena ve model karşılaştırması, D-01..08, 13 WP uygulama haritası ve 27 kabul hedefi tamamlandı; kaynak uygulama onayı bekleniyor |
+| 1.3 | 2026-10-17 | WP-02..12 kaynak dilimleri, yerel E5 geçişi, fixture uyumluluğu ve paket manifesti güncellendi; tam suite final kapısına taşındı |
+| 1.4 | 2026-10-17 | Final suite `7980 passed, 1409 skipped, 3 warnings` ile temizlendi; native, credential, live kalite ve release kabul kapıları açık bırakıldı |
 
 ### 15.3 Şimdiki Gerçek Durum
 
@@ -3722,12 +3724,15 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | Geniş repo/açık kaynak araştırması | WP-00/01 GATE-R tamamlandı; repo dışı araştırma paketi `C:\Users\mkaracan\Downloads\zekam-arastirma-2026-10-12\research-findings.json` (`sha256:6d22aaf483e03e53b70f2e00e54c4f51d4b6183f77f03194d87961b0250970c8`) |
 | Araştırma başlatma onayı | Var; WP-00/01 ile devam |
 | Exact source uygulama onayı | Bu sohbetin 2026-10-12 kullanıcı kararıyla verildi; WP-02..12 uygulaması açıldı |
-| Zekam kaynak değişikliği / ürün kabul testleri | Uygulama kaynak değişikliği yok; yalnız dar baseline testleri çalıştı, canlı ürün kabulü yok |
+| Zekam kaynak değişikliği / ürün kabul testleri | WP-02..12 kaynak dilimleri tamamlandı; yerel E5 kurulum ve paket manifesti doğrulandı; final `python -m pytest -q` `7980 passed, 1409 skipped, 3 warnings` ile temiz; canlı ürün kabulü yok |
 | Ajan izinleri / global ayarlar / runtime kullanıcı verisi | Değiştirilmedi |
-| Commit / push / Miro-GitBook yayın | Görev devri `fcc2101`, WP-00 `06720d2`, WP-01 `d5bb350` commit+push; sonraki WP aşamaları için de commit+push onaylı |
+| Commit / push / Miro-GitBook yayın | Kaynak ve kanıt dilimleri Türkçe ASCII commitlerle `origin/main`e pushlandı; son kanıt commitleri `6872967`, `766f82a`; Miro/GitBook uzak yayını yapılmadı |
 
-**Sonraki adım:** HEAD/kaynak sürüm drift'ini denetleyerek WP-02'den başla;
-`implementation-map.json` ve `acceptance-targets.json` kabul kapılarını uygula.
+**Sonraki adım:** Native istemci/host enforcement, signer ve credential sahipliği,
+canlı provider/Oracle/Jira kalite ölçümü, gerçek Maven/coverage ve clean release
+kabulünü yalnız yetkili ve uygun ortamda bağımsız kanıtla. Bu kapılar kanıtlanmadan
+WP veya Work kapanışı üretme; yeni kaynak dilimi açılırsa testleri yeni geliştirmelerin
+sonuna kadar beklet.
 
 ---
 
