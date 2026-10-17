@@ -72,6 +72,13 @@
   Test kaynagi eklendi, CALISTIRILMADI; native child/tool-denial ve provider kabul
   kapilari hala ayri final kanitidir.
 
+- 17 Ekim 2026 OpenCode host salt-okunur readback: Direct binary `--version`
+  exit 0 ile `opencode v2.0.30`, `run --help` exit 0 ile `--standalone`,
+  `--model`, `--agent` ve JSON secenekli `--format` yuzeylerini verdi. Yardim
+  cikti digest'i `sha256:f7d0aa65186bbf8ef32fc4ffd168d1acaa8cbb6192fdc16842053f6b01872b42`.
+  Provider/model cagrisi yapilmadi; native event/tool-denial/credential ve
+  gercek child kabul kapilari acik kaldi.
+
 - 17 Ekim 2026 WP-05.03 embedded generation batch siniri: `build_embedded_project_generation`
   artik canonical 4'lu local E5 batch, token/payload sinirlari, bounded transient retry,
   cancellation, toplam deadline ve provider-call quota'yi provider etkisi sonrasi

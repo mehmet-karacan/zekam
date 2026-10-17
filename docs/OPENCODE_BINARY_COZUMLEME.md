@@ -26,6 +26,12 @@ disinda ayrik, daha gevsek bir arama yapilmaz.
 `--model`, `--agent` arayuzunu gosterdi. Bu okuma model cagrisi degildir.
 Resolver bir surum/capability veya tool-denial guvenlik kaniti uretmez.
 
+Ayni direct binary ile `run --help` exit code 0 verdi; 1684 byte cikti digest'i
+`sha256:f7d0aa65186bbf8ef32fc4ffd168d1acaa8cbb6192fdc16842053f6b01872b42`.
+Salt okunur yardimda `--standalone`, `--model`, `--agent` ve `--format` (default,
+json) yuzeyleri goruldu. Bu komut provider/model cagrisi yapmadi; native event,
+tool-denial, credential izolasyonu veya gercek child kabulunun yerine gecmez.
+
 ## 2.0.29 -> 2.0.30 uyumluluk karari
 
 17 Ekim 2026 resmi GitHub tag kaynaklari salt okunur olarak karsilastirildi.
