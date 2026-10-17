@@ -113,3 +113,9 @@ artifact `sha256:4660768ac7a3861dd372f665b6d7cdcbb3e7b6ad8dc1a276acd843f8e6a20be
 Kontrol; zorunlu dosyalar, aktif gorev projection'i, model envanteri, is grafigi,
 schema/YAML, bellek yonlendirme politikasi, Git gecmisi ve secret taramasini
 kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
+
+Session ve qualification cache degisiklikleri sonrasindaki tek final repository
+kosusu `7993 passed, 1409 skipped, 3 warnings` ile exit code `0` verdi; sure
+`3467.40s (0:57:47)`, basetemp `C:\\temp\\zekam-final-188d153` oldu. Bu kanit
+modelin yerel CPU kurulumunu ve cache regressionlarini kapsar; canli production
+corpus yeniden indeksleme, remote provider ve native host kabulunu kapsamaz.

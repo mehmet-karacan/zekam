@@ -843,3 +843,12 @@
   Driftli/sagliksiz kayit atilir, cache kullanici verisi tasimaz. Regresyon kaynagi
   eklendi; test bu dilimde calistirilmadi ve final test tum gelistirmeler bittiginde
   tek sefer kosulacaktir.
+
+- 17 Ekim 2026 E5 cache dilimleri final regression: `188d153` HEAD'inde kaynak
+  agaci dondurulduktan sonra tek `PYTHONPATH=src python -m pytest -q --tb=short
+  --basetemp C:\\temp\\zekam-final-188d153` kosusu exit code `0` verdi:
+  `7993 passed, 1409 skipped, 3 warnings`, sure `3467.40s (0:57:47)`. Bu kosu
+  session cache ve qualification cache regresyonlarini kapsayan son yerel testtir;
+  yeni kaynak degisikligi yapilmadi. Skip edilen live/native, credential, corpus,
+  bagimsiz verifier, restore/rollback ve release-chain kapilari acik kalir. Bu
+  kaynak seti icin pytest/Maven yeniden calistirilmaz.
