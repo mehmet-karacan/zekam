@@ -166,8 +166,23 @@ def test_ask_work_status_reports_events_and_unknown_usage_without_inventing_metr
     assert item["events"][0]["event_kind"] == "created"
     assert item["runs"] == []
     assert item["usage"] == {
+        "schema": "zekam-analytics-usage/v1",
         "status": "unknown",
-        "reason": "run-usage-receipt-missing",
+        "reference": item["id"],
+        "reference_kind": "work",
+        "models": [],
+        "provider_calls": None,
+        "tokens": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "duration_seconds": None,
+        "cost_micros": None,
+        "event_count": 0,
+        "event_ids": [],
+        "events_truncated": False,
+        "source_digests": [],
+        "reason": "analytics-events-missing",
+        "grants_authority": False,
     }
     assert item["bound_jobs"] == []
     assert item["bound_jobs_truncated"] is False
