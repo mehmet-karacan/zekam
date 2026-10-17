@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.9` — Y-05 indeks yayininda iptal siniri
+**Belge sürümü:** `3.0` — Y-06 mevcut entegrasyon baglari
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -154,7 +154,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   kota, iptal, retry ve hata sonrasi resume korunsun. Staging tamamlanmadan aktif indeks
   degismesin; baska proje/model vektoru karismasin. Cikis: yerel E5 dense 384 + lexical
   arama, dogru citation ve tamamlanmis embedding'i gereksiz tekrarlamayan indeks akisi.
-- [ ] **Y-06 — ODI/Jira/Oracle baglari:** `odi11g_export.py`, `odi11g_binding_runtime.py`,
+- [x] **Y-06 — ODI/Jira/Oracle baglari:** `odi11g_export.py`, `odi11g_binding_runtime.py`,
   `oracle_metadata_index.py`, `jira_knowledge_import.py` ve mevcut Jira/Git history yolunda
   eksik baglantilari tamamla. ODI 11g XML, salt-okunur metadata ve issue/ek/provenance
   korunur; unresolved iliski kesin bilgi diye sunulmaz. Mevcut Confluence pagination/version
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-06 ODI/Jira/Oracle baglari. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-07 Work/checkpoint/devam. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -344,6 +344,27 @@ sonraki devam icin kalir. Cancel/deadline regresyon kaynaklari gercek SQLite/pen
 fixture'ina eklendi, CALISTIRILMADI. py_compile/diff/projection kontrolu yapildi.
 Y-05 gelistirme teslimidir; crash/corpus/performance ve regresyon kabul Y-12de.
 Geri donus: kaynak/belge commitini geri al; cache/index veya kullanici state silme.
+
+### 0.9 Y-06 gelistirme kaydi — 18 Ekim 2026
+
+Mevcut implementasyon uzerinden tamamlanan kaynak baglari:
+`odi11g_binding_runtime.py` ve smart import exact source snapshot/private binding/
+completed receipt ister; 11g unresolved iliski bilgisi korunur.
+`jira_knowledge_import.py` issue/attachment metadata ve normalized/parser digestini
+proje knowledge notuna baglar; apply kaynak planini yeniden dogrular, replay
+completed note ve effect receipt'i okur. `atlassian_mcp_server.py` GET-only
+Confluence page/version provenance ve pagination identity/scope/next kontrollerini
+tasir. `oracle_metadata_index.py` explicit datasource ile metadata toplar; row data
+kapsam disidir, GET_DDL metadata okumasidir ve DDL uygulamasi yapilmaz. Git history
+sorusu mevcut bounded yerel diff yolundadir. Yeni connector/framework veya canli
+Jira/Oracle/Confluence cagrisi eklenmedi; credentials okunmadi veya disari gonderilmedi.
+
+Kaynakta bu dilim icin yeni eksik bag saptanmadi; yeniden uygulama yapilmadi.
+Mevcut jira knowledge, ODI CLI, Oracle metadata, history ve Atlassian regresyonlari
+Y-12 final kapsamindadir; bu asamada CALISTIRILMADI. Canli kurum kaynagi/izin yoksa
+ilgili kontrol blocked/not-run olacak; kaynak incelemesi canli kabul sayilmaz.
+Y-06 checkbox gelistirme teslimidir, Work kapanisi degildir. Geri donus yalniz
+bu belge revizyonudur; uretim verisi veya dis sistem degistirilmedi.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4424,6 +4445,8 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.8 | 2026-10-18 | Y-04: strict UTF-8 ve descriptor/path kimlik kontrolu ile kaynak drift korumasi; regresyonlar hazir, kosular Y-12de |
 
 | 2.9 | 2026-10-18 | Y-05: yayin lock beklemesi sonrasi cancel/deadline yeniden kontrolu; final regresyon kodu hazir |
+
+| 3.0 | 2026-10-18 | Y-06 mevcut ODI/Jira/Confluence/Oracle/Git kaynak baglari kaydedildi; canli kabul ve testler finalde |
 
 ### 15.3 Şimdiki Gerçek Durum
 

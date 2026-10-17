@@ -1,3 +1,11 @@
+# Guncel devir — Y-06 kaynak baglari
+
+Y-01..06 gelistirme teslimleri kayitli. Siradaki Y-07. Testler Y-12de.
+Canli kurum servisleri cagrilmadi; kapsam/kanit AKTIF_GOREV.md 0.9.
+Korunan untracked girdileri otomatik stage etme.
+
+---
+
 # Guncel devir — Y-05 gelistirmesi
 
 Y-01..05 gelistirme teslimleri kayitli. Siradaki Y-06. Testler Y-12de.
