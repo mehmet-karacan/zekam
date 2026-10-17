@@ -1,3 +1,32 @@
+# Guncel devir - run6 TERMINAL, kalan301 case
+
+Session55585 terminal exit1; yeniden poll veya restart etme. Run6 2602passed/
+100skip/1failed (1779.22sn); 6360 eski case atlandi. Fail allowlisted invalid
+encoding legacy testinin eski hata mesajiydi. Reddetme daha erken oluyor;
+yalniz ilgili test beklentisi + encoding/source byte invariant assertion'lari
+guncellendi. Exactcase1/1passed: allowlist-fix-junit.xml. Urun kodu degismedi,
+release-rank wheel11/11 gecerlidir. test-case-source-reuse-audit.json diger
+AST/fixture/dosya kaynaklarinin ayni oldugunu kanitlar; tekrar kosma.
+
+Siradaki: yeni census al (9364 ayni beklenir); JUnit2/3b/4/5/rank-fix/6/allowlist-fix
+union'u ile9063tamamlanmis,301kalan beklenir. Run6 ordinal'ini plan6completed_slots
+haricindeki slotlarla esle; tum gruba sifirdan esleme. Yeni guarded run7 yalniz
+kalan301'i secsin. final_census_audit.py'yi run7+census icin guncelle.
+
+Son kapanis icin final_resource_equivalence.py hazir: release-final wheel'i
+release-rank ile byte-karsilastirir; yalniz AKTIF_GOREV/manifest/RECORD degisimine
+izin verir. Ayni Python koduna 11CLI kabulunu tekrar kosmaz; yalniz degisen
+resource'lari clean-env reinstall+manifest/authority parse ile dogrular.
+E5/Maven/backup/checkpoint modulleri eski kabul wheel'iyle byte-ayni; kanit
+acceptance-reuse-source-audit.json. Mevcut3JaCoCoXML sayaqlari raporla eslesti.
+Actual user doctor sqlite healthy; local-core all_readytrue, learningv3.
+Global eski capability matrix partial olabilir, 0.3 scope yerine gecmez.
+
+Dort untracked kullanici girdisini koru. Y12/goal henuz bitmedi. Kanitlar
+C:/temp/zekam-y12-e3741df. Yeni onay beklenmiyor.
+
+---
+
 # Guncel devir - Y12 run6 AKTIF, case duzeyinde kalan3004
 
 Canli exec55585: suite-run6.log / junit-run6.xml / pytest-run6.

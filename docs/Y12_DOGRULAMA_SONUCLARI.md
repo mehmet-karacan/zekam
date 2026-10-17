@@ -196,3 +196,27 @@ veya paketlenen authority'yi degistirmez; wheel kaynak bagi korunur.
 - `release-rank/wheel-functional-acceptance.json` SHA256: `sha256:a8c7f06fb13e0d1c868a6c53a5d0c916dbd944343ce2aa3cdc1851563eaa1590`.
 
 - `release-rank/runtime-reachability.log` SHA256: `sha256:f0bfd9b4315ad2f07466aa1b69c6a6622d5118fa000287bb295fec41d158f117`.
+
+
+## Run6 terminal ve tek eski hata-mesaji beklentisi
+
+Run6: 2602 passed / 100 skipped / 1 failed; 6360 onceki case deselected;
+1779.22 sn. Failclosed encoding/allowlist reddi dogruydu; kalan legacy test
+eski daha gec asamanin hata mesajini bekliyordu. Yalniz o testin beklentisi
+ve encoding siniri/source bytes korunumu assertion'lari guncellendi. Urun
+kodu degismedi. Exact basarisiz case 1/1 gecti. Diger declaration/fixture AST'leri
+ve diger test dosyalari ayni; bu kanitla onlar tekrar kosulmaz. Sonraki kalan301
+case secilecek. Run6'daki iki runpy uyarisini capability_worker main/oversize
+child branch fixture'lari uretti; genel kabul veya canli worker hatasi sayilmaz.
+
+- `junit-run6.xml` SHA256: `sha256:7a11e15b2f6017743a74adb42df53029a07d6bc73badf2fdf37c6359e5643027`.
+
+- `allowlist-fix-junit.xml` SHA256: `sha256:933c539439fde96b820feb2d28fbe59b43e3b193f862b77942bc59c432ea1815`.
+
+- `test-case-source-reuse-audit.json` SHA256: `sha256:9db5bb7e9e67c015de6dda153e8e9cff50c9f9b03503579a6783944b1b7ad745`.
+
+- `acceptance-reuse-source-audit.json` SHA256: `sha256:579b2bfcad084d85f99962f6785fb2be17577e5c417581fe4d44e7b360004363`.
+
+- `maven-xml-evidence-audit.json` SHA256: `sha256:28efbf9c77c1dcfe4253ec424b0acfce9aaee744560291413af82b630863153b`.
+
+- `user-final-doctor.json` SHA256: `sha256:562e4b391c57f7a7383ade20de76e819647da7e049175ecf52e267fcb04956df`.

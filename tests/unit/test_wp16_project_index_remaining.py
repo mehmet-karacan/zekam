@@ -100,7 +100,9 @@ def test_build_plan_rejects_allowlisted_binary_encoding(tmp_path: Path) -> None:
     source = tmp_path / "source.py"
     source.write_bytes(b"\xff\xfe\xfd")
     discovery = discover(tmp_path)
-    with pytest.raises(ValidationFailed, match="icerigi bulunamadi"):
+    assert discovery.files[0].is_text is False
+    assert discovery.files[0].encoding_error is True
+    with pytest.raises(ValidationFailed, match="allowlist eksik/desteklenmeyen"):
         index.build_project_index_plan(
             project_id=PROJECT_ID,
             project_slug="project",
@@ -109,6 +111,7 @@ def test_build_plan_rejects_allowlisted_binary_encoding(tmp_path: Path) -> None:
             expected_tree_digest=discovery.tree_digest,
             allowed_relative_paths=("source.py",),
         )
+    assert source.read_bytes() == b"\xff\xfe\xfd"
 
 
 def test_apply_project_index_rejects_missing_verified_embedding_before_any_write(
