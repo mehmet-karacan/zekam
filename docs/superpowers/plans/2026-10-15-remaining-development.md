@@ -52,6 +52,17 @@
   bagimsiz verifier, restore/rollback, live kalite ve release-chain kabulleri
   test sonucundan bagimsiz acik tutulur.
 
+- 17 Ekim 2026 son HEAD `8ec0503fb786348091af7beab397d46a9c413ec4` icin clean
+  `git archive` wheel smoke'u ayri gecici ortamda `status=passed`, 23/23 kontrol
+  ile tamamlandi. Manifest `sha256:c17060e155b184f5bb2700f86fa4a077963cefb246701e7afd38058a15999506`,
+  artifact `sha256:8c697351a51b5295c6c948b3482ffcbc23d8d219f97eb99afbce926a47a202de`,
+  run `sha256:d9517db9dd652b5c31b2802bec323a2982c13ae86c762bed541b6321b34b2d51`,
+  platform `windows-amd64`, Python `3.13.15`. Ayni HEAD'de manifest check exit 0;
+  paket validator `status=passed` (23 zorunlu dosya, 42 schema, warning/error yok),
+  runtime reachability `passed=true`, 356 reachable/18 archive-only ve legacy
+  PostgreSQL data access `false` verdi. Bu kanit native child/tool-denial,
+  signer/credential, live kalite veya restore kabulunu kapatmaz.
+
 - 17 Ekim 2026 OpenCode 2.0.30 uyumlulugu: Host direct binary `opencode v2.0.30`
   dondugu halde adapter eski `2.0.29` ciktisini exact bekliyordu. Resmi v2.0.29
   ve v2.0.30 `packages/cli/src/run` dosyalari ile permission/session kaynaklari
