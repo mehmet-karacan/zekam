@@ -1,3 +1,28 @@
+# Guncel devir - Y-12 gercek kullanici recovery kaniti
+
+Mevcut kullanici home'u icin gercek v2 full backup create/verify/restore GECTI.
+Ilk repo-disi hedef private ACL olmadigi icin effect oncesi reddedildi;
+sonra yalniz yeni private-backups dizinine ACL uygulanip yeni bundle olusturuldu.
+Restore mevcut home'a degil ayri yeni hedefe yapildi. Anahtar icerigi okunup
+loglanmadi. Kanit: user-backup-verify.log, user-backup-restore.log.
+
+Regresyonlarda migration/replay/parite gectikten ve bagimsiz kaynak incelemesi
+okunduktan sonra kullanici v2->v3 canonical memory prepare ile uygulandi.
+Terminal receipt: sha256:d8e2082c07130dacdbcca347f4971fede5ffa7d7e0727f70accbaf2bf27b694d.
+Readback: learning schema3, local core all_ready=true, tum eski tablo logical
+icerigi backup ile ayni. user-migration-readback.json. Onceki devirdeki
+kullanici DB halen v2 ifadesi artik TARIHSELdir. Migrationi yeniden baslatma.
+
+Source-linked CLI ile synthetic index ve explicit/automatic project ask ve
+plain source label kabul gecti. 39359a4 source fix, remote HEAD ile eslesti.
+Tam Windows suite halen exec session 84317 altinda AKTIF (run1 ilk hatali
+baseline); en son yuzde1 ilerleme goruldu. Aynisini poll et, yeniden baslatma.
+Focused2 87 passed/3 platform skip. Son wheel rebuild/kabul, full suite hata
+cozumleri, Maven raporu ve final teslim raporu halen bekliyor. Goal aktif;
+tamamlama veya yeni onay bekleme yok. Korunan dort untracked girdiyi koru.
+
+---
+
 # Guncel devir - Y-12 final dogrulama SURUYOR
 
 Son kaynak dilimi e3741df (yerel bellek propose), oncesi 0072568 (v2/v3 uyum).
