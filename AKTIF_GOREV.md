@@ -3903,6 +3903,14 @@ tarihsel migration korumasi olarak tutuldu; yeni MacOS testi eklenmedi. Bu degis
 icin pytest calistirilmadi; sonraki tek final Windows/Linux suite'inde bu testlerin
 toplanmadigi ve wheel'in MacOS/BGE modulunu icermedigi kanitlanacak.
 
+### 10.119 17 Ekim 2026 platform scope drift audit'i
+
+`scripts/audit_platform_scope.py --repository .` salt-okunur kapsam kapisi eklendi.
+Audit sonucu `passed=true`, 531 Python test dosyasi, `forbidden_test_count=0` ve
+MacOS archive-only kaynak sayisi 9 oldu. Bu denetim pytest, provider, native host
+veya release kabul calistirmadi; final Windows/Linux suite'inden once hizli scope
+drift kontrolu olarak kullanilacak.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar
