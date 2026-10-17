@@ -88,9 +88,14 @@ exclude = [
     "/src/zekam/application/run_reconciliation.py",
     "/src/zekam/application/work_graph.py",
     "/src/zekam/application/worker.py",
+    "/src/zekam/application/local_continuity_v4_compaction.py",
+    "/src/zekam/application/local_continuity_v4_ingress.py",
     "/src/zekam/infrastructure/clients/codex_macos_0151_lifecycle.py",
     "/src/zekam/infrastructure/clients/codex_macos_0151_precompaction_client.py",
+    "/src/zekam/infrastructure/local_continuity_v4_composition.py",
     "/src/zekam/infrastructure/macos_precompaction_supervisor.py",
+    "/src/zekam/infrastructure/sqlite/local_continuity_v4_compaction.py",
+    "/src/zekam/infrastructure/sqlite/local_continuity_v4_ingress.py",
 ]
 
 [tool.hatch.build]

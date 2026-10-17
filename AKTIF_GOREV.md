@@ -3835,8 +3835,9 @@ belirledi. Bu karar aktif teslim hedefini Windows 11/OpenCode ve yerel ONNX
 multilingual-e5-small embedding profiline sabitler. MacOS'a ozel test, paketleme,
 CI matrisi, kabul artifact'i ve native inventory yuzeyi kaynak agacindan kaldirildi;
 MacOS'a bagli eski continuity modulleri yalniz tarihsel/read-compatibility kodu olarak
-aktif release ve test koleksiyonunun disinda tutulur; wheel manifesti bu uc modulu
-acikca archive-only olarak dislar ve supported runtime graph'ina ulasilamaz sayar.
+aktif release ve test koleksiyonunun disinda tutulur; wheel manifesti MacOS'a bagli
+Codex 0.151 v4 ingress, PreCompact ve supervisor yuzeylerini archive-only olarak
+dislar ve supported runtime graph'ina ulasilamaz sayar.
 
 `artifacts/acceptance` altindaki MacOS kabul bundle'lari ve WP-01 MacOS metrikleri
 silindi. Tarihsel gorev arsivi gecmis karar kaydi olarak korunur; bu kayitlar artik
