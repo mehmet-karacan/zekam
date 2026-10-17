@@ -538,7 +538,7 @@ def test_work_resume_reads_canonical_activity_and_runs(tmp_path: Path) -> None:
             event_digest=digest("resume-transition"),
         )
         config = uow.activate_config(
-            config_digest=digest("resume-config"),
+            config_digest=digest({"profile": "test"}),
             task_digest=digest("resume-task"),
             sanitized_config={"profile": "test"},
         )
