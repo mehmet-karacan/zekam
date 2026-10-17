@@ -167,6 +167,11 @@
   ortaminda resolver hatasi acikca simule ediliyor. Pytest CALISTIRILMADI;
   native lifecycle ve tool-denial kabul kapilari acik.
 
+- 17 Ekim 2026 Windows binary probe bagi: Tarihsel client binary fixture'i
+  OpenCode icin ayni ortak resolver'i kullanacak sekilde hizalandi. PATH shim'i
+  yokken direct binary'nin version/hash pin'i ayrica kontrol edilir; eski pin
+  kurulu degilse skip basari sayilmaz. Pytest CALISTIRILMADI.
+
 - 16 Ekim 2026 embedding erteleme karari: Mevcut embedding provider/modeli
   kullanilamaz durumda oldugu icin WP-05.03, WP-05.04 ve WP-05.06'nin provider
   cagri, qualification, gercek vector publication ve performans adimlari

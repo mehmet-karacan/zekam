@@ -18,12 +18,14 @@ import pytest
 
 from zekam.domain.canonical import digest
 from zekam.domain.clients import ClientKind
+from zekam.domain.errors import ZekamError
 from zekam.infrastructure.clients.adapters import (
     SubprocessClientAdapter,
     claude_code_adapter,
     codex_adapter,
     opencode_adapter,
 )
+from zekam.infrastructure.clients.opencode_executable import resolve_opencode_executable
 
 pytestmark = [
     pytest.mark.e2e,
@@ -41,6 +43,11 @@ _NOW = dt.datetime(2026, 8, 28, 12, 0, tzinfo=dt.UTC)
 def _native_executable(command: str, environment_key: str) -> Path:
     configured = os.environ.get(environment_key)
     found = configured or shutil.which(command)
+    if found is None and command == "opencode":
+        try:
+            return resolve_opencode_executable()
+        except (OSError, ZekamError):
+            pass
     if found is None:
         pytest.skip(f"{command} runtime bulunamadi")
     candidate = Path(found)
