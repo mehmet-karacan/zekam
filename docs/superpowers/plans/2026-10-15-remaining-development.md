@@ -32,7 +32,7 @@
 - [x] 1. WP-07.05 kaynak uygulamasi: spool candidate `startedAt` ile OS PID incarnation `processStartedAt` ayrimini ve native source-root drift reddini zaten uyguluyor. Gercek process-kill/race/full-spool ve native host kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [x] 2. WP-07.01..04 kaynak uygulamasi: dogal dil Work okuma, canonical job/Run/source-config fingerprint readback ve lease/recovery execution guard kaynakta baglandi. Gercek lease/grant yeniden edinimi, race/crash ve native client kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [x] 3. WP-02/03 kaynak uygulamasi: native mutation admission, canonical publication transportu ve istemci/publication evidence baglari kaynakta baglandi. Gercek host shell enforcement, signer/credential izolasyonu ve native kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
-- [ ] 4. WP-04/05/06: discovery/parser/secret ve incremental publication/reconciliation; issue/history/provenance baglantilarinin kalan uygulamasini tamamla.
+- [x] 4. WP-04/05/06 kaynak uygulamasi: bounded discovery metadata, structural/document/XML parser sinirlari, local-only secret filtreleri, incremental RAG staging/reconciliation ve issue/history/provenance baglari kaynakta tamamlandi. Canli Jira/Oracle/embedding quality ve native kabul kanitlari final kapisinda kalir; testler final asamasina birakildi.
 - [ ] 5. WP-08/09/10: host capability, model/agent envelope, test muhendisligi ve memory/skill lifecycle baglantilarini tamamla.
 - [ ] 6. WP-11/12: scheduler/backup/restore/report ve canonical mimari/release ciktilarini tamamla.
 - [ ] 7. Butun gelistirme maddelerinin kaynak kapsamini yeniden denetle; gerekli gercek ortam/erisim eksiklerini exact kapilara bagla.
@@ -56,6 +56,12 @@
   publication trust/evidence/verifier job baglari ve shell-free bounded transport
   akislarinin source route'lari mevcut. Host signer/credential ve native shell
   enforcement dogrulamasi ayri kabul kapisi olarak tutuldu; test CALISTIRILMADI.
+
+- 17 Ekim 2026 WP-04/05/06 kaynak denetimi: discovery metadata/eligibility,
+  polyglot ve belge parser'lari, secret-safe local filtreler, RAG batch/CAS
+  staging-recovery ve bounded Jira/history/provenance okuyuculari kaynakta
+  mevcut. Canli provider/Oracle/Jira ve kalite kabulleri gelistirme disi kapilar
+  olarak ayrildi; test CALISTIRILMADI.
 
 - 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
   alindi; `git publication` alt komutlari canonical surface denetiminde artik
