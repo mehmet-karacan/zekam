@@ -61,6 +61,12 @@
   degisikligi yapilmadi, AST/diff kontrolu yapilacak, pytest final kapisina
   kadar calistirilmayacak.
 
+- 17 Ekim 2026 research kimlik siniri: RAG planina giren source revision, tree
+  ve generation alanlari artik yalniz canonical SHA256 digest olarak kabul
+  ediliyor; bos veya bozuk degerler raw hata yerine bounded PolicyViolation
+  uretiyor. AST/diff ve manifest kontrolden gecirilecek, pytest final kapisina
+  kadar calistirilmayacak.
+
 - 17 Ekim 2026 yerel E5 runtime guvenligi: kurulum manifesti artik sabitlenen
   yedi dosyanin tamamini source revision, boyut, SHA256 ve upstream SHA bagiyla
   yeniden okur; model agirligi beklenen SHA256 ile tekrar eslesir. Model yolu

@@ -34,7 +34,7 @@ from zekam.application.research_service import (
     assert_no_swallowed_results,
 )
 from zekam.application.secret_detection import scan_text
-from zekam.domain.canonical import canonical_json, digest
+from zekam.domain.canonical import canonical_json, digest, parse_digest
 from zekam.domain.errors import NotFound, PolicyViolation, ValidationFailed, ZekamError
 from zekam.domain.research import (
     Citation,
@@ -128,6 +128,10 @@ def _research_source_binding(rag: dict[str, Any], *, project_id: str) -> dict[st
         value = rag.get(key)
         if type(value) is not str or not value.strip():
             raise PolicyViolation(f"Research RAG kaynak kimligi eksik: {key}")
+        try:
+            parse_digest(value)
+        except ValidationFailed as exc:
+            raise PolicyViolation(f"Research RAG kaynak kimligi gecersiz: {key}") from exc
         values[key] = value
     values["source_identity_digest"] = source_identity_digest(
         project_id, values["source_revision"], values["tree_digest"]
