@@ -24,6 +24,9 @@ def _setup(tmp_path, monkeypatch):
     HomeLayout(home).ensure_project("demo")
     database = home / "state/operational.db"
     bootstrap(database)
+    # Salt-okunur bilgi mutasyonu durum sorgulari mevcut, admitted runtime
+    # kapasitesini gerektirir; fixture'i gercek yerel acilis sozlesmesiyle kur.
+    SQLiteLocalRuntimeStore(database, existing_only=False)
     store, files = SQLiteOperationalStore(database), KnowledgeFileStore(home)
     with store.unit_of_work() as uow:
         project = uow.create_project(slug="demo", display_name="Demo")
