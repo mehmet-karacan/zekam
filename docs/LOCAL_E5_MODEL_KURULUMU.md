@@ -88,3 +88,9 @@ provider ve gercek production corpus yeniden indeksleme kosulari bu makinede
 acik yetki veya veri olmadan calistirilmadi.
 Uretim corpus indexi bu kontrolde olusturulmadi; aktif ZEKAM_HOME indexi
 bulunmadigi icin yeniden indekslenecek hedef de yoktu.
+
+Paket kabul betigi de repository disi sonuc dosyasiyla basariyla tamamlandi:
+`status=passed`, `git_security.findings=[]`, `warnings=[]`, `errors=[]`.
+Kontrol; zorunlu dosyalar, aktif gorev projection'i, model envanteri, is grafigi,
+schema/YAML, bellek yonlendirme politikasi, Git gecmisi ve secret taramasini
+kapsadi. Bu adim pytest veya canli provider cagrisi degildir.
