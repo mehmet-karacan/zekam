@@ -29,7 +29,7 @@
 
 ## Sirali gorevler
 
-- [ ] 1. WP-07.05: spool candidate processStartedAt ayrimi ve native source root drift reddi. Dosyalar: opencode_spool.py, local_continuity_native.py; regresyon kodu ilgili mevcut test dosyalarinda hazirlanir.
+- [x] 1. WP-07.05 kaynak uygulamasi: spool candidate `startedAt` ile OS PID incarnation `processStartedAt` ayrimini ve native source-root drift reddini zaten uyguluyor. Gercek process-kill/race/full-spool ve native host kabul kaniti final kapisinda kalir; testler final asamasina birakildi.
 - [ ] 2. WP-07.01..04: canonical Work dogal dil ve resume/lease/grant akislarindaki kalan uygulama bosluklarini kaynak incelemesiyle belirle ve tamamla.
 - [ ] 3. WP-02/03: native mutation admission, istemci ve shell/publication transport baglantilarini tamamla.
 - [ ] 4. WP-04/05/06: discovery/parser/secret ve incremental publication/reconciliation; issue/history/provenance baglantilarinin kalan uygulamasini tamamla.
@@ -39,6 +39,13 @@
 - [ ] 8. Yalniz tum gelistirmelerden sonra tek toplu test asamasi, gereken bagimsiz review ve kabul kanitlari. Hata varsa duzelt ve yalniz basarisiz kapsami yeniden dogrula.
 
 ## Yurutme kaydi
+
+- 17 Ekim 2026 WP-07.05 kaynak denetimi: `opencode_spool` lease zamanini PID
+  incarnation kaniti saymiyor; varsa yalniz OS `processStartedAt` eslesmesini
+  kullanip PID reuse durumunu ayiriyor. `local_continuity_native` exact Git
+  top-level ve link/reparse ancestor kontrolu ile source-root drift'i fail-closed
+  reddediyor. Bu dilim kaynakta tamamlandi; native process-kill/race ve tam spool
+  kabul kapilari acik. Test CALISTIRILMADI.
 
 - 17 Ekim 2026 CLI yuzeyi: `registered_commands` recursive Typer grup taramasina
   alindi; `git publication` alt komutlari canonical surface denetiminde artik
