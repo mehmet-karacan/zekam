@@ -70,7 +70,11 @@ def test_fresh_home_proposal_replay_and_reviewed_correction(tmp_path: Path) -> N
     corrected = _apply(runner, ["memory", "promote", replacement["candidate_id"], "--supersedes", old, "--home", str(home)])
     assert corrected["revision_digest"] != promoted["revision_digest"]
     assert len(store.active_records()) == 1
-    assert store.list_records()[0]["revision"] == 2
+    corrected_row = next(
+        row for row in store.list_records()
+        if row["revision_digest"] == corrected["revision_digest"]
+    )
+    assert corrected_row["revision"] == 2
 
 
 def test_forged_or_missing_observation_never_becomes_candidate(tmp_path: Path) -> None:

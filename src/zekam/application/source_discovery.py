@@ -878,7 +878,11 @@ def _process_file(
         )
 
     with resolved.open("rb") as handle:
-        if identity(os.fstat(handle.fileno())) != identity(before):
+        opened = os.fstat(handle.fileno())
+        # Windows path and descriptor APIs can expose different ctime values
+        # for the same file. Compare their shared identity fields, then fence
+        # each API's full timestamp snapshot against itself across the read.
+        if identity(opened)[:-1] != identity(before)[:-1]:
             raise OSError("Kaynak dosya acilirken degisti")
         while True:
             chunk = handle.read(min(_CHUNK_SIZE, size + 1 - len(payload)))
@@ -888,7 +892,7 @@ def _process_file(
             if len(payload) > size or len(payload) > policy.max_file_bytes:
                 raise OSError("Kaynak dosya okuma sirasinda buyudu")
             hasher.update(chunk)
-        if identity(os.fstat(handle.fileno())) != identity(before):
+        if identity(os.fstat(handle.fileno())) != identity(opened):
             raise OSError("Kaynak dosya okuma sirasinda degisti")
     if identity(resolved.lstat()) != identity(before):
         raise OSError("Kaynak dosya okuma sonrasinda degisti")

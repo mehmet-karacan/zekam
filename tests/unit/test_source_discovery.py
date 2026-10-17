@@ -1213,3 +1213,37 @@ def test_same_size_source_change_during_open_is_not_admitted(
     assert not any(item.relative_path == "change.txt" for item in report.files)
     assert any(item.relative_path == "change.txt" and item.reason is SkipReason.UNREADABLE for item in report.skipped)
     assert report.inventory_status is InventoryStatus.PARTIAL
+
+
+@pytest.mark.parametrize("descriptor_changes", [False, True])
+def test_path_and_descriptor_ctime_are_fenced_separately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, descriptor_changes: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    target = tmp_path / "stable.txt"
+    target.write_bytes(b"stable source")
+    original_fstat = os.fstat
+    calls = 0
+
+    def descriptor_stat(fd: int) -> Any:
+        nonlocal calls
+        calls += 1
+        observed = original_fstat(fd)
+        values = {name: getattr(observed, name) for name in (
+            "st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns",
+        )}
+        # Model Windows' differing path/descriptor ctime without dropping the
+        # separate before/after descriptor fence.
+        values["st_ctime_ns"] += 1_000_000_000 + (calls if descriptor_changes else 0)
+        return SimpleNamespace(**values)
+
+    monkeypatch.setattr(os, "fstat", descriptor_stat)
+    report = discover(tmp_path)
+    if descriptor_changes:
+        assert not report.files
+        assert report.inventory_status is InventoryStatus.PARTIAL
+        assert any(item.reason is SkipReason.UNREADABLE for item in report.skipped)
+    else:
+        assert [item.relative_path for item in report.files] == ["stable.txt"]
+        assert report.files[0].content_digest == DIGEST_PREFIX + hashlib.sha256(b"stable source").hexdigest()

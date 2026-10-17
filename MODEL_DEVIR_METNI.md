@@ -1,3 +1,42 @@
+# Guncel devir - Y-12 final dogrulama SURUYOR
+
+Son kaynak dilimi e3741df (yerel bellek propose), oncesi 0072568 (v2/v3 uyum).
+Tum planli gelistirmelerden sonra test asamasi acildi; Y-12 BITMEDI.
+Final artifact alani repo disinda C:/temp/zekam-y12-e3741df.
+Tam Windows suite run1 exec session 84317 ile halen calisiyor; ilk hatalar var.
+Bu handle'i once poll et, timeout nedeniyle yeniden baslatma. Baseline run1
+source_discovery Windows duzeltmesi oncesi basladi, final green kabul degildir.
+Tam sonuclari ve hatalari al; sonra gerekli duzeltmeleri ve etkilenen kabul
+kosularini ayni Y-12 final asamasinda tamamla.
+
+Gercek E5 CPU kabul PASSED: 384/finite/L2; TR, EN, TR-EN semantic margin pozitif;
+2 thread/batch4, load 4889ms, query medyan 8.55ms, batch4 medyan 34.36ms,
+peak process RSS 462950400 byte. Ayrinti e5-acceptance.json (sentetik kaynak).
+Source gates: package manifest/catalog/platform/reachability exit 0.
+Temiz wheel e3741df functional kabul 11/11 PASSED; self verification,
+bagimsiz Work/verifier attestation'i DEGIL. Ayrinti wheel-functional-acceptance.json.
+
+Gercek RAG kabul Windows lstat/fstat ctime farkini ortaya cikardi. Ortak
+kimlik dev/ino/mode/size/mtime ile eslenir, iki API kendi full before/after
+ctime snapshot'ini korur; sadece cross-API ctime esitligi aranmaz. Descriptor
+ctime drift ve ayni boyutlu kaynak degisimi reddi korunur. Source discovery ve
+memory proposal hedefli tekrar: 87 passed, 3 platform skip (focused2-junit.xml).
+Ilk focused: 64 passed/1 fail; test eski revision ilk satirini yeni saniyordu,
+artik exact corrected revision digest'iyle revision=2 dogrulanir.
+Synthetic local proje bind/index ve kaynakli ask (source-linked CLI) artik gecti;
+remote provider kullanilmadi. Yeni wheel bu kaynak duzeltmesini icerecek sekilde
+Y-12 sonunda yeniden uretilip temiz kurulumla dogrulanmali.
+
+Maven fixture target'a yazmamak icin tmp copy izolasyonu bu final dilimdedir.
+Kullanici learning DB halen v2; migration/gercek backup restore HENUZ YAPILMADI.
+Once migration regresyonlari ve gerekli bagimsiz kaynak incelemesi kanitini
+oku; ardindan canonical memory prepare ve yeni hedefe backup/restore kabulunu
+bitir. Canli kurum provider kabulunu gercek kanit yoksa not-run olarak yaz.
+Dort korunan untracked girdi degismeden/stage edilmeden kalir.
+Y-12/goal tamamlandi isareti verme; tam suite, wheel ve restore halen acik.
+
+---
+
 # Guncel devir - Y-09 yerel aday olusturma gelistirmesi
 
 memory propose yerel terminal memory.observe kanitini uretip memory.propose

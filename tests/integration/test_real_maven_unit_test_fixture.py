@@ -120,7 +120,9 @@ def test_real_maven_fixture_executes_unit_and_jacoco_path(tmp_path: Path) -> Non
     )
     from zekam.infrastructure.unit_test_runner.measurement import measure_unit_tests
 
-    planned = build_unit_test_plan(FIXTURE, target_modules=("",))
+    fixture = tmp_path / "java-fixture"
+    shutil.copytree(FIXTURE, fixture, ignore=shutil.ignore_patterns("target"))
+    planned = build_unit_test_plan(fixture, target_modules=("",))
     assert planned.plan is not None
     request = UnitTestRequest.with_defaults(
         project_id="fixture-project",
@@ -138,7 +140,7 @@ def test_real_maven_fixture_executes_unit_and_jacoco_path(tmp_path: Path) -> Non
             planned.plan.execution_class,
             allow_network=True,
         ),
-        discover_project(FIXTURE),
+        discover_project(fixture),
         lock_dir=tmp_path / ".zekam-locks",
         run_id="fixture-run",
         attempt_id="fixture-attempt",
