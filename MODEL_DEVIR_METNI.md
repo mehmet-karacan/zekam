@@ -1,3 +1,26 @@
+# Guncel devir - Y-03 kaynakli yanit ek duzeltmesi
+
+Son kullanici talimati Y-03 uzerinden devamdir. Test kosusu BASLATILMADI.
+Citation locator icinde traversal/absolute path, Locator tarafindan
+PolicyViolation uretirken answer kapisi yalniz ValidationFailed yakaliyordu.
+Bu nedenle guvensiz locator belirsizlik yaniti yerine exception uretebiliyordu.
+PolicyViolation artik citation-invalid sonucuna doner; optional metin alanlari
+canonical Locator cagrisi oncesi tip/bosluk kontrolunden gecer. Regresyon
+ornekleri hazirlandi; runtime dogrulama tum gelistirmelerin sonundadir.
+
+1739a5f..c4a1e5e bagimsiz kaynak incelemesinde Y-03 icin baska somut
+Critical/Important bulgu yok. Diger kapsamda uc acik bulundu: Y-09 yeni aday
+kaydetme CLI yolu eksik, v3 home'da skill prepare v2 planiyla uyumsuz,
+Y-10 eski learning-v2 backup verify/restore ortak validator tarafindan reddediliyor.
+Bunlar halen acik gelistirmedir; Y-12ye gecis notu bu eksikler giderilmeden
+test baslatma veya tum teslim tamamlandi iddiasi olarak kullanilamaz.
+Kullanici DB migrationi/backup restore bu tur yapilmadi.
+
+Onceden dirty Maven fixture test izolasyonu bu Y-03 commitine alinmaz.
+Korunan dort untracked girdi degismeden, stage edilmeden kalir.
+
+---
+
 # Guncel devir — Y-12 final asamasi sirada
 
 Y-01..11 kaynak gelistirme teslimleri kayitli. Henuz test kosusu YAPILMADI.

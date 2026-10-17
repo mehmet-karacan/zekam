@@ -624,6 +624,13 @@ def test_valid_citation_cannot_hide_a_foreign_citation() -> None:
         {"relative_path": "src/foreign.py"},
         {"relative_path": "src/service/audit_service.py", "line_start": True, "line_end": 4},
         {"relative_path": "../private.py"},
+        {"relative_path": "/private.py"},
+        {"relative_path": "C:\\private.py"},
+        {"relative_path": 123},
+        {"relative_path": "src/service/audit_service.py", "entry_path": "../private.py"},
+        {"relative_path": "src/service/audit_service.py", "entry_path": False},
+        {"relative_path": "src/service/audit_service.py", "video_id": 123},
+        {"relative_path": "src/service/audit_service.py", "symbol": []},
         {"relative_path": "src/service/audit_service.py", "page": 0},
     ],
 )

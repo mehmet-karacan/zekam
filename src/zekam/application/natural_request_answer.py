@@ -45,7 +45,7 @@ import re
 from typing import Any, Final
 
 from zekam.domain.canonical import digest, parse_digest
-from zekam.domain.errors import ValidationFailed
+from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.knowledge import Locator
 
 SCHEMA: Final = "zekam-natural-request-answer/v1"
@@ -161,12 +161,13 @@ def _locator_is_nonempty(locator: Any) -> bool:
     """Locator'un ``relative_path`` ya da ``object_name`` tasiyip tasimadigina bakar."""
     if not isinstance(locator, dict) or not locator:
         return False
-    object_name = locator.get("object_name")
-    if object_name is not None and (not isinstance(object_name, str) or not object_name.strip()):
-        return False
+    for field in ("relative_path", "entry_path", "object_name", "symbol", "video_id"):
+        value = locator.get(field)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            return False
     try:
         Locator(**locator)
-    except (TypeError, ValidationFailed):
+    except (TypeError, PolicyViolation, ValidationFailed):
         return False
     relative_path = locator.get("relative_path")
     object_name = locator.get("object_name")
