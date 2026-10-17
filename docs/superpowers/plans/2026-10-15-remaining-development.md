@@ -228,6 +228,16 @@
   ile projection eslesti; warnings/errors bos. Bu read-only kanit native/live
   ve bagimsiz kabul kapilarini kapatmaz.
 
+- 17 Ekim 2026 cbdf2d4 sonrasi tek final toplu test: kaynak gelistirmesi
+  durdurulduktan sonra `python -m pytest -q --tb=short --basetemp
+  C:\\temp\\zekam-final5` exit code `0` ile tamamlandi. Sonuc `7983 passed,
+  1409 skipped, 3 warnings`, sure `1:00:40`. Windows symlink/POSIX,
+  kurulu olmayan native istemciler, gercek Akilli Kasa corpus'u, OCR, local
+  BGE ve live provider kabulleri host veya explicit yetki siniri nedeniyle
+  skip kaldirildi. Yerel final test kapisi temizdir; native/tool-denial,
+  signer/credential, bagimsiz verifier, restore/rollback, live kalite ve
+  production release zinciri acik kabul kapilari olarak kalir.
+
 - 17 Ekim 2026 OpenCode executable uyumlulugu: Hostta `@opencode/cli` 2.0.30
   direct binary'si bulundu ve `opencode.exe --version` salt okunur olarak
   `opencode v2.0.30` dondu; PATH shim'i gorunur degildi. Resolver, shell/npm
