@@ -1,3 +1,23 @@
+# Guncel devir - Y-12 run2 durdu, Work readback duzeltildi
+
+Exec session61976 TERMINAL exit1. Run2: 625 passed / 282 skipped / 1 failed,
+1213.48sn. Hata test_natural_request_evidence exclusive-lock readback'inde
+ConfigurationError'in adapter tarafindan mapped edilmemesiydi. Simdi controlled
+work-readback-unavailable olur; SQLite schema/lock kontrolu ayni kalir.
+Work readback + scope hedefli regresyon 31 passed (work-readback-fix-junit.xml).
+Yeni missing/invalid store testleri no-create/no-repair dogrular.
+
+Siradaki adim: full collection census al; run2 JUnit'inde tamamen biten 80
+dosyanin canonical node'larini kanita bagla (son/failed module'u haric tut).
+Ayni onceki kapsamdan yalniz bu kanitli tamamlanmis dosyalari ignore ederek kalan
+Windows fail-fast kosusunu baslat. Tum test node'larinin census-JUnit birlesimi
+ile eksiksiz kapsandigini sonunda kontrol et; yeni skip veya daha dar kapsam yok.
+Run2'yi tekrar baslatip gecen ilk 20 dakikayi gereksiz tekrarlama.
+Dort korunan untracked girdiyi benimseme; orijinal iki ignore korunur.
+Artifact alani C:/temp/zekam-y12-e3741df. Goal aktif; Y12 bitmedi.
+
+---
+
 # Guncel devir - Y-12 paket guvenlik kapisi da gecti
 
 paket_dogrula.py ilk kosuda tests/unit/test_unit_test_runner_process.py icin

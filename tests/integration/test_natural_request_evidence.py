@@ -115,6 +115,24 @@ def test_exclusively_locked_work_readback_reports_unavailable(
         connection.close()
 
 
+@pytest.mark.parametrize("invalid_database", [False, True])
+def test_unavailable_work_store_never_creates_or_repairs_data(
+    tmp_path: Path, invalid_database: bool,
+) -> None:
+    home = tmp_path / "unavailable-home"
+    database = home / "state" / "operational.db"
+    payload = b"invalid SQLite fixture"
+    if invalid_database:
+        database.parent.mkdir(parents=True)
+        database.write_bytes(payload)
+    with pytest.raises(PolicyViolation, match="work-readback-unavailable"):
+        read_work_project(home, "unknown-work")
+    if invalid_database:
+        assert database.read_bytes() == payload
+    else:
+        assert not home.exists()
+
+
 def test_closed_work_cannot_be_session_authority(bound_context: tuple[Path, Path, str]) -> None:
     home, _source, _work_id = bound_context
     store = SQLiteOperationalStore(home / "state" / "operational.db")

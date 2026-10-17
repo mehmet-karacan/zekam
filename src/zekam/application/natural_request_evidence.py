@@ -28,7 +28,7 @@ from typing import Any
 
 from zekam.application.project_rag_runtime import resolve_project_source
 from zekam.domain.canonical import parse_digest
-from zekam.domain.errors import PolicyViolation, ValidationFailed
+from zekam.domain.errors import ConfigurationError, PolicyViolation, ValidationFailed
 from zekam.domain.identifiers import validate_slug
 from zekam.domain.work import OPEN_STATES, WorkState
 from zekam.infrastructure.sqlite.operational_store import SQLiteOperationalStore
@@ -118,7 +118,7 @@ def read_work_project(home: Path, work_id: str) -> WorkProjectEvidence:
                 project = uow.resolve_project(work.project_id, include_archived=True)
             except ValidationFailed as exc:
                 raise PolicyViolation("work-project-unresolvable") from exc
-    except sqlite3.OperationalError as exc:
+    except (sqlite3.OperationalError, ConfigurationError) as exc:
         raise PolicyViolation("work-readback-unavailable") from exc
     if project.status != "active":
         raise PolicyViolation("work-project-archived")

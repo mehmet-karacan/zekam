@@ -25,7 +25,7 @@ pakete veya test kabul kapsaminda sahiplenilmedi.
 | Learning-v2 -> v3 | PASSED | Canonical memory prepare terminal receipt; integrity/FK ok; eski tablolarin logical content paritesi ve schema3/all_ready readback |
 | Learning-v3 kullanici yedegi | PASSED | Guncel kullanici bundle create/verify ve ayri yeni hedefe restore |
 | Paket/kaynak kapilari | PASSED | Paket yapisi + tam Git security history, manifest, catalog, platform ve son wheel runtime reachability gecti; bulgu sonrasi exact fixture history kaydiyla tekrar dogrulandi |
-| Tum ilgili Windows testleri | RUNNING | Guncel kaynakla run2, ilk hatada durur; hata varsa giderilip etkilenen kontroller yeniden kosulacak |
+| Tum ilgili Windows testleri | RUNNING | Run2: 625 passed / 282 skipped / 1 failed; Work readback hata sinifi duzeltildi, ilgili 31 test gecti. Tamamlanmis dosyalar JUnit ile baglanip kalan kapsam kosulacak |
 | Canli Oracle/Jira/Confluence/ODI sistemi | NOT-RUN | Bu final kabulde kurum verisi/credential'i veya canli kurum servisi kullanilmadi; fixture/source kapsamiyla karistirilmaz |
 | MacOS / yeni Linux native kabul matrisi | OUT-OF-SCOPE | Onayli 0.3 kapsam karari |
 
@@ -55,6 +55,15 @@ sonuclari buyuk kurumsal corpus icin performans/kalite garantisi vermez.
   icin zaten reviewed idi; yalniz exact history kaydi eksikti. Gercek credential
   degildi. History istisnasi eklenince tam tarama PASSED, history_complete=true,
   errors=[]; allowlist sozlesme kontrolleri 2/2 gecti. Global kural kapatilmadi.
+
+- Run2 `test_exclusively_locked_work_readback_reports_unavailable` ile durdu:
+  operational store kurucusu lock/schema okuma sorununu ConfigurationError'a
+  cevirirken readback adapter yalniz sqlite3.OperationalError yakaliyordu.
+  ConfigurationError da bounded work-readback-unavailable olur; schema/lock
+  dogrulamasi gevsetilmez. Exclusive lock, writer-lock ile read-only okuma,
+  missing/invalid DB'de no-create/no-repair dahil ilgili 31 test gecti.
+  Kalan dosyalar kosulurken run2'de tam biten dosyalar yeniden calistirilmayacak;
+  collection census ve JUnit node kimliklerinin birlesimi tam kapsam icin okunacak.
 
 ## Bagimsizlik ve kalan is
 
@@ -95,3 +104,5 @@ Artifact alani: `C:/temp/zekam-y12-e3741df`. SHA256 mevcut dosya baytlarindan al
 | `package-validation-fixture-reviewed.json` | `sha256:52018c5efaf63d4ab51eb64b4a6ac9d857bbd40ba6e22a9e691c69f81263fe7b` |
 | `security-policy-junit.xml` | `sha256:4a788e0b511facf66e2d145bf66adc5a8eefb3a5c649123132d71113f142f1d2` |
 | `runtime-reachability-final.log` | `sha256:f0bfd9b4315ad2f07466aa1b69c6a6622d5118fa000287bb295fec41d158f117` |
+| `junit-run2.xml` | `sha256:e0242dfedcf7a13fcf486ad5799957c400598eddfb6d8f98acb654cd07ce2954` |
+| `work-readback-fix-junit.xml` | `sha256:f7a7c7f373101a1bcdcf4c32ab8a9d905a7ac9b4e365c646624703d9fc8ced0f` |
