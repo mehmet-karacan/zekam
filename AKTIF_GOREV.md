@@ -19,7 +19,7 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `2.5` — Y-01 yerel veri alani ve kaynak bagli CLI kurulumu
+**Belge sürümü:** `2.6` — Y-02 ortak giriste yerel CLI cozumlemesi
 **Tarih:** 12 Ekim 2026  
 **Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
@@ -130,7 +130,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   yapma. Gereken tasimada once backup ve geri donus plani olustur. Model, config,
   operational DB, CAS ve proje indeksleri kaynak repodan ayri kalsin. CPU E5 mevcutsa
   yeniden kurma. Cikis: tek etkin veri koku, calisan yerel profil ve acik geri donus yolu.
-- [ ] **Y-02 — Ince CLI girisi:** `client_instruction_bootstrap.py`, `client_integrations.py`
+- [x] **Y-02 — Ince CLI girisi:** `client_instruction_bootstrap.py`, `client_integrations.py`
   ve proje-yerel instruction/MCP projection'larindaki eksigi tamamla. Kurulu ve kullanilan
   istemcinin kok/alt dizin girisi yeterli olsun; diger projede kendiliginden effect
   baslamasin. CLI model/ajan secimini ustlensin; native izin sinirini oldugu gibi raporla.
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-01 kurulumundan sonra Y-02 ince CLI girisini tamamla. Yeni arac/servis,
+**Sonraki guvenli adim:** Y-03 dogal dil ve kaynakli yanit baglarini incele. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -258,6 +258,28 @@ basarisi degildir. Geri donus: mevcut receipt/config ve kaynak bagli ortam bilgi
 kullanilir; yeni kullanici state'i silinmez, `init` sifirlama araci olarak yeniden
 calistirilmaz. Sonraki veri tasimasi once online backup/restore plani ister.
 Korunan dort untracked girdiye dokunulmadi. Sonraki gelistirme Y-02'dir.
+
+### 0.5 Y-02 gelistirme kaydi — 18 Ekim 2026
+
+Gercek kokte CLAUDE.md ve GEMINI.md yalniz ortak AGENTS.md'ye import tasir;
+opencode.json default agent veya eager instruction kurmaz. Mevcut
+`plan_project_local_entry` kaynak incelemesi alt dizin import'unu kanonik kaynaga
+bagladigini, marker yoksa hedef dosya uretmedigini ve yabanci icerigi conflict
+saydigini gosterdi; calisan generator yeniden yazilmadi. Kullanici-geneli MCP,
+instruction, hook veya skill kurulumu yapilmadi.
+
+Y-01 yerel CLI'i PATH'te olmadigindan ortak AGENTS.md ve entegrasyon politikasina
+mevcut local executable fallback'i eklendi. Kullanici veri koku secimi executable
+kurulumundan ayrildi; eksik CLI otomatik init/yeniden kurulum baslatmaz. Bu bilgi
+shim/skill dosyalarina kopyalanmadi. Native shell izinleri CLI'a ait kalir;
+dolayli shell sandbox veya universal push enforcement vaadi uretilmedi.
+
+Y-02 checkbox'i gelistirme teslimidir; fresh-session, gercek skill kesfi, kok/alt
+ve yabanci proje inert davranisi testleri Y-12'de bekler. Bu tur test kosusu veya
+Work kapanisi yoktur. Karar: kullanicinin son test sirasi ve gercek kaynak koku
+tercihi skill'in per-step test/worktree varsayimlarinin onundedir. Geri donus:
+yalniz bu dokuman degisikligini yeni commit ile geri al; native ayar/veri silme.
+Siradaki gelistirme Y-03'tur.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
@@ -4333,6 +4355,7 @@ hatası diye sunulmaz; ama kendiliğinden çözülmüş de yazılmaz.
 | 2.3 | 2026-10-17 | MacOS'a bagli dokuz kaynak modul checkout'tan kaldirildi; wheel, manifest ve runtime audit hizalandi; pytest final asamaya birakildi |
 | 2.4 | 2026-10-18 | Kullanici karariyla 59 eski acik satir tek 12 adimlik listeye birlestirildi; yerel kullanici veri hedefi belirlendi; gereksiz orkestrasyon, benchmark, signed publication, evolution ve yayin kapilari kapsamdan cikarildi; tamamlandi sayilmadi |
 | 2.5 | 2026-10-18 | Y-01: varsayilan kullanici home atomik kuruldu, yerel source-linked CLI olusturuldu, mevcut E5 dosyalari indirmesiz SHA256 kontrolunden gecti; testler finalde |
+| 2.6 | 2026-10-18 | Y-02 gelistirmesi: tek ortak girise mevcut yerel CLI yolu eklendi; kanonik ince giris generatoru korundu; native oturum kabul kosulari final Y-12de |
 
 ### 15.3 Şimdiki Gerçek Durum
 

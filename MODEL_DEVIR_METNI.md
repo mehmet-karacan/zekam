@@ -1,3 +1,14 @@
+# Guncel devir — 18 Ekim 2026 Y-02 gelistirmesi
+
+Y-01 kuruldu, Y-02 gelistirme teslimi kaydedildi. Siradaki is Y-03'tur.
+Tek aktif liste AKTIF_GOREV.md 0.3; bu isaretler Work kapanisi veya native kabul
+degildir. Y-02 gercek oturum/skill/inert davranis testleri final Y-12'de bekler.
+AGENTS.md mevcut yerel executable fallback'ini tasir; root shim'ler ayni kaynaga
+baglidir. Klasor acilisinda otomatik kurulum/init yapma. Onceki devir satirlari
+asagida tarihseldir; gercek HEAD ve store durumu yeniden okunur.
+
+---
+
 # Guncel devir — 18 Ekim 2026 Y-01 kurulumu
 
 Kullanici devam talimati verdi. Y-01 kurulum teslimi kaydedildi; siradaki adim Y-02.

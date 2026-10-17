@@ -19,6 +19,11 @@ mekanizmaları CLI'ın kendisine aittir. Zekam zorunlu koordinatör veya ajan y�
 - Secret, PII ve ham transcript'i prompt, log, artifact, vector veya Git'e alma.
 - Commit mesajı Türkçe anlamlı ve ASCII-only olur. Push yalnız açık kullanıcı yetkisiyle yapılır.
 - Legacy PostgreSQL veri importu ve core için PostgreSQL/Docker bağımlılığı yasaktır.
+- Windows'ta `zekam` PATH'te yoksa mevcut yerel kurulumu
+  `%USERPROFILE%\.zekam\yerel\python\Scripts\zekam.exe` üzerinden çağır.
+  Klasörü açınca kurulum, PATH değişikliği veya yeniden `init` başlatma; bu yerel
+  executable da yoksa kurulum eksikliğini bildir. `ZEKAM_HOME` veri kökünü seçer;
+  kaynak kod ve CLI araç ortamı için ayrı bir proje kopyası oluşturma.
 
 ## Yetki ve kanıt
 

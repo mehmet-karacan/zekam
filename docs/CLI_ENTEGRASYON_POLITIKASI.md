@@ -19,6 +19,16 @@ dosyasını başka bağlamda (üst dizin, JIT) görmesi mümkündür; vaat edile
 kapsam dışında kendiliğinden kurulup çalışmamasıdır. `00_BASLA.md` ve `DEVAM_PROTOKOLU.md`
 Zekam Work/devam/recovery işinde açılır; her oturumda yüklenmez.
 
+18 Ekim 2026 yerel Windows kurulumunda `zekam` global PATH'e eklenmez. Native ajan
+komutu bulamazsa mevcut `%USERPROFILE%\.zekam\yerel\python\Scripts\zekam.exe`
+girişini kullanır. Bu executable gerçek kaynak checkout'una bağlı geliştirme ortamıdır;
+veri kökü varsayılan `%USERPROFILE%\.zekam`, açık `--home` veya `ZEKAM_HOME` ile seçilir.
+Başka bir veri kökü seçmek yeni bir executable konumu oluşturmaz. Alt dizin girişleri
+ortak `AGENTS.md` kaynağına yönlendiğinden bu bilgi istemci dosyalarına kopyalanmaz.
+Eksik executable otomatik kurulum veya `init` yetkisi üretmez. Kullanılan kurulu
+istemci dışındaki native host kabulü bu teslimin zorunlu kapısı değildir; gerçek
+giriş/skill keşfi ve inert davranış kabulü Y-12 final aşamasında ölçülür.
+
 Proje-yerel ince giriş planı Zekam çalışma alanı işaretçisi doğrulanmadığında
 `inert=true` ve `inert_reason=workspace-marker-missing-or-invalid` döndürür.
 Bu neden plan/effect/receipt zincirinde taşınır; hedef dosya listesi boş kalır ve
