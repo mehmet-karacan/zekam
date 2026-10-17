@@ -3797,6 +3797,22 @@ Bu stale/hedefe ait rapor WP-09 kabul kaniti sayilmadi; harici repoya degisiklik
 yapilmadi ve Maven calistirilmadi. WP-09.01..06 icin hedef gercek source/tree
 fingerprint'i, taze Surefire/JaCoCo kosusu ve bagimsiz verifier kaniti halen aciktir.
 
+### 10.112 17 Ekim 2026 acik kabul maddeleri authority readback'i
+
+Mevcut `AKTIF_GOREV.md` authority'sindeki unchecked WP satirlari yeniden sayildi:
+toplam `46` acik madde var. Dagilim: WP-02 (`02.01`, `02.03`), WP-04 (`04.01`,
+`04.03`-`04.06`), WP-05 (`05.03`, `05.04`, `05.06`), WP-06 (`06.01`, `06.02`,
+`06.04`, `06.05`), WP-07 (`07.01`-`07.05`), WP-08 (`08.01`-`08.06`), WP-09
+(`09.01`-`09.06`), WP-10 (`10.01`, `10.02`, `10.03`, `10.05`, `10.06`), WP-11
+(`11.01`-`11.04`) ve WP-12 (`12.01`-`12.06`).
+
+Bu sayim acceptance/host/live kanitlarinin acik oldugunu gosteren authority
+readback'idir; yeni test kosusu veya kapanis iddiasi degildir. `7993 passed,
+1409 skipped, 3 warnings` final suite'i `188d153` kaynak setinin son yerel test
+kaniti olarak korunur. Bu kaynak seti icin pytest/Maven yeniden calistirilmayacak;
+acik maddeler exact native/live/credential/corpus/verifier/restore/release kaniti
+gelmeden isaretlenmeyecektir.
+
 ## 11. Karar Kapıları, Alt Ajanlar Ve Kalıcı Çalışma
 
 ### 11.1 Araştırmada Sonuçlandırılacak Kararlar

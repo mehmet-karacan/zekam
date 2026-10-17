@@ -871,3 +871,12 @@
   kabul kaniti sayilmadi; harici repoya degisiklik yapilmadi ve Maven
   calistirilmadi. WP-09.01..06 icin taze source/tree fingerprint, Surefire/JaCoCo
   ve bagimsiz verifier kaniti acik kalir.
+
+- 17 Ekim 2026 authority readback'i: `AKTIF_GOREV.md` unchecked WP satirlari
+  toplam `46` acik acceptance maddesi veriyor. Dagilim WP-02 (2), WP-04 (5),
+  WP-05 (3), WP-06 (4), WP-07 (5), WP-08 (6), WP-09 (6), WP-10 (5), WP-11 (4)
+  ve WP-12 (6). Bu readback kapanis veya test sonucu degildir. `188d153`
+  kaynak setindeki `7993 passed, 1409 skipped, 3 warnings` final suite son yerel
+  test kanitidir; bu kaynak seti icin pytest/Maven yeniden calistirilmayacaktir.
+  Exact native/live/credential/corpus/verifier/restore/release kaniti gelmeden
+  bu maddeler tamamlanmis isaretlenmez.
