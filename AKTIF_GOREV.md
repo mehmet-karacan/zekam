@@ -19,9 +19,9 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 # Zekam — Doğal Dil, Hızlı Proje Bilgisi Ve Yetkinlik Tamamlama Görevi
 
 **Dosya:** `AKTIF_GOREV.md`  
-**Belge sürümü:** `3.6` — Y-11 tracked wheel ve kullanim belgesi
+**Belge sürümü:** `3.7` — Y-12 final dogrulama ve teslim
 **Tarih:** 12 Ekim 2026  
-**Mevcut yürütme aşaması:** `IMPLEMENTATION_APPROVED`
+**Mevcut yürütme aşaması:** `FINAL_VERIFICATION_COMPLETE`
 **Bu dosya hazırlanırken:** Kaynak değişikliği, ürün testi, canlı embedding veya deployment yapılmadı.
 
 > **Görev özeti:** Önce Zekam'ın gerçek durumunu ve uygun açık kaynak yöntemleri araştır;
@@ -187,7 +187,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
   son kaynakla hizala. Tek kurulum/ilk kullanim/devam/backup aciklamasi yeterli; desteklenen
   ve eksik akislar acik yazilsin. Cikis: finalde kurulacak wheel ve guncel belge; ayri
   mimari HTML/ZIP/diyagram veya uzak yayin projesi acilmaz.
-- [ ] **Y-12 — Tek final dogrulama ve teslim:** Y-01..11 gelistirmeleri tamamlaninca
+- [x] **Y-12 — Tek final dogrulama ve teslim:** Y-01..11 gelistirmeleri tamamlaninca
   ilgili tum Windows testlerini bir final asamasinda calistir; temiz wheel kabulunu,
   E5 gercek CPU embedding (384/finite/L2, query/passage, mask pooling), Turkce/Ingilizce
   arama ve cold/unchanged/delta/sorgu olcumunu, Maven/JaCoCo akisina ve checkpoint/restore
@@ -225,7 +225,7 @@ Kaynak kod `.zekam` altina tasinmaz, model agirliklari Git'e girmez.
 yarim indeks yayini Y-05; eski checkpoint/effect tekrari Y-07; sahte coverage ve
 eski rapor Y-08 icin finalde negatif senaryolar bulunur. Kapsamdan cikarma kod silme,
 veri silme, basari kaniti veya kanonik Work kapatma islemi degildir.
-**Sonraki guvenli adim:** Y-12 final test, review, wheel ve gercek CPU/DR kabul asamasini yurut. Yeni arac/servis,
+**Sonraki guvenli adim:** 0.3 kapsami teslim edildi; yeni kullanici gorevini bekle. Yeni arac/servis,
 CLI modeli veya global instruction kurulumuna bu liste kendiliginden yetki vermez.
 
 ### 0.4 Y-01 uygulama kaydi — 18 Ekim 2026
@@ -472,12 +472,36 @@ clone'u, untracked modul veya kullanici/model verisi release'e alinmaz. Artifact
 repo disindadir ve stale manifest ile build reddedilir. Bu, korunan untracked
 natural_request_rag.py dosyasinin istemeden wheel'e girmesini de onler.
 
-Y-01..11 kaynak gelistirme teslimleri kaydedildi. Runtime test/acceptance, source
-manifest check, wheel-only kurulum, E5 CPU/semantik/performans, Maven/JaCoCo,
-checkpoint ve backup/restore Y-12 final asamasindadir. Testler henuz CALISTIRILMADI.
-Kullanici learning DB'si halen v2; explicit migration test/review sonrasinda ele
-alinacak. Y-11 kaynak teslimidir; wheel kabul basarisi veya Work kapanisi degildir.
+Y-11 teslim aninda Y-01..11 kaynak gelistirmeleri kaydedilmis, runtime testleri
+henuz calistirilmamis ve kullanici learning DB'si v2 idi. Bu tarihsel kaydin
+guncel sonucu 0.16 ve docs/Y12_DOGRULAMA_SONUCLARI.md icindedir.
+Y-11 kendi basina runtime kabul veya canonical Work kapanisi sayilmaz.
 Geri donus: kaynak/belge revizyonunu geri al; kullanici home/model/state korunsun.
+
+### 0.16 Y-12 final dogrulama ve teslim — 18 Ekim 2026
+
+Y-01..11 gelistirmelerinden sonra tek final test/fix asamasi yurutuldu.
+9364 case census ve JUnit birlesimi: 8018 passed, 1346 gerekceli skipped,
+0 unresolved failure, 0 eksik slot, 0 test source drift. Gecen case'ler
+tekrarlanmadi; fix sonrasi yalniz etkilenen/basarisiz kontroller kosuldu.
+Son devam kosusu onceki9063case'i atlayip kalan301'i tamamladi (281pass/20skip).
+Wheel mevcut oldugunda daha once atlanan4paket kontrolu de4/4gecti.
+
+Gercek yerel E5 CPU:384finite/L2, query/passage, mask-aware pooling,
+TR/EN/TR-EN probe;2thread/batch4 ve kaynak/sure olcumleri kayitli.
+Cold/unchanged/delta yerel indeks ve kaynakli TR/EN yanit, gercek3Maven/JaCoCo
+senaryosu, checkpoint32/32 ve v2/v3backup verify/ayri restore kaniti var.
+Kullanici learningv3, local-core ready ve SQLite integrity saglikli.
+Temiz wheel fonksiyonel kabul11/11; son metadata artifact'i ayni Python
+modullerini tasir, degisen authority/manifest kaynaklari ayri dogrulanir.
+
+Bagimsiz kaynak incelemesindeki3onemli bulgu duzeltildi. Inceleme araligi ve
+siniri, onceki basarisizliklar, artifact/source hash baglari ve skip nedenleri
+tek docs/Y12_DOGRULAMA_SONUCLARI.md raporundadir. Canli kurum servisleri,
+eksik gercek corpus/OCR/pinned-native kontrolleri passed diye sunulmaz.
+MacOS ve yeni Linux native matrisi0.3karariyla kapsam disidir. Eski genis
+capability matrix'i bu daraltilmis teslimin tamamlanmasi anlamina gelmez.
+Bu kaynak/kabul teslim kaydidir; canonical Work/claim/receipt durumu uretmez.
 
 ## 1. Amaç Ve Kullanıcının Beklediği Deneyim
 
