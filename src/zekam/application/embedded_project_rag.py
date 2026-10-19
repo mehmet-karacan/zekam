@@ -47,6 +47,7 @@ from zekam.application.secret_detection import scan_text
 from zekam.application.source_architecture_answer import (
     build_architecture_summary,
     is_architecture_query,
+    source_module,
 )
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
@@ -1054,11 +1055,25 @@ class EmbeddedProjectRAG:
         """Kaynak-mimari sorusu icin sinirli, kod-turetimli ozet; uydurma yok.
 
         Proje+generation'a pinli ``architecture_candidates`` orneklemeden
-        chunk view'leri ve source identity'leri tek tek bounded okur; ozeti
-        saf ``build_architecture_summary`` yardimcisiyla kurar. Kod kaniti
-        yoksa ``insufficient`` ozeti donebilir; hicbir durumda plan/dokuman
-        fallback'u veya dosya fallback'u yapilmaz. Grenc/uydurma chunk
-        adaptasyonu yapilmaz: view/identity kapilari index'in kendisidir.
+        chunk view'leri ve source identity'leri tek toplu bounded okumayla
+        alinir; on ozet saf ``build_architecture_summary`` yardimcisiyla
+        kurulur. Aday secimi dosya basina yalniz ilk index chunk'ini
+        aldigindan, on ozette henuz rol kaniti olmayan modullerin
+        temsilcileri icin ayni kaynagin izleyen index chunk'lari
+        ``following_chunk_ids`` ile bounded probe edilir (oncelik: frontend
+        kod uzantilari, grup icinde aday sirasi korunur). Boylece
+        import/baslik chunk'inden sonra gelen gercek UI kodu kanita girer;
+        rol cikarimi import/dosya adindan yapilmaz, yalniz chunk icerigi
+        konusur. Toplam chunk sayisi ``ARCHITECTURE_CANDIDATE_LIMIT``'i
+        asamaz; yeni id'ler tek toplu views/source_identities okumasiyla
+        birlestirilir ve ozet genisletilmis chunk kumesiyle bir kez yeniden
+        kurulur. Aday kesintisi, index'in kanit kesmesi/birakmasi veya yeni
+        butcenin dolmasi truncated taniyi dogrular. ``source_inventory`
+        sayaclari ekleyici taniidir, authority degildir. Kod kaniti yoksa
+        ``insufficient`` ozeti donebilir; hicbir durumda plan/dokuman
+        fallback'u veya ham dosya okuma fallback'u yapilmaz. Grenc/uydurma
+        chunk adaptasyonu yapilmaz: view/identity kapilari index'in
+        kendisidir.
         """
         candidates = self.index.architecture_candidates(
             project_id,
@@ -1067,7 +1082,9 @@ class EmbeddedProjectRAG:
             max_modules=ARCHITECTURE_MAX_MODULES,
             per_module=ARCHITECTURE_PER_MODULE,
         )
-        candidate_ids = tuple(candidates.get("chunk_ids") or ())
+        raw_candidate_ids = tuple(candidates.get("chunk_ids") or ())
+        candidate_ids = raw_candidate_ids[:ARCHITECTURE_CANDIDATE_LIMIT]
+        candidate_ids_clamped = len(raw_candidate_ids) > len(candidate_ids)
         # Aday listesi bos olsa bile ozet kurucu CALISTIRILIR: yapisal
         # 'insufficient' ozeti uretilir; normal-dokuman/dosya fallback'u
         # hicbir durumda yapilmaz.
@@ -1089,23 +1106,156 @@ class EmbeddedProjectRAG:
             if candidate_ids
             else {}
         )
-        summary = build_architecture_summary(
+        identity_map = {
+            chunk_id: dict(identity) for chunk_id, identity in identities.items()
+        }
+        candidate_metadata = {
+            "chunk_ids": candidate_ids,
+            "truncated": (
+                bool(candidates.get("truncated", False))
+                or candidate_ids_clamped
+            ),
+            "observed_module_count": candidates.get("observed_module_count"),
+            "sampled_module_count": candidates.get("sampled_module_count"),
+        }
+        preliminary = build_architecture_summary(
             query=query,
             project_id=project_id,
             generation_digest=generation.generation_digest,
             source_revision=generation.source_revision,
             views=views,
-            identities={
-                chunk_id: dict(identity) for chunk_id, identity in identities.items()
-            },
-            candidate_metadata={
-                "chunk_ids": candidate_ids,
-                "truncated": bool(candidates.get("truncated", False)),
-                "observed_module_count": candidates.get("observed_module_count"),
-                "sampled_module_count": candidates.get("sampled_module_count"),
-            },
+            identities=identity_map,
+            candidate_metadata=candidate_metadata,
         )
-        return summary if isinstance(summary, dict) else None
+        if not isinstance(preliminary, dict):
+            return None
+        representative_count = len(views)
+        neighbor_ids: list[str] = []
+        truncated = bool(candidates.get("truncated", False)) or candidate_ids_clamped
+        if candidate_ids:
+
+            def _locator_path(view: Any) -> str | None:
+                locator = getattr(view, "locator", None)
+                if locator is None and isinstance(view, dict):
+                    locator = view.get("locator")
+                path = getattr(locator, "relative_path", None)
+                if path is None and isinstance(locator, dict):
+                    path = locator.get("relative_path")
+                return path if isinstance(path, str) else None
+
+            # Rol kaniti olan moduller tekrar probe edilmez; "kanitli"
+            # bilgisi yalniz on ozet iceriginden gelir (import/dosya
+            # adindan degil).
+            proven: set[str] = set()
+            module_entries = preliminary.get("modules")
+            if isinstance(module_entries, list):
+                for entry in module_entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    module_name = entry.get("module")
+                    if isinstance(module_name, str) and any(
+                        role in (entry.get("roles") or ())
+                        for role in (
+                            "http_api",
+                            "service_logic",
+                            "data_access",
+                            "frontend_rendering",
+                            "frontend_api_requests",
+                            "application_entrypoint",
+                        )
+                    ):
+                        proven.add(module_name)
+            frontend_extensions = (".ts", ".tsx", ".js", ".jsx", ".vue", ".svelte")
+            frontend_representatives: list[str] = []
+            other_representatives: list[str] = []
+            seen_ids: set[str] = set()
+            for chunk_id in candidate_ids:
+                view = views.get(chunk_id)
+                if view is None:
+                    continue
+                path = _locator_path(view)
+                if path is None:
+                    continue
+                module_name = source_module(path)
+                if not isinstance(module_name, str) or module_name in proven:
+                    continue
+                if chunk_id in seen_ids:
+                    continue
+                seen_ids.add(chunk_id)
+                if path.lower().endswith(frontend_extensions):
+                    frontend_representatives.append(chunk_id)
+                else:
+                    other_representatives.append(chunk_id)
+            remaining = ARCHITECTURE_CANDIDATE_LIMIT - len(candidate_ids)
+            # Oncelik sirasi: frontend uzantilari once; her grup icinde
+            # aday sirasi korunur, modul round-robin sirasi bozulmaz.
+            for representative_id in frontend_representatives + other_representatives:
+                if remaining <= 0:
+                    # Yeni komsu butcesi doldu: parcali taniyi koru.
+                    truncated = True
+                    break
+                count = min(2, remaining)
+                following = self.index.following_chunk_ids(
+                    project_id,
+                    representative_id,
+                    count=count,
+                    generation_digest=generation.generation_digest,
+                )
+                if len(following) < count:
+                    # Index kaniti kesti/birakti: truncated tani dusurulmez.
+                    truncated = True
+                for following_id in following:
+                    if following_id in seen_ids or following_id in candidate_ids:
+                        continue
+                    seen_ids.add(following_id)
+                    neighbor_ids.append(following_id)
+                    remaining -= 1
+                    if remaining <= 0:
+                        truncated = True
+                        break
+        if neighbor_ids:
+            # Yeni id'ler icin tek toplu views + source_identities okumasi;
+            # ham dosya fallback'u yok, kapilar index'in kendisidir.
+            neighbor_views = self.index.views(
+                project_id,
+                tuple(neighbor_ids),
+                generation_digest=generation.generation_digest,
+            )
+            views = {**views, **neighbor_views}
+            neighbor_identities = self.index.source_identities(
+                project_id,
+                tuple(neighbor_ids),
+                generation_digest=generation.generation_digest,
+            )
+            for chunk_id, identity in neighbor_identities.items():
+                identity_map.setdefault(chunk_id, dict(identity))
+            candidate_metadata = {
+                **candidate_metadata,
+                "chunk_ids": candidate_ids + tuple(neighbor_ids),
+                "truncated": truncated,
+            }
+            summary = build_architecture_summary(
+                query=query,
+                project_id=project_id,
+                generation_digest=generation.generation_digest,
+                source_revision=generation.source_revision,
+                views=views,
+                identities=identity_map,
+                candidate_metadata=candidate_metadata,
+            )
+        else:
+            summary = preliminary
+        if not isinstance(summary, dict):
+            return None
+        # Tanisal sayclar ekleyicidir; ozet digesti claims/coverage/bindings
+        # uzerinden kurulur, bu sayclar authority tasimaz.
+        summary["source_inventory"] = {
+            "representative_count": representative_count,
+            "expanded_chunk_count": len(neighbor_ids),
+            "total_chunk_count": len(candidate_ids) + len(neighbor_ids),
+            "candidate_limit": ARCHITECTURE_CANDIDATE_LIMIT,
+        }
+        return summary
 
     def query(
         self,

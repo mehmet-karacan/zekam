@@ -300,3 +300,67 @@ def test_unhealthy_provider_degrades_architecture_state(tmp_path: Path) -> None:
         assert "AKTIF_GOREV" not in str(citation["source_ref"])
     assert "chunk-gorev-plan" not in result["used_chunk_ids"]
     index.close()
+
+
+def test_architecture_summary_probes_following_chunk_for_header_only_frontend(
+    tmp_path: Path,
+) -> None:
+    provider = QueryProvider()
+    records = (
+        _record(
+            "web-page-header",
+            "web/src/Page.tsx",
+            "import React from 'react';",
+            order=0,
+            vector_slot=0,
+        ),
+        _record(
+            "web-page-component",
+            "web/src/Page.tsx",
+            "export function Page() {\n    return <div>hello</div>;\n}",
+            order=1,
+            vector_slot=1,
+        ),
+        _record(
+            "api-rest-controller",
+            "api/src/Api.java",
+            "@RestController\npublic class Api {\n}",
+            order=2,
+            vector_slot=2,
+        ),
+    )
+    index = SQLiteKnowledgeIndex(
+        tmp_path / "knowledge.sqlite3",
+        create=True,
+        dimension=LOCAL_E5_DIMENSION,
+    )
+    try:
+        index.build_generation(
+            records,
+            project_id=PROJECT,
+            source_revision=REVISION,
+            tree_digest=TREE,
+            source_manifest_digest=digest("manifest"),
+            embedding_profile_digest=digest("embedding"),
+            provider_profile_digest=provider.profile.profile_digest,
+            created_at="2026-09-02T00:00:00Z",
+        )
+        rag = EmbeddedProjectRAG(index, provider, _policy(provider))
+        result = _query(rag, ARCH_QUERY)
+        summary = result["architecture_summary"]
+        assert isinstance(summary["modules"], list)
+        module_names = {module["module"] for module in summary["modules"]}
+        assert "api" in module_names
+        assert "web" in module_names
+        assert isinstance(summary["claims"], list)
+        claim_roles = {claim["role"] for claim in summary["claims"]}
+        assert "frontend_rendering" in claim_roles
+        assert "web-page-component" in summary["used_chunk_ids"]
+        assert "web-page-header" not in summary["used_chunk_ids"]
+        assert "web-page-component" in {citation["chunk_id"] for citation in result["citations"]}
+        inventory = summary["source_inventory"]
+        assert inventory["expanded_chunk_count"] >= 1
+        assert inventory["total_chunk_count"] <= 96
+        assert inventory["candidate_limit"] == 96
+    finally:
+        index.close()
