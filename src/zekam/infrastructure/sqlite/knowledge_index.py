@@ -143,6 +143,184 @@ def _locator(value: str) -> Locator:
         raise ValidationFailed("Knowledge locator alan tipleri gecersiz") from exc
 
 
+# Bounded metadata scan ceiling for architecture_candidates. The real target
+# generation holds ~9985 implementation chunks, so the cap must sit above a
+# full generation while remaining small (metadata only: id/path/order, never
+# body text). Exported as a module constant so unit tests can seam a small cap
+# without embedding thousands of vectors.
+ARCHITECTURE_SCAN_CEILING = 4097
+
+# Eligibility and module grouping are NOT duplicated here. The sampler
+# registers connection-local SQL closures that call the shared helper
+# (``zekam.application.source_architecture_answer.is_implementation_source`` /
+# ``source_module``) directly, so there is exactly one authoritative filter
+# and no drift. Only the metadata scoring/role sampling helpers below live
+# in this module; a path signal is sampling priority, never role proof.
+_ARCH_MANIFEST_NAMES = frozenset({
+    "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
+    "settings.gradle.kts", "package.json", "requirements.txt", "pyproject.toml",
+    "setup.py", "setup.cfg", "go.mod", "cargo.toml", "makefile", "dockerfile",
+    "jenkinsfile",
+})
+
+
+# Pure, connection-local declaration-signal rules (path metadata only).
+# A manifest name (100) outranks a role-named file (60), which outranks a
+# role-named directory (40). Role tokens are recognized in CamelCase
+# (FooController/FooService/FooApplication), word, kebab-case and dotted
+# forms so the pre-cap SQL sampling sees the same signals as the fallback.
+# This is a sampling priority only; downstream content analysis remains the
+# authoritative role proof.
+_ARCH_ROLE_TERMS = (
+    "application", "entrypoint", "entry_point", "entry-point", "startup",
+    "controller", "service", "repository", "routes", "route", "router",
+    "handler", "endpoint", "api", "main",
+)
+# One rule per (position, term). Stem rules run case-insensitively on the
+# original-case stem, so a CamelCase suffix (FooController/FooService/
+# FooApplication) is recognized through its lowercase predecessor; dir rules
+# run on lowercased components. The shared rule table keeps the SQL temp
+# function and the Python fallback in lockstep.
+_ARCH_ROLE_RULES: tuple[tuple[str, str, re.Pattern[str], int], ...] = tuple(
+    (
+        "stem",
+        term,
+        re.compile(
+            rf"(?:^|[a-z0-9_-]){re.escape(term)}(?:$|[^A-Za-z])", re.IGNORECASE
+        ),
+        60,
+    )
+    for term in _ARCH_ROLE_TERMS
+) + tuple(
+    (
+        "dir",
+        term,
+        re.compile(rf"(?:^|[^a-z0-9]){re.escape(term)}(?:$|[^a-z0-9])"),
+        40,
+    )
+    for term in _ARCH_ROLE_TERMS
+)
+_ARCH_SCORE_MANIFEST = 100
+
+
+def _arch_declaration_score(path: object) -> int:
+    """Path-only declaration signal (0/40/60/100) for sampling priority."""
+    if not isinstance(path, str) or not path:
+        return 0
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    if not parts:
+        return 0
+    filename = parts[-1]
+    if filename.lower() in _ARCH_MANIFEST_NAMES:
+        return _ARCH_SCORE_MANIFEST
+    stem = filename.rsplit(".", 1)[0]
+    for position, _term, pattern, score in _ARCH_ROLE_RULES:
+        if position == "stem" and pattern.search(stem):
+            return score
+    for position, _term, pattern, score in _ARCH_ROLE_RULES:
+        if position == "dir":
+            for part in parts[:-1]:
+                if pattern.search(part.lower()):
+                    return score
+    return 0
+
+
+def _arch_declaration_score_sql(path: str | None) -> int:
+    """SQL-registered variant of :func:`_arch_declaration_score`.
+
+    Registered per connection as a temporary function so the same
+    deterministic signals order the module/path partitions before the
+    bounded scan cap. Accepts only text (SQL ``NULL`` becomes 0).
+    """
+    if path is None:
+        return 0
+    return _arch_declaration_score(path)
+
+
+# Ordered code-evidence role families for the storage sampler. A smaller index
+# means a stronger sampling priority: build manifest, then entrypoints,
+# controllers, services, repositories, frontend routes, other roles, and
+# finally plain sources. This is metadata-only sampling priority; the
+# authoritative role proof is produced downstream by the content analysis.
+_ARCH_ROLE_PRIORITY: tuple[str, ...] = (
+    "manifest",
+    "entrypoint",
+    "controller",
+    "service",
+    "repository",
+    "route",
+    "other",
+)
+_ARCH_ROLE_TERM_TO_INDEX = {
+    "controller": 2,
+    "service": 3,
+    "repository": 4,
+    "routes": 5,
+    "route": 5,
+    "router": 5,
+    "handler": 6,
+    "endpoint": 6,
+    "api": 6,
+    "main": 6,
+}
+# The trailing boundary excludes uppercase so CamelCase word joins such as
+# ``ApplicationService`` (Application + Service) do not masquerade as an
+# entrypoint while ``FooApplication`` / ``Startup`` / ``Main`` do.
+_ARCH_ENTRYPOINT_STEM_RE = re.compile(
+    r"(?:^|[a-z0-9_-])(?:application|entrypoint|entry_point|entry-point|startup|main)"
+    r"(?:$|[^0-9A-Za-z])",
+    re.IGNORECASE,
+)
+_ARCH_ENTRYPOINT_DIR_RE = re.compile(
+    r"(?:^|[^a-z0-9])(?:application|entrypoint|entry_point|entry-point|startup|main)"
+    r"(?:$|[^a-z0-9])"
+)
+
+
+def _arch_role_of(path: object) -> int:
+    """Sampling-priority index (0 best) for a path's dominant role family.
+
+    Manifests outrank entrypoints, which outrank controllers, services,
+    repositories and routes, which outrank other role-named sources, which
+    outrank plain sources. The match is metadata-only (path stem then
+    directory components); a name is not framework/role proof, downstream
+    content analysis remains authoritative.
+    """
+    if not isinstance(path, str) or not path:
+        return len(_ARCH_ROLE_PRIORITY) - 1
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    if not parts:
+        return len(_ARCH_ROLE_PRIORITY) - 1
+    filename = parts[-1]
+    if filename.lower() in _ARCH_MANIFEST_NAMES:
+        return 0
+    stem = filename.rsplit(".", 1)[0]
+    if _ARCH_ENTRYPOINT_STEM_RE.search(stem):
+        return 1
+    # Terms ordered by sampling priority (controller, service, repository,
+    # routes, then the remaining role words) so a compound CamelCase name
+    # resolves to its most specific role family. Each stem pattern is
+    # pre-compiled once per term.
+    priority_terms = sorted(
+        _ARCH_ROLE_TERM_TO_INDEX.items(), key=lambda item: (item[1], item[0])
+    )
+    for term, index in priority_terms:
+        for position, _t, pattern, _score in _ARCH_ROLE_RULES:
+            if position == "stem" and _t == term and pattern.search(stem):
+                return index
+    for term, index in priority_terms:
+        for position, _t, pattern, _score in _ARCH_ROLE_RULES:
+            if position == "dir" and _t == term and any(
+                pattern.search(part.lower()) for part in parts[:-1]
+            ):
+                return index
+    if any(
+        _ARCH_ENTRYPOINT_DIR_RE.search(part.lower()) for part in parts[:-1]
+    ):
+        return 1
+    return len(_ARCH_ROLE_PRIORITY) - 1
+
+
 class SQLiteKnowledgeIndex:
     """Persistent hybrid index; read-only mode requires an offline checkpointed file.
 
@@ -1384,6 +1562,233 @@ class SQLiteKnowledgeIndex:
                 content_digest=str(row["content_digest"]),
             )
         return result
+
+    @_stable_read
+    def architecture_candidates(
+        self,
+        project_id: str,
+        *,
+        generation_digest: str,
+        limit: int = 96,
+        max_modules: int = 12,
+        per_module: int = 8,
+    ) -> dict[str, Any]:
+        """Deterministic bounded sample of implementation-source chunk ids.
+
+        Storage-only code evidence sampler over the pinned generation,
+        metadata only (id/source_path/chunk_order/module; never body text).
+
+        Eligibility and module balancing happen *before* the bounded scan
+        ceiling so one large early module (or a wall of guidance docs)
+        cannot starve later real modules. Connection-local SQL closures
+        registered on this connection call the shared helper
+        (``zekam.application.source_architecture_answer``) DIRECTLY for
+        eligibility and module grouping, so there is exactly one
+        authoritative filter and no drift; real registration failures
+        propagate. Windows are computed in CTEs and ranks filtered in outer
+        queries (window functions are invalid directly in WHERE in SQLite).
+
+        Fairness applies before the global cap at two levels:
+        * cross-module: the outer ``ORDER BY module_rank`` interleaves the
+          modules round-robin, so only a bounded, module-fair slice of
+          metadata survives the ceiling;
+        * distinct-file/role: each distinct file contributes ONE
+          representative chunk (its first chunk), and within a module one
+          file of every role family precedes extra files of any role
+          (``file_role_ordinal``), so controller-name floods cannot hide
+          services/repositories/routes/entrypoints.
+
+        The shared helper (imported lazily because it is delivered by a
+        separate workstream) remains authoritative for eligibility and
+        grouping. A name is not framework/role proof; downstream content
+        analysis remains authoritative for roles.
+
+        Selection is a fair round-robin across ``source_module`` groups:
+        at most ``per_module`` chunks per group and at most ``max_modules``
+        groups. ``truncated`` is honest about the scan ceiling, omitted
+        modules, per-module caps and the limit cut.
+        """
+        for name, value, floor, ceiling in (
+            ("limit", limit, 1, 128),
+            ("max_modules", max_modules, 1, 16),
+            ("per_module", per_module, 1, 8),
+        ):
+            if type(value) is not int or not floor <= value <= ceiling:
+                raise ValidationFailed(
+                    f"Architecture {name} exact int {floor}..{ceiling} araliginda olmali"
+                )
+        generation = self._pinned_generation(project_id, generation_digest)
+        try:
+            helper = importlib.import_module("zekam.application.source_architecture_answer")
+        except ImportError as error:
+            raise ConfigurationError(
+                "Architecture source helper modulu henuz hazir degil"
+            ) from error
+        is_implementation_source = helper.is_implementation_source
+        source_module = helper.source_module
+        scan_cap = ARCHITECTURE_SCAN_CEILING
+
+        # Connection-local SQL closures registered per connection; they call
+        # the shared helper DIRECTLY so eligibility and module grouping have
+        # exactly one authoritative implementation (no duplicated predicates,
+        # no drift). Registration is idempotent (re-registering a
+        # deterministic function on the same connection is allowed); real
+        # failures propagate.
+        def _register(name: str, fn: Any) -> None:
+            self._connection.create_function(name, 1, fn, deterministic=True)
+
+        _register("_arch_implement", lambda path: 1 if is_implementation_source(path) else 0)
+        _register("_arch_module", source_module)
+        _register("_arch_role", _arch_role_of)
+        _register("_arch_score", _arch_declaration_score_sql)
+
+        # Truthful observed module count over ALL eligible pinned metadata
+        # (project + generation scoped, helper-filtered), independent of every
+        # cap below. ONE scalar aggregate through the registered SQL closures
+        # (_arch_implement/_arch_module); distinct paths only, body text is
+        # never loaded and no path list materializes in Python.
+        observed_module_count, total_eligible, distinct_files = self._connection.execute(
+            "select count(distinct _arch_module(source_path)), count(*),"
+            " count(distinct source_path) from chunk"
+            " where project_id=? and generation_digest=?"
+            " and _arch_implement(source_path)=1",
+            (project_id, generation.generation_digest),
+        ).fetchone()
+
+        # Bounded, fair metadata selection. Windows are computed in CTEs and
+        # ranks are filtered in outer queries (SQLite forbids window
+        # functions directly in WHERE). Fairness is applied BEFORE the global
+        # scan ceiling at two levels:
+        # * cross-module: the outer ORDER BY module_rank interleaves the
+        #   modules round-robin, so one large early module cannot starve
+        #   later real modules when the ceiling cuts;
+        # * distinct-file/role: each distinct file contributes ONE
+        #   representative chunk (``file_depth = 1``), and within a module
+        #   one file of every role family precedes extra files of any role
+        #   (``file_role_ordinal``), so controller-name floods cannot hide
+        #   services/repositories/routes/entrypoints.
+        # Only metadata (id/source_path/chunk_order/module) is returned; no
+        # body text. One extra row is fetched so an exact-cap hit is not
+        # misreported as truncation.
+        rows = self._connection.execute(
+            "with eligible as ("
+            " select id, source_path, chunk_order from chunk"
+            " where project_id=? and generation_digest=?"
+            " and _arch_implement(source_path)=1"
+            "),"
+            " file_chunks as ("
+            " select id, source_path, chunk_order,"
+            " row_number() over ("
+            "  partition by source_path order by chunk_order, id"
+            " ) as file_depth"
+            " from eligible"
+            "),"
+            " first_chunks as ("
+            " select id, source_path, chunk_order from file_chunks"
+            " where file_depth = 1"
+            "),"
+            " files as ("
+            " select source_path,"
+            " _arch_module(source_path) as module,"
+            " _arch_role(source_path) as role,"
+            " _arch_score(source_path) as score"
+            " from first_chunks"
+            "),"
+            " role_files as ("
+            " select source_path, module, role, score,"
+            " row_number() over ("
+            "  partition by module, role order by score desc, source_path"
+            " ) as file_role_ordinal"
+            " from files"
+            "),"
+            " module_ranked as ("
+            " select first_chunks.id, first_chunks.chunk_order,"
+            " role_files.source_path, role_files.module,"
+            " role_files.role, role_files.score,"
+            " row_number() over ("
+            "  partition by role_files.module"
+            "  order by role_files.file_role_ordinal, role_files.role,"
+            "   role_files.score desc, role_files.source_path,"
+            "   first_chunks.chunk_order, first_chunks.id"
+            " ) as module_rank"
+            " from role_files join first_chunks"
+            " on role_files.source_path = first_chunks.source_path"
+            ")"
+            " select id, source_path, chunk_order, module, role, score"
+            " from module_ranked"
+            " order by module_rank, module, source_path"
+            " limit ?",
+            (
+                project_id,
+                generation.generation_digest,
+                scan_cap + 1,
+            ),
+        ).fetchall()
+        scan_capped = len(rows) > scan_cap
+        rows = rows[:scan_cap]
+
+        # Preserve the SQL order (module-interleaved, role-fair per module);
+        # Python must NOT re-sort every controller ahead of other roles.
+        # Modules are ordered by their best-ranked chunk's role family and
+        # declaration score (entrypoint/manifest-carrying modules first),
+        # then by SQL first appearance; within a module the SQL order stands.
+        per_module_rows: dict[str, list[str]] = {}
+        module_first: dict[str, tuple[int, int, int]] = {}
+        module_appearance: list[str] = []
+        for row in rows:
+            module = str(row["module"])
+            if module not in per_module_rows:
+                per_module_rows[module] = []
+                module_appearance.append(module)
+                module_first[module] = (
+                    int(row["role"]),
+                    -int(row["score"]),
+                    len(module_appearance) - 1,
+                )
+            per_module_rows[module].append(str(row["id"]))
+        ordered_modules = sorted(
+            module_appearance,
+            key=lambda name: module_first[name],
+        )
+        participating = ordered_modules[:max_modules]
+        modules_omitted = len(module_appearance) > len(participating)
+        selected: list[str] = []
+        taken: dict[str, int] = {}
+        while len(selected) < limit:
+            progressed = False
+            for name in participating:
+                if len(selected) >= limit:
+                    break
+                ids = per_module_rows[name]
+                position = taken.get(name, 0)
+                if position >= per_module or position >= len(ids):
+                    continue
+                selected.append(ids[position])
+                taken[name] = position + 1
+                progressed = True
+            if not progressed:
+                break
+        per_module_capped = any(
+            len(per_module_rows[name]) > per_module for name in participating
+        )
+        eligible = sum(
+            min(len(per_module_rows[name]), per_module) for name in participating
+        )
+        limit_cut = len(selected) < eligible
+        # Bounded representative contract: each distinct file contributes ONE
+        # chunk, so any eligible chunks beyond the per-file representative are
+        # omitted by design and reported honestly. total_eligible/distinct_files
+        # come from the single early scalar aggregate; no duplicate query.
+        repeated_omitted = int(total_eligible) > int(distinct_files)
+        return {
+            "chunk_ids": tuple(selected),
+            "truncated": (
+                scan_capped or modules_omitted or per_module_capped or limit_cut
+                or repeated_omitted
+            ),
+            "observed_module_count": observed_module_count,
+            "sampled_module_count": sum(1 for count in taken.values() if count > 0),
+        }
 
     @_stable_read
     def source_identity(

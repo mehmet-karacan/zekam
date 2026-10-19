@@ -44,6 +44,10 @@ from zekam.application.retrieval_service import (
     _classify_intent,
 )
 from zekam.application.secret_detection import scan_text
+from zekam.application.source_architecture_answer import (
+    build_architecture_summary,
+    is_architecture_query,
+)
 from zekam.domain.canonical import digest, digest_of_bytes
 from zekam.domain.errors import PolicyViolation, ValidationFailed
 from zekam.domain.retrieval import (
@@ -60,6 +64,16 @@ MAX_QUERY_BYTES = 16 * 1024
 DEFAULT_DENSE_EVIDENCE_THRESHOLD = 0.49
 DEFAULT_DENSE_MARGIN_THRESHOLD = 0.04
 DEFAULT_LEXICAL_COVERAGE_THRESHOLD = 0.50
+
+#: Kaynak-mimari sorularda sinirli kod envanteri ornekleme limitleri
+#: (``KnowledgeIndexPort.architecture_candidates`` varsayilanlariyla ayni).
+ARCHITECTURE_CANDIDATE_LIMIT = 96
+ARCHITECTURE_MAX_MODULES = 12
+ARCHITECTURE_PER_MODULE = 8
+
+#: RAG26: kaynak-mimari niyet acik etiketi; deterministik kod turetimi LLM
+#: uretimi olarak etiketlenmez.
+ARCHITECTURE_INTENT = "source-architecture"
 
 #: WP6 (B07): an evidence set is only "relationship-satisfying" when at least one
 #: of the gathered chunks carries genuine call-site / data-flow / dependency edge
@@ -1031,6 +1045,68 @@ class EmbeddedProjectRAG:
                     )
         return (*hits, *added), tuple(related)
 
+    def _architecture_summary(
+        self,
+        query: str,
+        project_id: str,
+        generation: KnowledgeGeneration,
+    ) -> dict[str, Any] | None:
+        """Kaynak-mimari sorusu icin sinirli, kod-turetimli ozet; uydurma yok.
+
+        Proje+generation'a pinli ``architecture_candidates`` orneklemeden
+        chunk view'leri ve source identity'leri tek tek bounded okur; ozeti
+        saf ``build_architecture_summary`` yardimcisiyla kurar. Kod kaniti
+        yoksa ``insufficient`` ozeti donebilir; hicbir durumda plan/dokuman
+        fallback'u veya dosya fallback'u yapilmaz. Grenc/uydurma chunk
+        adaptasyonu yapilmaz: view/identity kapilari index'in kendisidir.
+        """
+        candidates = self.index.architecture_candidates(
+            project_id,
+            generation_digest=generation.generation_digest,
+            limit=ARCHITECTURE_CANDIDATE_LIMIT,
+            max_modules=ARCHITECTURE_MAX_MODULES,
+            per_module=ARCHITECTURE_PER_MODULE,
+        )
+        candidate_ids = tuple(candidates.get("chunk_ids") or ())
+        # Aday listesi bos olsa bile ozet kurucu CALISTIRILIR: yapisal
+        # 'insufficient' ozeti uretilir; normal-dokuman/dosya fallback'u
+        # hicbir durumda yapilmaz.
+        views = (
+            self.index.views(
+                project_id,
+                candidate_ids,
+                generation_digest=generation.generation_digest,
+            )
+            if candidate_ids
+            else {}
+        )
+        identities = (
+            self.index.source_identities(
+                project_id,
+                candidate_ids,
+                generation_digest=generation.generation_digest,
+            )
+            if candidate_ids
+            else {}
+        )
+        summary = build_architecture_summary(
+            query=query,
+            project_id=project_id,
+            generation_digest=generation.generation_digest,
+            source_revision=generation.source_revision,
+            views=views,
+            identities={
+                chunk_id: dict(identity) for chunk_id, identity in identities.items()
+            },
+            candidate_metadata={
+                "chunk_ids": candidate_ids,
+                "truncated": bool(candidates.get("truncated", False)),
+                "observed_module_count": candidates.get("observed_module_count"),
+                "sampled_module_count": candidates.get("sampled_module_count"),
+            },
+        )
+        return summary if isinstance(summary, dict) else None
+
     def query(
         self,
         query: str,
@@ -1088,7 +1164,8 @@ class EmbeddedProjectRAG:
             self.embedding_policy,
             dense_enabled=provider_available,
             dense_failure_reason=None if provider_available else provider_failure_reason,
-            doc_prior=not extract_identifiers(query),
+            doc_prior=not extract_identifiers(query)
+            and not is_architecture_query(query),
         )
         service = RetrievalService(
             backend,
@@ -1211,6 +1288,18 @@ class EmbeddedProjectRAG:
         # there is not enough evidence to answer the multi-object question.
         if not single_object and coverage_missing:
             enough_evidence = False
+        # Kaynak-mimari sorusu: sinirli kod-turetimli ozet HER ZAMAN turetilir
+        # (bos aday listesi dahil; yapisal 'insufficient' ozeti normal-dokuman
+        # fallback'unu engeller). Early enough_evidence mutasyonu KALDIRILDI:
+        # normal kanit kapilari burada degistirilmez; FINAL mimari
+        # projeksiyonu asagida kanit/used_ids/excerpt'i ozet kanitindan
+        # degistirir. Normal sorgulara dokunulmaz.
+        architecture_summary: dict[str, Any] | None = None
+        architecture_only = is_architecture_query(query)
+        if architecture_only:
+            architecture_summary = self._architecture_summary(
+                query, project_id, generation
+            )
         # WP6 (B07) relationship rule: finding names A and B separately is not an
         # edge.  For relationship/call-chain/dependency questions, enough_evidence
         # additionally requires genuine edge language in the gathered source;
@@ -1249,6 +1338,59 @@ class EmbeddedProjectRAG:
             hits = tuple(hit for hit in hits if hit.chunk_id in views)
         if not enough_evidence:
             hits = ()
+        # Kaynak-mimari sorusu: ozet destekliyse CODE citation'lari ozetin
+        # kanit chunk'larindan kurulur (hits'ten BAGIMSIZ; normal sorgunun
+        # task-plan dokumanlari asla citation kaynagi olmaz). Bunlar orijinal
+        # sorgunun rank/kanal kaniti DEGIL; provenance acikca etiketlenir
+        # (structural-expansion, uydurma rank/skor yok).
+        architecture_citations: list[dict[str, Any]] = []
+        if (
+            architecture_only
+            and architecture_summary is not None
+            and architecture_summary.get("status") == "supported"
+        ):
+            arch_view_ids = tuple(architecture_summary.get("used_chunk_ids") or ())
+            arch_views = self.index.views(
+                project_id, arch_view_ids, generation_digest=generation.generation_digest
+            )
+            arch_identities = self.index.source_identities(
+                project_id, arch_view_ids, generation_digest=generation.generation_digest
+            )
+            for order, chunk_id in enumerate(arch_view_ids, start=1):
+                view = arch_views.get(chunk_id)
+                identity = arch_identities.get(chunk_id)
+                if view is None or identity is None:
+                    continue
+                architecture_citations.append(
+                    {
+                        "source_id": identity["source_id"],
+                        "project_scope": project_id,
+                        "source_ref": identity["source_ref"],
+                        "source_revision": identity["source_revision"],
+                        "source_digest": identity["source_digest"],
+                        "content_digest": identity["content_digest"],
+                        "chunk_id": chunk_id,
+                        "locator_type": (
+                            "database-object"
+                            if view.locator.object_name
+                            else "project-file"
+                        ),
+                        "locator": view.locator.as_dict(),
+                        # Structural expansion provenance: kod envanteri kaniti,
+                        # orijinal sorgu rank'i veya dense skoru DEGIL.
+                        "retrieval_channels": [],
+                        "rank_trace": {
+                            "fused_rank": None,
+                            "rrf_score": None,
+                            "exact_match": False,
+                            "channel_ranks": {},
+                            "provenance": "architecture-structural-expansion",
+                        },
+                        "source_kind": "code",
+                        "rank": order,
+                        "architecture_order": order,
+                    }
+                )
         answer = service.build_answer(
             query,
             hits,
@@ -1356,7 +1498,56 @@ class EmbeddedProjectRAG:
             else:
                 state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
                 citations = []
+        # Kaynak-mimari sorusu: FINAL mimari projeksiyonu kaniti tamamen
+        # degistirir. Ozet destekliyse citation'lar YALNIZ pinli view/identity
+        # kanitindan gelen CODE citation'laridir (eski hits/task-plan dokumanlari
+        # asla kanit kaynagi olmaz); used_chunk_ids yalniz ozet kanit
+        # id'leridir. Provider saglikliysa ve denseFailure yoksa "answered";
+        # dense kapaliysa acik "lexical-only-degraded" (tam saglik iddia
+        # EDILMEZ). Ozet 'insufficient' veya destekli ozette gecerli citation
+        # kurulamadiysa: dokuman/plan fallback YOK, acik abstain
+        # (citation/used_ids bos). Normal sorgulara dokunulmaz.
+        architecture_final = architecture_only and architecture_summary is not None
+        architecture_supported = architecture_final and bool(
+            architecture_summary.get("status") == "supported" and architecture_citations
+        )
+        if architecture_final:
+            if architecture_supported:
+                state = (
+                    "lexical-only-degraded"
+                    if backend.dense_failure_reason
+                    else AnswerState.ANSWERED.value
+                )
+                citations = architecture_citations
+                relationship_state = None
+            else:
+                state = AnswerState.ABSTAINED_LOW_EVIDENCE.value
+                citations = []
+            enough_evidence = architecture_supported
         excerpt, excerpt_meta = _build_excerpt(answer, views, query)
+        answer_excerpts = _build_excerpts(
+            answer, views, query, expanded_ids, enumeration=_is_enumeration_question(query)
+        )
+        used_chunk_ids = list(answer.used_chunk_ids)
+        if architecture_final:
+            # Mimari soruda excerpt alanlari task-doc answer'indan asla
+            # tasinmaz; kullaniciya giden yazi architecture_summary.text'tir
+            # ve CLI onu secer. Kanit id'leri yalniz ozet kanitindan gelir.
+            excerpt = None
+            excerpt_meta = None
+            answer_excerpts = []
+            used_chunk_ids = (
+                list(architecture_summary.get("used_chunk_ids") or ())
+                if architecture_supported
+                else []
+            )
+        coverage_notes_out = _coverage_notes(query, citations)
+        if architecture_final:
+            coverage_notes_out = coverage_notes_out + [
+                {"code": "architecture-summary-coverage", "detail": str(note)}
+                for note in (architecture_summary.get("coverage") or {}).get("notes") or ()
+                if isinstance(note, str)
+            ]
         # WP7 / B08: `evidence_found` is derived from actual citations carried by
         # the result (never from the `state` string alone) so the retrieval
         # outcome and the payload reality stay consistent.
@@ -1388,7 +1579,9 @@ class EmbeddedProjectRAG:
             "candidate_count": len(candidate_ids),
             "lexical_coverage": lexical_coverage,
             "identifier_count": len(identifiers),
-            "query_intent": intent.value,
+            "query_intent": (
+                ARCHITECTURE_INTENT if architecture_final else intent.value
+            ),
             "uncovered_identifiers": list(coverage_missing),
             "relationship_state": relationship_state,
             "single_chunk_identifier_support": single_chunk_identifier_support,
@@ -1401,16 +1594,26 @@ class EmbeddedProjectRAG:
             "snapshot_only": bool(stale_reasons),
             "reindex_recommended": bool(stale_reasons),
             "citations": citations,
-            "used_chunk_ids": list(answer.used_chunk_ids),
+            "used_chunk_ids": used_chunk_ids,
             "tokens_used": answer.tokens_used,
             "fallback_allowed": False,
             "answer_excerpt": excerpt,
-            "answer_excerpts": _build_excerpts(
-                answer, views, query, expanded_ids, enumeration=_is_enumeration_question(query)
-            ),
+            "answer_excerpts": answer_excerpts,
             "clarification": _clarification(query, identifiers, citations),
-            "coverage_notes": _coverage_notes(query, citations),
+            "coverage_notes": coverage_notes_out,
             "answer_excerpt_meta": excerpt_meta,
+            # Kaynak-mimari ek kanit alanlari; normal sorgularda None kalir ve
+            # diger alanlar bayt-bayt'a aynen korunur.
+            "architecture_summary": architecture_summary,
+            "architecture_code_inventory": (
+                {
+                    "requested_modules": ARCHITECTURE_MAX_MODULES,
+                    "per_module": ARCHITECTURE_PER_MODULE,
+                    "candidate_limit": ARCHITECTURE_CANDIDATE_LIMIT,
+                }
+                if architecture_only
+                else None
+            ),
             "reference_expansion": list(expanded_ids),
             "explanation": list(answer.explanation),
         }

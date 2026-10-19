@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Protocol
+from typing import Any, Protocol
 
 from zekam.application.retrieval_service import ChunkView
 from zekam.domain.canonical import digest_of_bytes, parse_digest
@@ -151,6 +151,16 @@ class KnowledgeIndexPort(Protocol):
         *,
         generation_digest: str,
     ) -> dict[str, ChunkView]: ...
+
+    def architecture_candidates(
+        self,
+        project_id: str,
+        *,
+        generation_digest: str,
+        limit: int = 96,
+        max_modules: int = 12,
+        per_module: int = 8,
+    ) -> dict[str, Any]: ...
 
     def following_chunk_ids(
         self,

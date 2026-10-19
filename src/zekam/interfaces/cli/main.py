@@ -928,7 +928,13 @@ def _ask_natural_request_retrieval(
 
 
 def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
-    """Retrieval kanitindan metadata'siz, ayri aciklama onerisi olusturur."""
+    """Retrieval kanitindan metadata'siz, ayri aciklama onerisi olusturur.
+
+    Kaynak-mimari ozeti yalniz ``architecture_summary`` alani gercekten
+    mevcutken ve ``architecture_explanation`` kapisi kabul ettiginde
+    kullanilir; gecersiz/insufficient ozet eski excerpt fallback'ine
+    DUSMEZ. Cok projeli route'da proje etiketleri korunur.
+    """
 
     excerpts: list[str] = []
     multiple_projects = len(retrieval.get("project_refs", [])) > 1
@@ -938,14 +944,49 @@ def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
         payload = entry.get("result")
         if not isinstance(payload, dict):
             continue
+        project_label = entry["project_ref"] if multiple_projects else None
+        architecture_present = isinstance(payload.get("architecture_summary"), dict)
+        architecture_text = _architecture_explanation(payload)
+        if architecture_text is not None:
+            excerpts.append(
+                f"{project_label}: {architecture_text}"
+                if project_label
+                else architecture_text
+            )
+            continue
+        if architecture_present:
+            # Mimari ozet mevcut ama aciklama uretilmedi (insufficient,
+            # gecersiz binding veya stale/snapshot_only tazelik): eski
+            # answer_excerpt fallback'ine DUSMEZ; docstring sozlesmesi bu.
+            continue
         excerpt = payload.get("answer_excerpt")
         if isinstance(excerpt, str) and excerpt.strip():
             excerpts.append(
-                f"{entry['project_ref']}: {excerpt.strip()}"
-                if multiple_projects
-                else excerpt.strip()
+                f"{project_label}: {excerpt.strip()}" if project_label else excerpt.strip()
             )
     return "\n\n".join(excerpts) or None
+
+
+def _architecture_explanation(payload: dict[str, Any]) -> str | None:
+    """Gecersiz/insufficient mimari ozet icin None doner; excerpt fallback yok.
+
+    ``project_rag_runtime`` sorgu sonrasinda gercek kaynak tazeligini
+    ``index_freshness``/``snapshot_only`` olarak yazar; stale/snapshot_only
+    sonuc 'guncel mimari' iddia edemez, aciklama reddedilir.
+    """
+
+    if payload.get("architecture_summary") is None:
+        return None
+    if (
+        payload.get("index_freshness") != "current"
+        or payload.get("snapshot_only") is True
+    ):
+        return None
+    try:
+        from zekam.application.source_architecture_answer import architecture_explanation
+    except ImportError:
+        return None
+    return architecture_explanation(payload)
 
 
 def _retrieval_for_answer(retrieval: dict[str, Any]) -> dict[str, Any]:

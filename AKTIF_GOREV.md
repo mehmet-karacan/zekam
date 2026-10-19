@@ -54,6 +54,18 @@ kurallariyla dislandi. Iki gercek soruda kaynakli yanit kabul edildi; Work
 dogrulandi. Ayrintilar `docs/GPU_FUSION_ENTEGRASYON_SONUCU.md` icindedir.
 Bu sonuc onceki Y-12 kanitini yeniden etiketlemez veya farkli bir gorev acmaz.
 
+**20 Ekim 2026 yeni mimari yanit duzeltmesi:** Kullanici, mimari ve temel modul
+sorularinin mevcut koddan sorumluluklari kaynaklariyla aciklamasini, duzeltmenin
+OpenCode modellerine yaptirilmasini istedi. Onceki kabul yerel indeks, citation
+baglantisi ve yanit admission kosullarini dogruladi; gorev plani alintisi mevcut
+mimariyi acikladigina dair semantik kabul sayilmaz. Bu yeni duzeltme o kalite
+eksigini giderir; onceki tamamlanmis Work/Run kayitlari yeniden acilmaz.
+Kapsam `docs/MIMARI_YANIT_KOD_KANITI.md`: guncel generation'a bagli kod/manifest
+kaniti, moduller arasi dengeli kapsama, gercek bildirimlerden sorumluluk cikarma,
+her iddia icin kaynak ve eksik kanitta acik sinir. Kurumsal kod harici modele
+gonderilmez; indeks yeniden uretilmez. Testler tum gelistirmeler ve bagimsiz
+inceleme bitince son asamada, her asama Turkce ASCII commit/push ile uygulanir.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.
