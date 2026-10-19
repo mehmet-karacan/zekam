@@ -32,6 +32,18 @@ runtime_test_evidence_at_task_creation: NOT_EXECUTED
 
 ## 0. Yetki, Aşama Ve Devir Sözleşmesi
 
+### 0.0 19 Ekim 2026 GPU-Fusion takip isi
+
+Kullanici GPU-Fusion entegrasyonunun OpenCode modelleriyle tamamlanmasini acikca
+istedi. Bu takip isi onceki Y-12 kabulunun tamamlanmis parcasi degildir; onceki
+teslim kaniti yeniden etiketlenmez. Kapsam ve sira
+`docs/GPU_FUSION_ENTEGRASYON_PLANI.md` icindedir: kaynak envanteri, parca gizlilik
+kapisi ve dar yerel migration girisi gelistirmesi, farkli model incelemesi, tum gelistirmelerden
+sonra tek final test asamasi, gercek kaynak baglama/yerel indeksleme ve kaynakli
+yanit kabul kaniti. Her asama commit/push kullanici tarafindan yetkilendirildi.
+Bu ek operational Work, lease, claim veya receipt yerine gecmez. Kurumsal kaynak
+icerigi model istemlerine veya Git'e tasinmaz; GPU-Fusion dosyalari degistirilmez.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.

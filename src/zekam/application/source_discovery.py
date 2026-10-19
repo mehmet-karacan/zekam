@@ -28,6 +28,12 @@ tamamen kapatir; metadata envanteri tutulur, digest/secret/binary tespiti ve
 icerik limitleri uygulanmaz. Sinirlar fail-closed dogrulanir: icerik/envanter
 sinirlari pozitif olmak zorundadir; `max_depth=0` gecerlidir.
 
+Proje indekslemesi `include_ignored_descendants=False` ile `source-tree`
+kapsamini secebilir. Bu mod yoksayilan dizinleri sinir kaydi olarak tutar,
+cocuklarini ziyaret etmez. `complete` yalniz bu acik kapsam icindir; kapsam
+envanter ve metadata digest'lerine baglanir. Varsayilan `full-tree` davranisi
+ve sinir/erisim hatalarinda `partial` sonucu degismez.
+
 Icerik eligibility karar sozlesmesi (WP-04.01): Eligibility, metadata envanterinden
 AYRI bir karar katmidir. Dosya turlerindeki her kesfedilen dosya girdisi icin
 `EligibilityDecision` kaydi uretilir (`eligible`/`skipped` + `SkipReason`);
@@ -267,6 +273,7 @@ class DiscoveryPolicy:
     max_inventory_entries: int = MAX_INVENTORY_ENTRIES
     max_dir_entries: int = MAX_DIR_ENTRIES
     read_content: bool = True
+    include_ignored_descendants: bool = True
 
     def __post_init__(self) -> None:
         self._validate()
@@ -311,6 +318,8 @@ class DiscoveryPolicy:
             raise ValueError("follow_symlinks fail-closed oldugu icin False olmali")
         if not isinstance(self.read_content, bool):
             raise ValueError("read_content bool olmali")
+        if not isinstance(self.include_ignored_descendants, bool):
+            raise ValueError("include_ignored_descendants bool olmali")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -323,6 +332,10 @@ class DiscoveryPolicy:
             "max_inventory_entries": self.max_inventory_entries,
             "max_dir_entries": self.max_dir_entries,
             "read_content": self.read_content,
+            **(
+                {"include_ignored_descendants": False}
+                if not self.include_ignored_descendants else {}
+            ),
         }
 
 
@@ -466,6 +479,15 @@ class DiscoveryReport:
     inventory_bytes: int = 0
 
     @property
+    def inventory_scope(self) -> str:
+        return "full-tree" if self.policy.include_ignored_descendants else "source-tree"
+
+    def _scope_binding(self) -> dict[str, str]:
+        # Preserve full-tree identities; scoped inventories have a separate
+        # digest domain even when an ignored directory happens to be empty.
+        return {} if self.policy.include_ignored_descendants else {"scope": self.inventory_scope}
+
+    @property
     def file_count(self) -> int:
         return len(self.files)
 
@@ -490,6 +512,7 @@ class DiscoveryReport:
         return digest(
             {
                 "schema": "zekam-discovery-inventory/v1",
+                **self._scope_binding(),
                 "status": self.inventory_status.value,
                 "stop_reason": (
                     self.inventory_stop_reason.value
@@ -517,6 +540,7 @@ class DiscoveryReport:
         return digest(
             {
                 "schema": "zekam-discovery-metadata-inventory/v1",
+                **self._scope_binding(),
                 "status": self.inventory_status.value,
                 "stop_reason": (
                     self.inventory_stop_reason.value
@@ -566,6 +590,7 @@ class DiscoveryReport:
                 ),
             },
             "inventory": {
+                **self._scope_binding(),
                 "status": self.inventory_status.value,
                 "stop_reason": (
                     self.inventory_stop_reason.value
@@ -1055,6 +1080,20 @@ def discover(
                 continue
 
             if entry.is_dir():
+                if not active_policy.include_ignored_descendants and (
+                    dir_ignored or rules.is_path_ignored(entry_relative, is_directory=True)
+                ):
+                    # Source indexing accounts for the ignored boundary, not
+                    # its generated/secret descendants. Full inventory remains
+                    # the default and retains its existing traversal contract.
+                    skipped.append(
+                        SkippedPath(entry_relative, SkipReason.IGNORED, "yoksayma kurali")
+                    )
+                    if builder.add(
+                        entry_relative, FileKind.DIRECTORY, 0, skip_reason=SkipReason.IGNORED
+                    ):
+                        break
+                    continue
                 if depth + 1 > active_policy.max_depth:
                     # Derinlik siniri: bu dizinin icine inilmez (icerigi daha
                     # derin olurdu), envanteri partial yap. Kayit burada yapilir

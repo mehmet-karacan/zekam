@@ -88,6 +88,20 @@ MAX_PROJECT_EMBED_TEXT_BYTES = 256 * 1024
 MAX_PROJECT_EMBED_BATCH_TOKENS = 8_192
 MAX_PROJECT_EMBED_BATCH_PAYLOAD_BYTES = 512 * 1024
 
+# Kaynak chunk gizlilik politikasi: provider cagrisina, indeks satirina,
+# onbeleze, receipt veya projection'a girmeden once email adresi veya @author
+# etiketi tasiran tam source chunk reddedilir. Sadece sabit surum/digest ve
+# disari birim sayisi raporlanir; eslesen deger/yol/kimlik raporlanmaz.
+SOURCE_PRIVACY_POLICY_VERSION = "zekam-source-chunk-privacy-policy/v1"
+SOURCE_PRIVACY_POLICY_DIGEST = digest(
+    {
+        "schema": SOURCE_PRIVACY_POLICY_VERSION,
+        "scope": "project-source-chunks",
+        "rules": ("reject-email-address", "reject-author-annotation"),
+        "redaction": "reject-whole-chunk",
+    }
+)
+
 
 def embedding_prefixes_for_model(model_ref: str) -> tuple[str, str]:
     """Return the exact text prefixes owned by the selected embedding model."""
@@ -293,6 +307,25 @@ _SQL_DECLARATION = re.compile(
     r"(?P<name>[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?)",
     re.IGNORECASE,
 )
+_EMAIL_ADDRESS = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+_AUTHOR_ANNOTATION = re.compile(r"^\s*(?:[^\w\s@][^\s@]*\s*)?@author\b", re.IGNORECASE)
+
+
+def _chunk_is_privacy_excluded(text: str) -> bool:
+    """Tam source chunk'u gizlilik politikasiyla reddetme karari verir.
+
+    Taninabilir bir email adresi veya @author etiketli bir satir (bosluk/yorum
+    on ekleriyle) mevcutlarsa chunk reddedilir. Karar metin uzerinde degil,
+    sabit politika surumu uzerinde deterministiktir; eslesen degeri asla
+    dondurmez ya da kaydetmez.
+    """
+
+    if _EMAIL_ADDRESS.search(text):
+        return True
+    for line in text.splitlines():
+        if _AUTHOR_ANNOTATION.match(line):
+            return True
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,6 +344,13 @@ class ProjectIndexPlan:
     selected_file_count: int
     skipped_unsupported: int
     skipped_encoding: int
+    privacy_excluded_chunk_count: int = 0
+
+    @property
+    def source_privacy_policy_digest(self) -> str:
+        """Stable source-chunk privacy policy digest bound into the plan."""
+
+        return SOURCE_PRIVACY_POLICY_DIGEST
 
     @property
     def source_identity_digest(self) -> str:
@@ -338,6 +378,8 @@ class ProjectIndexPlan:
                     "embedding_profile_digest": self.embedding_profile.profile_digest,
                     "embedding_route_digest": self.embedding_route.decision_digest,
                     "chunk_count": len(self.chunks),
+                    "privacy_excluded_chunk_count": self.privacy_excluded_chunk_count,
+                    "source_privacy_policy_digest": self.source_privacy_policy_digest,
                 }
             )
         )
@@ -357,6 +399,14 @@ class ProjectIndexPlan:
             "chunk_count": len(self.chunks),
             "skipped_unsupported": self.skipped_unsupported,
             "skipped_encoding": self.skipped_encoding,
+            "privacy_excluded_chunk_count": self.privacy_excluded_chunk_count,
+            "source_privacy_policy_digest": self.source_privacy_policy_digest,
+            "coverage_note": (
+                "source chunk gizlilik filtreleme uygulandi; indeks yalnizca kabul edilen "
+                "chunk'lari kapsar"
+                if self.privacy_excluded_chunk_count
+                else "tum kaynaktan secilen source chunk indekslemeye kabul edildi"
+            ),
             "embedding": {
                 "model_ref": self.embedding_profile.model_ref,
                 "dimension": self.embedding_profile.dimension,
@@ -1371,6 +1421,17 @@ def build_project_index_plan(
                 "unit_count": len(produced),
             }
         )
+    # Gizlilik kapi: source chunk'lari belge/chunk uretiminden once filtrele.
+    # Reddedilen birim metni belgeye, chunk'a, embedding'e, indeks satirina,
+    # onbeleze, receipt veya projection'a hic bir zaman girmez. Manifest
+    # kaynagin gozlenen baytlarini/digest'lerini aciklandigindan ham uretim
+    # sayisini korur; yalnizca kabul edilen birimler belgeye gecer.
+    # Kabul edilen birimler orijinal sira sayilarini (gap izinli) korur;
+    # böylece ayni kaynak agacinda birim sirasi/kimligi gizlilik durumundan
+    # bagimsiz kalir ve vektör onbelesi chunk_id ile stabil kalir.
+    accepted_units = tuple(unit for unit in units if not _chunk_is_privacy_excluded(unit.text))
+    privacy_excluded_chunk_count = len(units) - len(accepted_units)
+    units = list(accepted_units)
     if not units:
         raise ValidationFailed("Indekslenebilir kaynak icerigi bulunamadi")
     manifest_document = {
@@ -1430,18 +1491,20 @@ def build_project_index_plan(
         query_prefix=query_prefix,
         passage_prefix=passage_prefix,
     )
+    # Chunk kimligi ve sirasi birimin orijinal sira sayisindan turetilir;
+    # gizlilik reddi sonraki temiz chunk'lari yeniden numaralandirmaz.
     chunks = tuple(
         Chunk(
-            chunk_id=f"project-{project_id}-{expected_tree_digest[-12:]}-c{index}",
+            chunk_id=f"project-{project_id}-{expected_tree_digest[-12:]}-c{unit.order}",
             document_id=document.document_id,
             text=unit.text,
             locator=unit.locator,
             kind=unit.kind,
             token_count=estimate_tokens(unit.text),
-            order=index,
+            order=unit.order,
             profile_digest=chunk_profile.profile_digest,
         )
-        for index, unit in enumerate(document.units)
+        for unit in document.units
     )
     if check_budget is not None:
         check_budget()
@@ -1468,6 +1531,7 @@ def build_project_index_plan(
             )
         ),
         skipped_encoding=skipped_encoding,
+        privacy_excluded_chunk_count=privacy_excluded_chunk_count,
     )
 
 

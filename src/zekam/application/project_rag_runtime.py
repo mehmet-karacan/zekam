@@ -80,6 +80,7 @@ from zekam.application.oracle_metadata_index import (
     load_project_oracle_datasource,
 )
 from zekam.application.project_knowledge_index import (
+    SOURCE_PRIVACY_POLICY_DIGEST,
     ProjectIndexPlan,
     build_project_index_plan,
     source_identity_digest,
@@ -197,6 +198,7 @@ PROVIDER_ID = "litellm"
 LOCAL_VECTOR_DIMENSION = 384
 VECTOR_DIMENSION = LOCAL_VECTOR_DIMENSION
 PROJECT_EMBED_BATCH_SIZE = LOCAL_E5_MAX_BATCH_SIZE
+PROJECT_SOURCE_DISCOVERY_POLICY = DiscoveryPolicy(include_ignored_descendants=False)
 MAX_FRESHNESS_FILE_BYTES = 2 * 1024 * 1024
 
 # ----------------------------------------------------------------------
@@ -512,7 +514,9 @@ def _directory_source_state(
     check_budget: Callable[[], None] | None = None,
 ) -> tuple[str, str, str]:
     discovery = (
-        discover(root) if check_budget is None else discover(root, check_budget=check_budget)
+        discover(root, policy=PROJECT_SOURCE_DISCOVERY_POLICY)
+        if check_budget is None
+        else discover(root, policy=PROJECT_SOURCE_DISCOVERY_POLICY, check_budget=check_budget)
     )
     if discovery.truncated:
         raise ValidationFailed("Project directory source snapshot truncated")
@@ -724,6 +728,7 @@ def _metadata_inventory_freshness_signal(
     root: Path,
     *,
     declared_digest: str,
+    inventory_scope: str = "full-tree",
 ) -> dict[str, Any]:
     """Recompute only bounded metadata for ignored/generated path drift.
 
@@ -734,10 +739,16 @@ def _metadata_inventory_freshness_signal(
     """
 
     try:
+        if inventory_scope not in ("full-tree", "source-tree"):
+            return {"metadata_inventory_unknown": True}
         parse_digest(declared_digest)
         discovery = discover(
             root,
-            policy=DiscoveryPolicy(read_content=False, scan_secrets=False),
+            policy=DiscoveryPolicy(
+                read_content=False,
+                scan_secrets=False,
+                include_ignored_descendants=inventory_scope == "full-tree",
+            ),
         )
     except (OSError, subprocess.SubprocessError, ZekamError, ValueError):
         return {"metadata_inventory_unknown": True}
@@ -774,6 +785,10 @@ def _metadata_inventory_freshness_for_query(
     observations = _metadata_inventory_freshness_signal(
         source_root,
         declared_digest=declared,
+        **(
+            {"inventory_scope": state["repository_metadata_inventory_scope"]}
+            if "repository_metadata_inventory_scope" in state else {}
+        ),
     )
     if observations.get("metadata_inventory_unknown"):
         return ["project-source-inventory-freshness-unknown"], observations
@@ -1070,7 +1085,9 @@ def _project_plan(
     root = resolve_source_root(root)
     _, _, revision = _git_source_state(root, check_budget=check_budget)
     discovery = (
-        discover(root) if check_budget is None else discover(root, check_budget=check_budget)
+        discover(root, policy=PROJECT_SOURCE_DISCOVERY_POLICY)
+        if check_budget is None
+        else discover(root, policy=PROJECT_SOURCE_DISCOVERY_POLICY, check_budget=check_budget)
     )
     plan = build_project_index_plan(
         project_id=project_id,
@@ -1086,6 +1103,7 @@ def _project_plan(
         local_dimension=(
             knowledge.embedding_dimension if knowledge is not None else LOCAL_VECTOR_DIMENSION
         ),
+        discovery_policy=PROJECT_SOURCE_DISCOVERY_POLICY,
         **({"check_budget": check_budget} if check_budget is not None else {}),
     )
     return discovery, plan
@@ -1119,6 +1137,10 @@ def _plan_document(
         "source_identity_digest",
         source_identity_digest(str(plan.project_id), plan.source_revision, plan.tree_digest),
     )
+    privacy_excluded = getattr(plan, "privacy_excluded_chunk_count", 0)
+    privacy_policy_digest = getattr(
+        plan, "source_privacy_policy_digest", SOURCE_PRIVACY_POLICY_DIGEST
+    )
     inventory_digest = getattr(discovery, "inventory_digest", None)
     metadata_inventory_digest = getattr(discovery, "metadata_inventory_digest", None)
     secrets = getattr(discovery, "secrets", ())
@@ -1136,6 +1158,7 @@ def _plan_document(
         "tree_digest": plan.tree_digest,
         "inventory_digest": inventory_digest,
         "metadata_inventory_digest": metadata_inventory_digest,
+        "metadata_inventory_scope": getattr(discovery, "inventory_scope", "full-tree"),
         "plan_digest": digest(
             {
                 "repository_plan_digest": plan.plan_digest,
@@ -1153,6 +1176,11 @@ def _plan_document(
         "secret_finding_count": len(discovery.secrets),
         "skipped_unsupported": plan.skipped_unsupported,
         "skipped_encoding": plan.skipped_encoding,
+        "source_chunk_privacy_excluded_count": privacy_excluded,
+        "source_privacy_policy_digest": privacy_policy_digest,
+        "source_chunk_coverage": (
+            "accepted-only" if privacy_excluded else "all-selected"
+        ),
         "truncated": discovery.truncated,
         "model_id": plan.embedding_profile.model_ref,
         "dimension": plan.embedding_profile.dimension,
@@ -2592,7 +2620,7 @@ def build_project_source_binding_plan(
     head, status_digest, revision = _git_source_state(root)
     metadata_discovery = discover(
         root,
-        policy=DiscoveryPolicy(read_content=False, scan_secrets=False),
+        policy=replace(PROJECT_SOURCE_DISCOVERY_POLICY, read_content=False, scan_secrets=False),
     )
     if (
         metadata_discovery.truncated
@@ -2611,6 +2639,7 @@ def build_project_source_binding_plan(
         "git_status_digest": f"sha256:{status_digest}" if head else None,
         "source_revision": revision,
         "metadata_inventory_digest": metadata_discovery.metadata_inventory_digest,
+        "metadata_inventory_scope": getattr(metadata_discovery, "inventory_scope", "full-tree"),
     }
     return body | {
         "schema": "zekam-project-local-source-binding-plan/v1",
@@ -3491,6 +3520,9 @@ def _index(
         "repository_tree_digest": bound_plan.tree_digest,
         "repository_inventory_digest": bound_plan.discovery.inventory_digest,
         "repository_metadata_inventory_digest": bound_plan.discovery.metadata_inventory_digest,
+        "repository_metadata_inventory_scope": getattr(
+            bound_plan.discovery, "inventory_scope", "full-tree"
+        ),
         "source_revision": combined_revision,
         "tree_digest": combined_tree_digest,
         "source_identity_digest": source_identity_digest(
@@ -3796,7 +3828,7 @@ def build_index_job_plan(
         _check_index_budget(None, deadline)
 
     _, _, revision = _git_source_state(root, check_budget=check)
-    discovery = discover(root, check_budget=check)
+    discovery = discover(root, policy=PROJECT_SOURCE_DISCOVERY_POLICY, check_budget=check)
     knowledge = load_settings(home=home).knowledge
     odi = load_smart_binding(home, slug)
     odi_plan_digest = None
@@ -3827,6 +3859,8 @@ def build_index_job_plan(
         "tree_digest": discovery.tree_digest,
         "inventory_digest": discovery.inventory_digest,
         "metadata_inventory_digest": discovery.metadata_inventory_digest,
+        "metadata_inventory_scope": getattr(discovery, "inventory_scope", "full-tree"),
+        "source_privacy_policy_digest": SOURCE_PRIVACY_POLICY_DIGEST,
         "knowledge_binding_digest": _knowledge_binding_digest(knowledge),
         "provider_config_digest": provider_config_digest,
         "oracle_config": oracle_config,

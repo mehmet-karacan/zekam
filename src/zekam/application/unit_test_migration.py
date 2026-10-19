@@ -12,16 +12,17 @@ from zekam.infrastructure.sqlite.local_runtime import SQLiteLocalRuntimeStore
 
 
 class UnitTestLedgerMigrationAdmission:
-    """Fence local writers before additive v5-to-v6, v6-to-v7 or v7-to-v8 migration.
+    """Fence local writers before admitted one-shot operational schema migration.
 
-    The migration is deliberately narrower than the evolution bootstrap path: it
+    Supported targets are v3-to-v5, v5-to-v6, v6-to-v7, v7-to-v8 and v8-to-v9. The
+    migration is deliberately narrower than the evolution bootstrap path: it
     requires the existing evolution control plane to be paused or disabled and
     never grants a standing evolution authority. The explicit CLI plan digest is
     the outer owner admission for this one-shot local schema effect.
     """
 
     def __init__(self, context: ApplicationContext, *, target_version: int = 6) -> None:
-        if type(target_version) is not int or target_version not in {6, 7, 8, 9}:
+        if type(target_version) is not int or target_version not in {5, 6, 7, 8, 9}:
             raise PolicyViolation("Operational ledger migration target unsupported")
         self._target_version = target_version
         database = context.settings.database.sqlite_path(context.home)

@@ -3,6 +3,11 @@
 `plan` ve `status` salt okunurdur. `upgrade` varsayilan olarak dry-run'dir; gercek
 uygulama `--uygula` bayragini ister. Faz 4'te bu bayrak exact authorization
 kaydiyla degistirilecektir.
+
+Explicit one-shot yollar: v3 -> v5 (evolution-authority v5; evrilmeyen onay
+alanini, standing grant'i ve supervisor kurmayi) ve v5..v9 zinciri. Uygulanan
+target her zaman plan'daki explicit target_version'dir; current+1 varsayimi
+yoktur.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from zekam.infrastructure.local_file_security import restrict_private_tree
 from zekam.infrastructure.sqlite import operational_schema as sqlite_repository
 from zekam.infrastructure.sqlite.operational_backup import logical_database_digest
 from zekam.infrastructure.sqlite.operational_migration import (
+    migrate_v3_to_v5,
     migrate_v5_to_v6,
     migrate_v6_to_v7,
     migrate_v7_to_v8,
@@ -46,6 +52,8 @@ def _expected_head() -> int:
 
 def _migration_label(current: int | None) -> str:
     expected = _expected_head()
+    if current == 3:
+        return "v3 -> v5 (operational-evolution-authority-v5)"
     if current == 5:
         return "v5 -> v6 (operational-unit-test-engineering-v6)"
     if current == 6:
@@ -55,6 +63,26 @@ def _migration_label(current: int | None) -> str:
     if current == 8:
         return "v8 -> v9 (operational-git-publication-v9)"
     return f"v{current} -> v{expected}"
+
+
+def _evolution_authority_migration_plan(context, path) -> dict[str, object]:
+    source_digest = logical_database_digest(path)
+    backup_name = f"operational-v3-before-v5-{source_digest[7:19]}.db"
+    body: dict[str, object] = {
+        "schema": "zekam-operational-local-upgrade-migration-plan/v1",
+        "source_version": 3,
+        "target_version": 5,
+        "database_ref": "ZEKAM_HOME/state/operational.db",
+        "backup_ref": f"ZEKAM_HOME/backups/{backup_name}",
+        "migration_lock_ref": "ZEKAM_HOME/runtime/operational-v5-migration.lock",
+        "source_logical_digest": source_digest,
+        "spool_target_count": len(_spool_targets(path, context.home)),
+        "control_state": "paused-or-disabled-required",
+        "provider_calls": 0,
+        "network_calls": 0,
+        "grants_authority": False,
+    }
+    return body | {"plan_digest": digest(body)}
 
 
 def _unit_test_migration_plan(context, path) -> dict[str, object]:
@@ -137,6 +165,7 @@ def _git_publication_migration_plan(context, path) -> dict[str, object]:
 
 
 _MIGRATION_PLANNERS = {
+    3: _evolution_authority_migration_plan,
     5: _unit_test_migration_plan,
     6: _local_job_binding_migration_plan,
     7: _work_dependency_migration_plan,
@@ -248,27 +277,25 @@ def upgrade_command(
             return
         if current_sqlite.schema_version not in _MIGRATION_PLANNERS:
             raise ZekamError(
-                "Yalniz exact operational v5 -> v6, v6 -> v7, v7 -> v8 veya v8 -> v9 migration uygulanabilir"
+                "Yalniz exact operational v3 -> v5, v5 -> v6, v6 -> v7, v7 -> v8 veya v8 -> v9 "
+                "migration uygulanabilir"
             )
-        target_version = int(current_sqlite.schema_version) + 1
         planner = _MIGRATION_PLANNERS[current_sqlite.schema_version]
         plan = planner(context, path)
         if plan_digest != plan["plan_digest"]:
             raise ZekamError("Exact migration plan digest gerekli")
+        target_version = int(plan["target_version"])
         backup = context.home / "backups" / str(plan["backup_ref"]).split("/")[-1]
         backup.parent.mkdir(parents=True, exist_ok=True)
         restrict_private_tree(backup.parent)
         migrator = {
+            5: migrate_v3_to_v5,
             6: migrate_v5_to_v6,
             7: migrate_v6_to_v7,
             8: migrate_v7_to_v8,
             9: migrate_v8_to_v9,
         }[target_version]
-        admission = (
-            UnitTestLedgerMigrationAdmission(context)
-            if target_version == 6
-            else UnitTestLedgerMigrationAdmission(context, target_version=target_version)
-        )
+        admission = UnitTestLedgerMigrationAdmission(context, target_version=target_version)
         receipt = migrator(
             path,
             backup,
@@ -278,22 +305,17 @@ def upgrade_command(
             admission=admission,
             spool_targets=_spool_targets(path, context.home),
         )
+        receipt_schema = {
+            5: "zekam-operational-local-upgrade-migration-receipt/v1",
+            6: "zekam-operational-unit-test-migration-receipt/v1",
+            7: "zekam-operational-local-job-binding-migration-receipt/v1",
+            8: "zekam-operational-work-dependency-migration-receipt/v1",
+            9: "zekam-operational-git-publication-migration-receipt/v1",
+        }[target_version]
         console.print_json(
             json.dumps(
                 {
-                    "schema": (
-                        "zekam-operational-unit-test-migration-receipt/v1"
-                        if target_version == 6
-                        else (
-                            "zekam-operational-local-job-binding-migration-receipt/v1"
-                            if target_version == 7
-                            else (
-                                "zekam-operational-work-dependency-migration-receipt/v1"
-                                if target_version == 8
-                                else "zekam-operational-git-publication-migration-receipt/v1"
-                            )
-                        )
-                    ),
+                    "schema": receipt_schema,
                     "plan_digest": plan["plan_digest"],
                     "source_version": receipt.source_version,
                     "target_version": receipt.status.schema_version,
