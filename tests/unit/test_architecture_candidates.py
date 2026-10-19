@@ -198,7 +198,7 @@ def test_architecture_candidates_scoped_to_pinned_project_and_generation(
         )
         generation_b = _build(
             index,
-            (_record("gen-b-1", path="svc/BService.java", project_id="alpha"),),
+            (_record("gen-b-1", path="svc/BService.java", project_id="alpha", revision="rev-2"),),
             project_id="alpha",
             revision="rev-2",
             tree="tree-2",

@@ -543,7 +543,7 @@ class TestArchitectureExplanation:
         result = self._rag_result()
         explanation = architecture_explanation(result)
         assert explanation is not None
-        assert "mimari ozeti" in explanation
+        assert "Kod mimarisi ozeti" in explanation
         assert "HTTP isteklerini karsilar" in explanation
 
     def test_standalone_summary_without_rag_envelope_rejected(self):
