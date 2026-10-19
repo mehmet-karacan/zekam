@@ -4,6 +4,7 @@ import json
 import sqlite3
 import subprocess
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -202,7 +203,7 @@ def test_directory_source_state_rejects_partial_inventory(
     monkeypatch.setattr(
         runtime,
         "discover",
-        lambda path: discover(path, policy=DiscoveryPolicy(max_depth=0)),
+        lambda path, *, policy: discover(path, policy=replace(policy, max_depth=0)),
     )
 
     with pytest.raises(ValidationFailed, match="inventory partial") as excinfo:
