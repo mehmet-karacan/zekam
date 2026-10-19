@@ -46,8 +46,8 @@ planlari one aliyor; CLI ilk uygun alintiyi aciklama olarak kullaniyor.
    iddia-kanit bagi, modul kapsami ve plan alintisi olmamasi birlikte degerlendirilir.
 6. Sonuc, kalan gercek sinirlar ve kanit referanslari kaydedilir; son commit/push.
 
-Baslangic HEAD: `b09ccc5`. Bu belgenin ilk durumunda gelistirme ve final test
-kabulu beklenmektedir. Gecici kanitlar repository disinda,
+Baslangic HEAD: `b09ccc5`. Guncel durumda kod, son test ve gercek GPU-Fusion
+kanit kabulu tamamlandi; asagidaki kapsama sinirlari korunur. Gecici kanitlar repository disinda,
 `ZEKAM_HOME/artifacts/gpu-fusion-architecture-20261020/` altinda tutulur.
 
 ## Gelistirme asamasi
@@ -73,8 +73,8 @@ kabulu beklenmektedir. Gecici kanitlar repository disinda,
   `architecture_summary` alanindadir. Core bir harici LLM cevabi urettigini
   iddia etmez.
 
-Gelistirme incelemesi runtime kabul yerine gecmez. Bu asamada urun testi
-kosulmadi. Son kabul bolumu final asamada gercek komut ciktilariyla doldurulacak.
+Gelistirme commitinden once urun testi kosulmadi. Kaynak incelemesi ayri,
+runtime kabul asagidaki gercek komut kanitlarina baglidir.
 
 ## Sinirlar
 
@@ -82,3 +82,80 @@ Bu, sinirli indeksli kod bildirimlerinden cikarilan rol ozetidir. Is kurallarini
 ve butun calisma zamani bagimliliklarinin tam haritasi oldugu iddia edilmez.
 Yalniz sinif/dizin adi, yorum, docstring, keyfi string veya yan yana bulunma
 framework/rol/bagimlilik kaniti olmaz. Eksik kod kapsami aciklanir.
+
+## Son test ve gercek kaynak kabulu
+
+Butun gelistirmeler ve bagimsiz kaynak incelemesi sonrasinda ilk etkilenen
+sayim 321 benzersiz kontrol oldu: 313 gecti, 6 Windows dosya-symlink yetkisi
+nedeniyle atladi, 2 yeni test verisi hatasi cikti. Revision'u yanlis record ve
+eski baslik beklentisi OpenCode yamalariyla duzeltildi; yalniz bu iki basarisiz
+kontrol yeniden kosuldu ve gecti. Uretim kodu bu duzeltmede degismedi.
+
+Ilk gercek mimari sorusu backend'i dogru acikladi, fakat arayuzun yalniz import
+iceren ilk parcalari rol kaniti uretmedigi icin arayuz kapsami basarisizdi.
+Bu semantik eksik tamamlanmis sayilmadi. OpenCode, sorumlulugu henuz
+kanitlanamayan modullerde dosya basina en fazla iki izleyen kabul edilmis
+indeks parcasini, ilk adaylarla birlikte toplam 96 sinirinda okumayi ekledi.
+Gizlilikten dislanan parcalar ham dosyadan geri alinmaz. Salt yapisal tip veya
+kutuphane bildirimi sorumluluk kaniti sayilarak komsu okumasi atlanmaz.
+
+Bu gercek kod degisikliginden sonra yalniz etkilenen mimari entegrasyon
+dosyasindaki 8 kontrol kosuldu ve hepsi gecti. Birlesik son sayim:
+
+| Sonuc | Benzersiz kontrol |
+|---|---:|
+| Basarili | 316 |
+| Windows symlink yetkisi nedeniyle atlandi | 6 |
+| Acik hata | 0 |
+| Toplam | 322 |
+
+Onceki tam Y-12 veya 435 kontrolluk entegrasyon sayimi yeniden baslatilmadi.
+Ilk son sayim ve basarisiz iki kontrolun duzeltme kaniti saklandi; yeni kaynak
+degisikligi icin yalniz ilgili 8 kontrolun yeni sonucu kullanildi. Yapisal
+paket dogrulamasi da `passed`, 0 hata ve 0 uyari ile sonuclandi.
+
+Gercek `zekam ask` mimari/modul sorusunun son kabulunde 13 kontrolun tamami
+olumlu: kod ozeti destekli, CLI aciklamayi kabul edip gosteriyor, backend ve
+arayuz birlikte kapsaniyor, arayuzun JSX kodu gercek kanit, kaynaklar yalniz
+koddan geliyor, freshness `current`, snapshot yok, generation ayni, harici
+provider yok, butce sinirli ve 11 citation'in tamami yerel indeksten ayri
+readback ile dogrulaniyor. CLI sorgusu ve 11 citation readback toplam suresi
+10,68 saniye; bu deger tek basina embedding sorgu gecikmesi degildir.
+
+48 dosya temsilcisi + 48 izleyen parca = 96 aday kullanildi. Generation
+`sha256:51df83a78aad7e47c318a87ce8899a3f6708db5e3a758716c4b8333295847228`
+degismedi; yeniden embedding/indeksleme, uretim indeksi silme veya migration
+yapilmadi. Onceki tamamlanmis operational Work/Run/receipt yeniden acilmadi
+ve bu kod duzeltmesinin receipt'i gibi gosterilmedi.
+
+### Gercek yanittaki kod kaniti
+
+| Kaynak grubu | Kanitlanan kapsam | Ornek kaynak ve satir |
+|---|---|---|
+| gpu-backend | HTTP controller ve uygulama servisi bildirimleri | `gpu-backend/.../batch/controller/BatchJobController.java:1-19`; `gpu-backend/.../batch/service/BatchJobService.java:1-32` |
+| gpu-ui | JSX arayuz bilesenleri | `gpu-ui/src/components/service-management/ModalAddService.tsx:37-74`; `ModalEditService.tsx:46-88` |
+| partner-backend | main/boot giris noktasi | `partner-backend/.../PartnerBackendApplication.java:7-13` |
+| tools | main girisi bulunan yardimci betikler | `tools/yz/apply_dev_message_model.py:47-71`; `apply_dev_schema.py:50-72` |
+| yz-core | Yalniz yapisal tip bildirimleri; is sorumlulugu bu orneklemden cikarilmadi | `yz-core/backend/.../BilgiHavuzuRepository.java:7-10`; `BilgiKaynagiRepository.java:9-13` |
+
+6 ust kaynak grubu metadata'da goruldu; rol/tip kaniti bulunan 5 grup aciklandi.
+Kapsam `partial=true` olarak acikca belirtiliyor. YZ-Core icin yalniz sinif/dizin
+adindan veri/AI sorumlulugu uydurulmadi. Bu sinir, butun is kurallari veya tam
+bagimlilik grafigi cikarildigi iddiasina donusturulmez.
+
+### Saklanan kanitlar
+
+`ZEKAM_HOME/artifacts/gpu-fusion-architecture-20261020/` altinda:
+
+- `coordinator-architecture-review-final.json`, `coordinator-storage-review-final.json`,
+  `coordinator-neighbors-review-final.json`: farkli model kaynak incelemeleri.
+- `regression-final.xml`, `regression-failed-only.xml`, `regression-neighbors.xml`,
+  `final-consolidated-after-neighbors.json`: ilk sayim, dar duzeltmeler ve birlesik sonuc.
+- `native-acceptance.json`: ilk backend-only kapsama hatasi korunur.
+- `native-acceptance-after-neighbors.json`: 13 olumlu kabul, 11 dogrulanmis citation,
+  model/kod govdesi icermeyen kaynak metadatasi ve yanit ozeti.
+- `package-validation-final.json`: yapisal paket kabul sonucu.
+
+Ham kurumsal kod govdesi, secret, PII veya ham model sohbeti bu rapora/Git'e
+alinmadi; OpenCode yalniz Zekam kaynak kodu ve sentetik orneklerle calisti.
+Gelistirme commitleri: `1500522`, `9bba7f4`, `fb421d2`; her biri push edildi.

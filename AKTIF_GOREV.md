@@ -66,6 +66,18 @@ her iddia icin kaynak ve eksik kanitta acik sinir. Kurumsal kod harici modele
 gonderilmez; indeks yeniden uretilmez. Testler tum gelistirmeler ve bagimsiz
 inceleme bitince son asamada, her asama Turkce ASCII commit/push ile uygulanir.
 
+**20 Ekim 2026 mimari yanit duzeltmesi kabul sonucu:** OpenCode GLM/Qwen kaynak
+calismasi ve farkli model Codex incelemesi sonrasi 322 benzersiz kontrolde 316
+basarili, 6 Windows symlink-yetki atlamasi ve 0 acik hata var. Iki test verisi
+hatasi yalniz basarisiz kontrollerle duzeltildi; gercek soruda arayuzun ilk
+parca disinda kalmasi gorulunce bounded komsu kod okuma eklendi ve yalniz
+etkilenen 8 entegrasyon kontrolu kosuldu. Son gercek soruda backend+arayuz kod
+kaniti, guncellik, ayni generation ve 11 citation readback dahil 13 kabul
+kosulu dogrulandi. Indeks yeniden uretilmedi. YZ-Core icin orneklem yalniz tip
+kaniti sagladigindan is sorumlulugu uydurulmadi; kapsam partial olarak
+aciklandi. Ayrinti ve sinirlar `docs/MIMARI_YANIT_KOD_KANITI.md` icindedir.
+Bu sonuc onceki operational Work/Run kapanisini yeniden etiketlemez.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.
