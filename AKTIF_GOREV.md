@@ -88,6 +88,17 @@ yerel CPU indeksleme ve canonical claim/receipt readback. Plan ve kabul
 kurumsal icerigin modele/Git'e tasinmasi ve GPU kaynak degisikligi kapsam disidir.
 Bu ek operational Work/Run/lease veya kapanis durumu uretmez.
 
+**20 Ekim 2026 metadata takip isi kabul sonucu:** 1005 tablonun yapisal
+metadata'sindan 2124 yerel E5 vektoru uretildi. 9985 kaynak parcasi degismeden
+korunarak toplam 12109 parcalik generation yayimlandi. 384 boyut, sonluluk,
+normalizasyon, eski generation, kaynakli native sorgu ve citation readback
+kontrolleri dahil 15 kabul kosulu gecti. Final test kapsami 212 basarili,
+2 Windows symlink yetki atlamasi, 0 acik hatadir; gecen kontroller bastan
+baslatilmadi. Work `3bc99eae-ee53-52ba-a0d0-0c97e48de616` completed revision 4,
+Run `01a159d8-5274-7193-b13a-4d7a79588d42` succeeded ve terminal receipt'ler
+ayri operational readback ile dogrulandi. Sonuc metadata takip isine aittir;
+kanit ve sinirlar `docs/GPU_METADATA_YEREL_INDEKS.md` icindedir.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.

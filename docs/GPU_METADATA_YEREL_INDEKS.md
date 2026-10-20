@@ -34,24 +34,71 @@ kabulunden ayri takip isidir; bu belge operational yetki veya tamamlanma uretmez
 - Hata halinde onceki atomik generation aktif kalir; belirsiz effect otomatik tekrarlanmaz.
 - Test, review ve gercek indeks receipt'i alinmadan tamamlandi denmez.
 
-## Durum
+## Sonuc ve kabul
 
-OpenCode GLM/Qwen gelistirmeleri ve bagimsiz Codex koordinatör kaynak incelemesi
-sonrasinda final kapsam 214 benzersiz kontroldur: 212 basarili, 2 Windows symlink
-yetki atlamasi, 0 acik hata. Ilk calismadaki 12 hata yalniz basarisiz kontrollerle
-duzeltildi; gecen 199 kontrol tekrarlanmadi. Oracle N/A indeks durumu icin bir
-yeni kontrol eklendi ve gecti. Paket kapisi son kaynakla yeniden dogrulanir.
+20 Ekim 2026: gelistirme, final test, yerel indeksleme ve kaynakli sorgu kabulu
+tamamlandi. OpenCode GLM/Qwen kaynaklari uyguladi; Codex koordinator farkli model
+olarak kaynak incelemesini ve canonical readback'i yapti. Gelistirme commit'i
+`0035b4e` push edildi. Asagidaki sayilar gercek yerel sonuc ve kabul kaydindandir.
 
-Gercek offline on kontrol 1005 tablo icin 2124 metadata parcasi uretti; bu asamada
-embedding veya indeks yayini yapilmadi. Canli Oracle'a baglanilmadi. Yerel E5 ile
-canonical Work/Run indeksleme ve kaynak atfi kabul kaniti henuz bekliyor.
+| Kapsam | Sonuc |
+|---|---:|
+| Metadata tablosu | 1005 |
+| Kolon | 26598 |
+| Constraint | 2575 |
+| Indeks tanimi | 644 |
+| Yeni metadata parcasi ve vektoru | 2124 |
+| Korunan kaynak kodu parcasi | 9985 |
+| Yeni neslin toplam parcasi | 12109 |
+| Vektor boyutu | 384 |
+| Yerel indeksleme ve yayin suresi | 339.55 saniye |
 
-Kayitli offline snapshot secilmeden sonraki siradan kaynak yenilemesi metadata'yi
-sessizce dusurmez: secim acikca istenir. Native ajan mevcut yerel state'ten snapshot
-bagini okuyarak ayni yoldan devam eder. Snapshot tazeligi canli Oracle tazeligi degildir.
+- 9985 kaynak embedding'i cache'ten kullanildi; yalniz 2124 metadata parcasi
+  yerel E5 ONNX CPU ile uretildi. Batch=4; uzak embedding kullanimi `false`.
+- Eski generation'in butunlugu ve kod parcalarinin locator/icerik digest'leri
+  yeni generation ile birebir karsilastirildi; kaynak kapsaminda kayip yok.
+- 2124 yeni vektorun tamami sonlu ve L2 normalize. Norm araligi
+  `0.9999999063..1.0000000869`; SQLite/FTS/vektor sayilari ve icerik digest'leri tutarli.
+- Gercek metadata sorusu native `zekam ask` ile yanitlandi. Oracle nesnesine
+  bagli bir atif ayni generation'dan yeniden acildi ve dogrulandi. Snapshot
+  dosyalari guncel; query verification kaydi ve indeks terminal receipt'i var.
+- Kabuldeki 15 kosulun tamami gecti. Yerel kabul suresi 16.6 saniye; bu sure
+  vektor kontrolu, native sorgu, atif readback'i ve freshness kontrolunu kapsar.
+- Canonical Work `completed` revision 4, Run `succeeded`; indeksleme ve kapanis
+  receipt'leri `completed`. Ayrica salt-okunur operational readback yapildi.
+
+Yeni generation:
+`sha256:01772cbab9e528b05d3175744bfa60f21ba4084a5cdb1b5a3d8422254b8ba1f6`.
+Work: `3bc99eae-ee53-52ba-a0d0-0c97e48de616`.
+Run: `01a159d8-5274-7193-b13a-4d7a79588d42`.
+
+Bu belge operational authority degildir. Kalici kabul kanitlari kullanici veri
+alaninda `artifacts/gpu-metadata-20261020/` altindadir: `final-consolidated.json`,
+`coordinator-source-review-final.json`, `package-validation-final.json`,
+`index-result.json`, `acceptance.json`, `work-close-receipt.json`,
+`canonical-close-readback.json`. Ham kurumsal govde veya vektor bu raporda yoktur.
+
+## Final test ve duzeltme kaydi
+
+214 benzersiz kontrol: **212 basarili, 2 Windows symlink yetki atlamasi, 0 acik hata**.
+Ilk calismadaki 12 hata yalniz basarisiz kontrollerle duzeltildi; gecen 199 kontrol
+tekrarlanmadi. Oracle N/A indeks durumu icin bir yeni kontrol eklendi ve gecti.
+Paket kapisi son gelistirme kaynaginda 0 hata, 0 uyariyla gecti. Son belge
+kaydi aktif gorev projection'i ve kaynak manifestiyle uzlastirildi.
+
+## Guncelleme ve sinirlar
+
+Kaynak, uygulamanin hash ile sabitlenmis yerel metadata snapshot'idir. Bu kabul,
+canli Oracle veritabaninin sonradan degismedigini iddia etmez. Veri satirlari,
+parolalar, yorumlar veya SQL ifadeleri alinmadi; GPU kaynak dosyalari degismedi.
+Snapshot yenilendiginde yeni digest ile canonical indeksleme gerekir.
+
+Kayitli snapshot secilmeden sonraki siradan kaynak yenilemesi metadata'yi sessizce
+dusurmez: islem reddedilir. Native ajan yerel state'teki bagli snapshot yolunu
+cozerek ayni yetkili akisla devam eder.
 
 OpenCode uretiminde uzun dusunme/kesilen cikti sorunlari goruldu. Kullanici-geneli
 ayar degistirilmeden, yalniz gorev surecine ait Qwen cagrilarinda desteklenen
 `chat_template_kwargs.enable_thinking=false` istendi; kod ciktilari 17-40 saniye
-araliginda alindi. Kurumsal metadata govdesi model istemlerine veya Git'e alinmadi.
-Hatali/yer tutucu ciktilar incelemede reddedildi; eski generation korunuyor.
+araliginda alindi. Hatali/yer tutucu ciktilar incelemede reddedildi. Kurumsal
+metadata govdesi model istemlerine veya Git'e alinmadi.
