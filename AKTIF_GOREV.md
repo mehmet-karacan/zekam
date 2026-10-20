@@ -99,6 +99,15 @@ Run `01a159d8-5274-7193-b13a-4d7a79588d42` succeeded ve terminal receipt'ler
 ayri operational readback ile dogrulandi. Sonuc metadata takip isine aittir;
 kanit ve sinirlar `docs/GPU_METADATA_YEREL_INDEKS.md` icindedir.
 
+**20 Ekim 2026 metadata sema yaniti duzeltmesi:** Kullanici genel veritabani
+sorusunda gorev belgesi alintisi yerine temel tablolar, PK/FK alanlari ve
+iliskilerin metadata kaynaklariyla aciklanmasini istedi. Kapsam ve kabul
+`docs/METADATA_SEMA_YANITI.md` icindedir. OpenCode Qwen/GLM gelistirmesi,
+farkli model kaynak incelemesi ve tum gelistirmelerden sonra son test asamasi
+uygulanir. Her asama commit/push yetkilidir. Indeks yeniden uretilmez;
+kurumsal metadata modele veya Git'e tasinmaz. Onceki metadata indeksleme
+kabulunu veya tamamlanmis operational Work/Run kayitlarini yeniden etiketlemez.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.
