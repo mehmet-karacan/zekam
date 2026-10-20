@@ -1283,6 +1283,15 @@ class EmbeddedProjectRAG:
             raise PolicyViolation("RAG generation source revision binding drift")
         if generation.tree_digest != expected_tree_digest:
             raise PolicyViolation("RAG generation source tree binding drift")
+        from zekam.application.metadata_schema_answer import (
+            build_metadata_schema_result,
+            is_database_schema_query,
+        )
+
+        if is_database_schema_query(query):
+            return build_metadata_schema_result(
+                self.index, query, project_id=project_id, generation=generation
+            )
         stale_reasons: list[str] = []
         provider_available = False
         provider_failure_reason = dense_disabled_reason or "provider-unavailable"

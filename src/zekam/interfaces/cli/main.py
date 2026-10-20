@@ -945,6 +945,18 @@ def _retrieval_explanation(retrieval: dict[str, Any]) -> str | None:
         if not isinstance(payload, dict):
             continue
         project_label = entry["project_ref"] if multiple_projects else None
+        if isinstance(payload.get("metadata_schema_summary"), dict):
+            from zekam.application.metadata_schema_answer import (
+                metadata_schema_explanation,
+            )
+
+            metadata_text = metadata_schema_explanation(payload)
+            if metadata_text:
+                excerpts.append(
+                    f"{project_label}: {metadata_text}" if project_label else metadata_text
+                )
+            # Gecerli/gecersiz/insufficient/stale metadata ozetinde fallback'e DUSMEZ.
+            continue
         architecture_present = isinstance(payload.get("architecture_summary"), dict)
         architecture_text = _architecture_explanation(payload)
         if architecture_text is not None:

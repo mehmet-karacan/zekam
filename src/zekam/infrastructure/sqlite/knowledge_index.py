@@ -1791,6 +1791,35 @@ class SQLiteKnowledgeIndex:
         }
 
     @_stable_read
+    def metadata_schema_candidates(
+        self,
+        project_id: str,
+        *,
+        generation_digest: str,
+        limit: int = 4096,
+    ) -> dict:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not (1 <= limit <= 4096):
+            raise ValidationFailed("metadata schema candidate limit 1..4096 araliginda int olmali")
+        generation = self._pinned_generation(project_id, generation_digest)
+        total = self._connection.execute(
+            "select count(*) as c from chunk where project_id=? and generation_digest=?"
+            " and source_path like 'oracle/table/%'",
+            (project_id, generation.generation_digest),
+        ).fetchone()["c"]
+        rows = self._connection.execute(
+            "select id from chunk where project_id=? and generation_digest=?"
+            " and source_path like 'oracle/table/%'"
+            " order by source_path,chunk_order,id limit ?",
+            (project_id, generation.generation_digest, limit),
+        ).fetchall()
+        chunk_ids = tuple(str(row["id"]) for row in rows)
+        return {
+            "chunk_ids": chunk_ids,
+            "total_chunks": int(total),
+            "truncated": int(total) > limit,
+        }
+
+    @_stable_read
     def source_identity(
         self,
         project_id: str,

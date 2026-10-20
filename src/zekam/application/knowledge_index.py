@@ -152,6 +152,14 @@ class KnowledgeIndexPort(Protocol):
         generation_digest: str,
     ) -> dict[str, ChunkView]: ...
 
+    def metadata_schema_candidates(
+        self,
+        project_id: str,
+        *,
+        generation_digest: str,
+        limit: int = 4096,
+    ) -> dict[str, Any]: ...
+
     def architecture_candidates(
         self,
         project_id: str,
