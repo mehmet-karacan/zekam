@@ -79,6 +79,10 @@ from zekam.application.oracle_metadata_index import (
     build_oracle_metadata_index_plan,
     load_project_oracle_datasource,
 )
+from zekam.application.oracle_metadata_snapshot import (
+    load_oracle_metadata_snapshot,
+    oracle_snapshot_freshness,
+)
 from zekam.application.project_knowledge_index import (
     SOURCE_PRIVACY_POLICY_DIGEST,
     ProjectIndexPlan,
@@ -975,6 +979,8 @@ def project_rag_source_freshness(home: Path, project_slug: str) -> dict[str, Any
         references.notes or state.get("reference_snapshot_digest") is not None
     ):
         stale_reasons.append("reference-corpus-stale")
+    if state.get("oracle_snapshot_source") is not None and source_root is not None:
+        stale_reasons.extend(oracle_snapshot_freshness(state, source_root))
     freshness = "stale" if stale_reasons else "current"
     if observations.get("source_freshness") in {"unknown", "unavailable"}:
         freshness = "unknown"
@@ -3079,6 +3085,38 @@ def _collect_oracle_with_receipt(
     }
 
 
+def _assert_oracle_snapshot_selection(
+    home: Path,
+    slug: str,
+    oracle_snapshot: str | None,
+    oracle_config: str | None,
+) -> None:
+    if oracle_snapshot is not None and oracle_config is not None:
+        raise PolicyViolation("Oracle metadata secimi icin hem snapshot hem config verilemez")
+    if oracle_snapshot is None and oracle_config is None:
+        paths = _existing_runtime_paths(home, slug)
+        state_path = paths.get("state")
+        if state_path is None or not isinstance(state_path, Path):
+            return
+        if state_path.is_symlink():
+            raise PolicyViolation("Oracle snapshot selection state symlink olamaz")
+        if not state_path.exists():
+            return
+        try:
+            state = json.loads(_read_rag_runtime_text(state_path, label="oracle snapshot selection"))
+        except (ValueError, OSError) as exc:
+            raise PolicyViolation("Oracle snapshot selection state okunamadi") from exc
+        if not isinstance(state, dict):
+            raise PolicyViolation("Oracle snapshot selection state gecersiz")
+        if state.get("project_slug") != slug:
+            raise PolicyViolation("Oracle snapshot selection state projesi eslesmiyor")
+        if state.get("oracle_snapshot_source") is None:
+            return
+        if not isinstance(state.get("project_id"), str) or state["project_id"] != str(_registered_project(home, slug)):
+            raise PolicyViolation("Oracle snapshot selection state project_id eslesmiyor")
+        if state.get("oracle_snapshot_source") is not None:
+            raise PolicyViolation("Bound oracle snapshot ordinary refresh'te kilitli; explicit selection gerekli")
+
 def _index(
     source_root: Path,
     home: Path,
@@ -3094,6 +3132,8 @@ def _index(
     deadline_monotonic: float | None = None,
     max_remote_provider_calls: int = DEFAULT_REMOTE_CALL_LIMIT,
     expected_reference_snapshot_digest: str | None = None,
+    oracle_snapshot: str | None = None,
+    expected_oracle_snapshot_revision: str | None = None,
 ) -> dict[str, Any]:
     _validate_remote_call_limit(max_remote_provider_calls)
     if deadline_monotonic is None:
@@ -3101,6 +3141,7 @@ def _index(
     _check_index_budget(cancel, deadline_monotonic)
     paths = _runtime_paths(home, project_slug)
     _recover_rag_state_pending(paths, str(project_id))
+    _assert_oracle_snapshot_selection(home, project_slug, oracle_snapshot, oracle_config)
     knowledge = load_settings(home=paths["home"]).knowledge
     _assert_canonical_knowledge_profile(knowledge)
     source_state_before = _git_source_state(
@@ -3126,7 +3167,18 @@ def _index(
     _check_index_budget(cancel, deadline_monotonic)
     oracle_plan: OracleMetadataIndexPlan | None = None
     oracle_receipt: dict[str, object] | None = None
-    if oracle_config is not None:
+    initial_oracle_snapshot_revision: str | None = None
+    if oracle_snapshot is not None:
+        snapshot = load_oracle_metadata_snapshot(source_root, oracle_snapshot)
+        if expected_oracle_snapshot_revision is not None and snapshot.revision_digest != expected_oracle_snapshot_revision:
+            raise PolicyViolation("Oracle snapshot revision drift detected at start")
+        initial_oracle_snapshot_revision = snapshot.revision_digest
+        oracle_plan = build_oracle_metadata_index_plan(
+            project_id=project_id,
+            project_slug=project_slug,
+            snapshot=snapshot,
+        )
+    elif oracle_config is not None:
         datasource = load_project_oracle_datasource(source_root, oracle_config)
         snapshot, oracle_receipt = _collect_oracle_with_receipt(
             paths["home"], project_id, datasource
@@ -3299,6 +3351,10 @@ def _index(
         connection.close()
     if len(vectors) != len(chunks):
         raise PolicyViolation("Project RAG vector cache incomplete")
+    if oracle_snapshot is not None and initial_oracle_snapshot_revision is not None:
+        reloaded_snapshot = load_oracle_metadata_snapshot(source_root, oracle_snapshot)
+        if reloaded_snapshot.revision_digest != initial_oracle_snapshot_revision:
+            raise PolicyViolation("Oracle snapshot revision drift detected during embedding")
     if (
         collect_reference_corpus(
             paths["home"], str(project_id), project_slug, verify_files=True
@@ -3569,6 +3625,9 @@ def _index(
             "oracle_snapshot": bound_oracle_plan.snapshot.sanitized(),
             "oracle_effect": oracle_receipt,
         }
+    if oracle_snapshot is not None and initial_oracle_snapshot_revision is not None:
+        result["oracle_snapshot_source"] = oracle_snapshot
+        result["oracle_snapshot_revision_digest"] = initial_oracle_snapshot_revision
     _publish_rag_state_pending(
         paths,
         str(project_id),
@@ -3626,6 +3685,7 @@ def _query(
         stale_reasons.append("odi-smart-export-stale")
     elif odi_binding is not None and not smart_binding_source_current(odi_binding):
         stale_reasons.append("odi-smart-export-source-stale")
+    stale_reasons.extend(oracle_snapshot_freshness(state, source_root))
     knowledge = load_settings(home=paths["home"]).knowledge
     canonical_profile = True
     try:
@@ -3695,6 +3755,8 @@ def _query(
     current_references = _query_reference_corpus(home, str(project_id), project_slug)
     if current_references.snapshot_digest != references.snapshot_digest:
         stale_reasons.append("reference-corpus-changed-during-query")
+    stale_reasons.extend(oracle_snapshot_freshness(state, source_root))
+    stale_reasons = list(dict.fromkeys(stale_reasons))
     for citation in result.get("citations", ()):
         reference_path = citation.get("locator", {}).get("relative_path") or ""
         if reference_path.startswith(REFERENCE_PATH_PREFIX):
@@ -3805,6 +3867,7 @@ def build_index_job_plan(
     project_slug: str,
     *,
     oracle_config: str | None = None,
+    oracle_snapshot: str | None = None,
     opencode_config: Path | None = None,
     batch_size: int = PROJECT_EMBED_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
@@ -3823,6 +3886,7 @@ def build_index_job_plan(
     slug = validate_slug(project_slug)
     root = resolve_project_source(home, slug)
     project_id = _registered_project(home, slug)
+    _assert_oracle_snapshot_selection(home, slug, oracle_snapshot, oracle_config)
 
     def check() -> None:
         _check_index_budget(None, deadline)
@@ -3841,6 +3905,11 @@ def build_index_job_plan(
         oracle_identity_digest = load_project_oracle_datasource(
             root, oracle_config
         ).connection_identity_digest
+    oracle_snapshot_revision_digest = None
+    if oracle_snapshot is not None:
+        oracle_snapshot_revision_digest = load_oracle_metadata_snapshot(
+            root, oracle_snapshot
+        ).revision_digest
     provider_config_digest = None
     if knowledge.embedding_route is EmbeddingRoute.REMOTE:
         config_path = opencode_config or default_opencode_config_file()
@@ -3865,6 +3934,10 @@ def build_index_job_plan(
         "provider_config_digest": provider_config_digest,
         "oracle_config": oracle_config,
         "oracle_identity_digest": oracle_identity_digest,
+        **({
+            "oracle_snapshot_source": oracle_snapshot,
+            "oracle_snapshot_revision_digest": oracle_snapshot_revision_digest,
+        } if oracle_snapshot is not None else {}),
         "odi_binding_digest": digest(odi) if odi else None,
         "odi_plan_digest": odi_plan_digest,
         "reference_snapshot_digest": collect_reference_corpus(
@@ -3886,6 +3959,7 @@ def index_registered_project(
     project_slug: str,
     *,
     oracle_config: str | None = None,
+    oracle_snapshot: str | None = None,
     opencode_config: Path | None = None,
     batch_size: int = PROJECT_EMBED_BATCH_SIZE,
     authorize_odi_metadata: bool = False,
@@ -3896,11 +3970,13 @@ def index_registered_project(
     work_binding: LocalJobBinding | None = None,
     execution_key: str = "default",
     expected_reference_snapshot_digest: str | None = None,
+    expected_oracle_snapshot_revision: str | None = None,
 ) -> dict[str, Any]:
     """Refresh code and Oracle metadata for a registered, locally bound project."""
 
     slug = validate_slug(project_slug)
     resolved_home = home.resolve(strict=True)
+    _assert_oracle_snapshot_selection(resolved_home, slug, oracle_snapshot, oracle_config)
     if work_binding is not None:
         if type(work_binding) is not LocalJobBinding or work_binding.project_id != str(
             _registered_project(resolved_home, slug)
@@ -3915,8 +3991,11 @@ def index_registered_project(
             "timeout_seconds": timeout_seconds,
             "max_remote_provider_calls": max_remote_provider_calls,
         }
+        if oracle_snapshot is not None:
+            options["oracle_snapshot"] = oracle_snapshot
 
         approved_references: list[str | None] = []
+        approved_oracle_snapshot_revisions: list[str | None] = []
 
         def validate_inputs() -> None:
             plan = build_index_job_plan(resolved_home, slug, **options)
@@ -3926,6 +4005,9 @@ def index_registered_project(
             # reference snapshot binding.  Keep replay compatible while
             # binding it whenever the current plan provides one.
             approved_references[:] = [plan.get("reference_snapshot_digest")]
+            approved_oracle_snapshot_revisions[:] = [
+                plan.get("oracle_snapshot_revision_digest")
+            ]
             validate_bound_source(
                 resolved_home,
                 work_binding,
@@ -3944,6 +4026,7 @@ def index_registered_project(
                 **options,
                 cancel=cancellation,
                 expected_reference_snapshot_digest=approved_references[0],
+                expected_oracle_snapshot_revision=approved_oracle_snapshot_revisions[0],
             ),
             validate_inputs=validate_inputs,
             execution_key=execution_key,
@@ -3977,6 +4060,8 @@ def index_registered_project(
         deadline_monotonic=deadline_monotonic,
         max_remote_provider_calls=max_remote_provider_calls,
         expected_reference_snapshot_digest=expected_reference_snapshot_digest,
+        oracle_snapshot=oracle_snapshot,
+        expected_oracle_snapshot_revision=expected_oracle_snapshot_revision,
     )
 
 

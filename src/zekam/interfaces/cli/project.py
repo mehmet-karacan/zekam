@@ -779,6 +779,7 @@ def query_command(
 def index_command(
     project: Annotated[str, typer.Argument(help="Proje slug")],
     oracle_config: Annotated[str | None, typer.Option("--oracle-config")] = None,
+    oracle_snapshot: Annotated[str | None, typer.Option("--oracle-snapshot")] = None,
     authorize_remote_source: Annotated[bool, typer.Option("--authorize-remote-source")] = False,
     authorize_database_metadata: Annotated[
         bool, typer.Option("--authorize-database-metadata")
@@ -808,6 +809,10 @@ def index_command(
 
     if oracle_config is not None and not authorize_database_metadata:
         raise fail("Database metadata disclosure explicit authorization ister", 77)
+    if oracle_snapshot is not None and not authorize_database_metadata:
+        raise fail("Database metadata disclosure explicit authorization ister", 77)
+    if oracle_config is not None and oracle_snapshot is not None:
+        raise fail("oracle-config ve oracle-snapshot birlikte kullanilamaz", 77)
     try:
         resolved_home = resolve_home(home)
         binding = None
@@ -829,6 +834,7 @@ def index_command(
                     resolved_home,
                     canonical_slug,
                     oracle_config=oracle_config,
+                    **({'oracle_snapshot': oracle_snapshot} if oracle_snapshot is not None else {}),
                     opencode_config=opencode_config,
                     batch_size=batch_size,
                     timeout_seconds=timeout_seconds,
@@ -876,6 +882,7 @@ def index_command(
             resolved_home,
             _canonical_slug(project, home=home),
             oracle_config=oracle_config,
+            **({'oracle_snapshot': oracle_snapshot} if oracle_snapshot is not None else {}),
             opencode_config=opencode_config,
             batch_size=batch_size,
             timeout_seconds=timeout_seconds,

@@ -78,6 +78,16 @@ kaniti sagladigindan is sorumlulugu uydurulmadi; kapsam partial olarak
 aciklandi. Ayrinti ve sinirlar `docs/MIMARI_YANIT_KOD_KANITI.md` icindedir.
 Bu sonuc onceki operational Work/Run kapanisini yeniden etiketlemez.
 
+**20 Ekim 2026 GPU metadata takip isi:** Kullanici GPU veritabani metadata
+bilgilerinin de Zekam yerel vektor indeksine eklenmesini istedi. Onceki
+entegrasyon ve mimari yanit kabulu bu yeni is icin tamamlanma kaniti degildir.
+Kapsam: mevcut hash-pinned offline metadata snapshot, yalniz yapisal bilgiler,
+OpenCode gelistirme/farkli model incelemesi, tum gelistirmelerden sonra test,
+yerel CPU indeksleme ve canonical claim/receipt readback. Plan ve kabul
+`docs/GPU_METADATA_YEREL_INDEKS.md` icindedir. Canli DB satiri, uzak embedding,
+kurumsal icerigin modele/Git'e tasinmasi ve GPU kaynak degisikligi kapsam disidir.
+Bu ek operational Work/Run/lease veya kapanis durumu uretmez.
+
 ### 0.1 Güncel Kullanıcı Kararı
 
 **18 Ekim 2026 Y-01 devam karari:** Kullanici 1. adimdan devam talimati verdi.

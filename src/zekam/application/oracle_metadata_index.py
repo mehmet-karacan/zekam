@@ -331,9 +331,13 @@ class OracleMetadataSnapshot:
     def sanitized(self) -> dict[str, object]:
         counts: dict[str, int] = {}
         invalid = 0
+        unknown = 0
         for item in self.objects:
             counts[item.object_type] = counts.get(item.object_type, 0) + 1
-            invalid += int(item.status != "VALID")
+            if item.status == "SNAPSHOT":
+                unknown += 1
+            elif item.status != "VALID":
+                invalid += 1
         return {
             "schema": "zekam-oracle-metadata-snapshot/v1",
             "schema_name": self.schema_name,
@@ -343,6 +347,7 @@ class OracleMetadataSnapshot:
             "object_count": len(self.objects),
             "object_type_counts": dict(sorted(counts.items())),
             "invalid_object_count": invalid,
+            "unknown_object_count": unknown,
             "excluded_secret_object_count": self.excluded_secret_objects,
             "unresolved_relations": [item.manifest_entry() for item in self.unresolved_relations],
             "row_data_included": False,
